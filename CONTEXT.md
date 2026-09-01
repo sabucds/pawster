@@ -126,15 +126,59 @@ _Avoid_: Location, city, state, area
 
 ### Subscription
 
+**Subscriber**:
+An email address that has opted in to receive digests. The thing that consents, bounces,
+complains and unsubscribes. Holds up to three subscriptions; has no account and no password.
+_Avoid_: User, contact, lead, subscriber account
+
 **Subscription**:
-A standing request from an email address to receive digests matching a set of filter-axis
-criteria. Managed entirely through signed links; never behind a login.
+One standing set of filter-axis criteria belonging to a subscriber. A subscriber may hold
+three, so "dogs in Caracas" and "cats in Maracay" are two subscriptions rather than one
+broadened search. Managed entirely through signed links; never behind a login.
 _Avoid_: Alert, watch, saved search, newsletter signup
 
+**Opt-In**:
+A subscriber's proof, through a single-use link, that the address is genuinely theirs. Nothing
+is ever sent to an address that has not opted in. Named apart from Confirmation, which belongs
+to shelters and animals and means something else entirely.
+_Avoid_: Confirmation, verification, signup, double opt-in
+
 **Digest**:
-One periodical email sent to a subscription, containing the animals newly matching its
-criteria since the last digest. The unit of delivery, not the unit of scheduling.
+One periodical email sent to a subscriber, carrying a section per subscription of the animals
+that match it and have not been sent to it before. The unit of delivery, not the unit of
+scheduling; an animal matching two of a subscriber's subscriptions appears once.
 _Avoid_: Newsletter, notification, alert email
+
+**Send Day**:
+The weekday a subscriber's digest arrives, fixed at opt-in and the same every week. A property
+of the subscriber, not of the schedule, which is what makes a weekly digest seven bounded
+daily runs.
+_Avoid_: Schedule, cadence, slot, cohort
+
+**Digest Run**:
+One day's execution of the digest, covering the subscribers whose send day it is. The unit of
+scheduling, of retry, and of the record kept afterwards.
+_Avoid_: Job, batch, cron, blast
+
+**Retirement**:
+The platform's own decision to stop sending to a subscriber, because the address hard-bounced
+or its owner reported us as spam. Distinct from unsubscribing, which is the subscriber's
+decision. A complaint retirement is permanent; a bounce retirement is not.
+_Avoid_: Deactivation, ban, bounce, churn
+
+**Erasure**:
+The destruction of everything Pawster holds about a subscriber. Distinct from unsubscribing,
+which only stops the sending: a subscriber who unsubscribes keeps their subscriptions for
+ninety days in case the click was an accident, and is erased automatically at the end of it.
+Erasure leaves behind only a Do-Not-Contact entry, and only where one is owed.
+_Avoid_: Deletion, purge, removal, forget me
+
+**Do-Not-Contact**:
+A one-way fingerprint of an address that reported us as spam, kept forever so the signup form
+can refuse it. The residue of a Retirement that outlives the subscriber it belonged to: it can
+answer whether an address is refused and nothing else, because it holds no address to read.
+Ours alone, and distinct from the suppression list our email provider keeps in plaintext.
+_Avoid_: Suppression, blocklist, tombstone, ban list
 
 ### Trust
 
