@@ -1,5 +1,9 @@
 # Digest delivery: per-recipient sends, a sent-set, and a day-sharded run
 
+_Scheduling and queueing follow ADR 0006: the run is a Cloudflare Cron Trigger and a
+Cloudflare Queue, not the QStash this was first drafted against. The decisions below —
+per-recipient sends, the sent-set, and the day shard — are independent of that choice._
+
 The digest is the one subsystem Pawster exists for, and it has to run on a free tier whose
 binding constraint is not what the research predicted. Resend Broadcasts were chosen for the
 digest on the strength of being metered by contacts stored (1,000 free) rather than by sends
@@ -36,7 +40,7 @@ or availability changes — exists only to make that query cheap, never to decid
 
 **Shard the run by day, with a reserved quota floor.** Every subscriber carries a stored send
 day, assigned at opt-in to the least-loaded day of the week, so a weekly digest becomes seven
-bounded daily runs sharing one QStash schedule. This is one code path at ten subscribers and
+bounded daily runs sharing one Cron Trigger. This is one code path at ten subscribers and
 at six hundred, where an overflow-when-needed design has a mode that is only ever exercised in
 production. The digest's daily budget is `100 - 30`: shelter magic links, opt-in mails and
 confirmation nudges always win, and a shard that exceeds its budget sends its longest-waiting
@@ -49,15 +53,18 @@ shelter that cannot log in because a digest ate the quota is an outage.
   sends/week, which is ~3,033/month against a 3,000 cap, and transactional mail draws on the
   same pool. The trigger to move to paid is the subscriber count crossing ~500, or a single
   day's shard needing more than 70 sends.
-- **Retry lives at two levels and must not fight itself.** QStash retries delivery of the
-  enqueue message three times and then dead-letters; per-recipient idempotency keys make a
-  redelivered message a no-op for anyone already sent. The idempotency window is 24 hours,
+- **Retry lives at two levels and must not fight itself.** Cloudflare Queues retries delivery
+  of the enqueue message and then dead-letters it; per-recipient idempotency keys make a
+  redelivered message a no-op for anyone already sent. Resend's idempotency window is 24 hours,
   which the one-shard-per-day design keeps us inside — a resume that misses the day re-sends,
-  and the sent-set is what stops it.
-- **Nothing can tell us the schedule never fired**, so a Healthchecks.io check is pinged once
-  per daily run at completion, with a two-hour grace and QStash's exhausted-retry callback
-  wired to its `/fail` endpoint. Per run, not per batch: a check per batch turns a quiet day
-  into a false alarm.
+  and the sent-set is what stops it. Queue messages are retained 24 hours on the Free plan and
+  are not the source of truth either: a message lost to retention is picked up by the next
+  run, because the sent-set still says who has not been sent to.
+- **Nothing inside Cloudflare can tell us the Cron Trigger never fired**, so a Healthchecks.io
+  check is pinged once per daily run at completion, with a two-hour grace, and the dead-letter
+  queue's consumer pings its `/fail` endpoint. The watchdog must live outside Cloudflare or it
+  shares the failure it exists to detect. Per run, not per batch: a check per batch turns a
+  quiet day into a false alarm.
 - **We host the entire unsubscribe flow.** `List-Unsubscribe` and `List-Unsubscribe-Post` are
   automatic for Broadcasts only, so every digest sets both headers itself and we serve a GET
   page that unsubscribes on load plus a POST endpoint returning 202.

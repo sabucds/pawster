@@ -71,7 +71,7 @@ purge. Confirmed subscribers carry no IP at all.
 
 ## Consequences
 
-- **The purges run as a preamble to the daily digest run**, inside the same QStash schedule
+- **The purges run as a preamble to the daily digest run**, inside the same Cron Trigger
   and under the same Healthchecks.io watchdog, writing their counts into the `Digest Run`
   summary. A retention policy with no job behind it is a lie, and a second schedule would be
   a second thing that can die silently. The 10 ms CPU ceiling is not a constraint on a handful
