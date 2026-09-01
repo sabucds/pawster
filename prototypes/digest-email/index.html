@@ -1,0 +1,825 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PROTOTYPE — Pawster digest email</title>
+<!--
+  THROWAWAY PROTOTYPE. Not production code. No tests, no error handling, no abstractions.
+
+  Question (issue #15): what does one digest email look like, concretely enough to react to?
+
+  Three structurally different variants of the digest email, switchable via ?variant= and the
+  floating bottom bar. Each email is rendered inside an iframe so that real email HTML
+  (tables, inline styles, its own <style> head) is isolated from this harness's CSS.
+
+  The real templates will eventually live in digest/ per the topology decided in issue #9.
+  This file will not.
+
+  Open it by double-clicking. Nothing to install.
+-->
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: #16181d; color: #e7e9ee;
+    font: 13px/1.5 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+    height: 100vh; display: flex; flex-direction: column; overflow: hidden;
+  }
+  header.bar {
+    display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+    padding: 10px 16px; border-bottom: 1px solid #2b2f38; background: #1c1f26; flex: none;
+  }
+  header.bar h1 { font-size: 13px; margin: 0; font-weight: 700; letter-spacing: .02em; }
+  header.bar .tag {
+    font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+    background: #f0b429; color: #16181d; padding: 2px 6px; border-radius: 3px;
+  }
+  header.bar .q { color: #98a0b0; }
+
+  main { flex: 1; display: flex; min-height: 0; }
+
+  .stagewrap {
+    flex: 1; display: flex; justify-content: center; align-items: flex-start;
+    padding: 20px 16px 96px; overflow: auto;
+    background:
+      linear-gradient(45deg, #1a1d23 25%, transparent 25%) -8px 0/16px 16px,
+      linear-gradient(-45deg, #1a1d23 25%, transparent 25%) -8px 0/16px 16px,
+      linear-gradient(45deg, transparent 75%, #1a1d23 75%) -8px 0/16px 16px,
+      linear-gradient(-45deg, transparent 75%, #1a1d23 75%) -8px 0/16px 16px,
+      #16181d;
+  }
+  .device {
+    background: #fff; border-radius: 10px; overflow: hidden; flex: none;
+    box-shadow: 0 10px 40px rgba(0,0,0,.5);
+  }
+  .device.isdark { background: #1a1a1a; }
+  #stage { display: block; border: 0; width: 100%; }
+
+  aside.panel {
+    width: 272px; flex: none; border-left: 1px solid #2b2f38; background: #1c1f26;
+    padding: 14px 14px 96px; overflow: auto;
+  }
+  aside.panel h2 {
+    font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: #7b8496;
+    margin: 16px 0 7px; font-weight: 700;
+  }
+  aside.panel h2:first-child { margin-top: 0; }
+  .seg { display: flex; flex-wrap: wrap; gap: 4px; }
+  .seg button {
+    font: inherit; font-size: 11px; padding: 5px 9px; border-radius: 5px; cursor: pointer;
+    border: 1px solid #363b46; background: #23262e; color: #c3c9d6;
+  }
+  .seg button:hover { border-color: #4a515f; }
+  .seg button[aria-pressed="true"] { background: #3a5bd9; border-color: #3a5bd9; color: #fff; }
+
+  .metric { border-top: 1px solid #2b2f38; padding: 9px 0 0; margin-top: 9px; }
+  .metric .lbl { color: #7b8496; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; }
+  .metric .val { font-size: 19px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 1px; }
+  .metric .sub { color: #98a0b0; font-size: 11px; }
+  .meter { height: 5px; border-radius: 3px; background: #2b2f38; margin-top: 6px; overflow: hidden; }
+  .meter i { display: block; height: 100%; width: 0; background: #3ba55d; transition: width .2s; }
+  .meter i.warn { background: #f0b429; }
+  .meter i.bad  { background: #e5484d; }
+  .note { color: #7b8496; font-size: 11px; line-height: 1.45; margin-top: 8px; }
+  .note code { color: #c3c9d6; }
+  .note b { color: #c3c9d6; }
+
+  .switcher {
+    position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+    display: flex; align-items: stretch; z-index: 50;
+    background: #0b0c0f; border: 1px solid #3a4050; border-radius: 999px;
+    box-shadow: 0 8px 30px rgba(0,0,0,.6); overflow: hidden;
+  }
+  .switcher button {
+    font: inherit; background: none; border: 0; color: #e7e9ee; cursor: pointer;
+    padding: 0 15px; font-size: 16px; line-height: 1;
+  }
+  .switcher button:hover { background: #1e2129; }
+  .switcher .label {
+    padding: 9px 14px; border-left: 1px solid #2b2f38; border-right: 1px solid #2b2f38;
+    white-space: nowrap; font-size: 12px;
+  }
+  .switcher .label b { color: #f0b429; }
+</style>
+</head>
+<body>
+
+<header class="bar">
+  <span class="tag">Prototype</span>
+  <h1>Pawster digest email</h1>
+  <span class="q">issue #15 — what does one digest email actually look like?</span>
+</header>
+
+<main>
+  <div class="stagewrap">
+    <div class="device" id="device"><iframe id="stage" title="Email preview"></iframe></div>
+  </div>
+
+  <aside class="panel">
+    <h2>Variant</h2>
+    <div class="seg" id="ctl-variant"></div>
+
+    <h2>Sections (subscriptions)</h2>
+    <div class="seg" id="ctl-sections"></div>
+
+    <h2>Which digest</h2>
+    <div class="seg" id="ctl-kind"></div>
+
+    <h2>Client theme</h2>
+    <div class="seg" id="ctl-theme"></div>
+
+    <h2>Images</h2>
+    <div class="seg" id="ctl-images"></div>
+
+    <h2>Viewport</h2>
+    <div class="seg" id="ctl-width"></div>
+
+    <h2>Language</h2>
+    <div class="seg" id="ctl-lang"></div>
+
+    <h2>Budgets</h2>
+
+    <div class="metric">
+      <div class="lbl">HTML size — Gmail clip</div>
+      <div class="val" id="m-html">—</div>
+      <div class="meter"><i id="m-html-bar"></i></div>
+      <div class="sub" id="m-html-sub">of 102 KB</div>
+    </div>
+
+    <div class="metric">
+      <div class="lbl">Image payload — mobile data</div>
+      <div class="val" id="m-img">—</div>
+      <div class="sub" id="m-img-sub"></div>
+    </div>
+
+    <div class="metric">
+      <div class="lbl">Animals shown</div>
+      <div class="val" id="m-count">—</div>
+      <div class="sub" id="m-count-sub"></div>
+    </div>
+
+    <p class="note">
+      HTML size is measured with photo <code>src</code>s rewritten to real R2 URLs, not the
+      inline placeholder SVGs this file renders — so the number is the one Gmail would see.
+      Image payload assumes pre-generated WebP derivatives at roughly
+      <code>w &times; h &times; 0.17 + 800</code> bytes.
+    </p>
+    <p class="note">
+      <b>Client theme &rarr; dark</b> forces the same rules the <code>prefers-color-scheme</code>
+      block applies. Apple Mail and iOS honour that block; the Gmail app force-inverts and
+      ignores it. Treat dark here as the best case, not the guaranteed one — worth confirming
+      on a real device before it is called settled.
+    </p>
+    <p class="note">
+      Photos are generated placeholders. They test <em>size and position</em> in the row, not
+      whether a real photo of a real dog is more compelling than the text beside it.
+    </p>
+  </aside>
+</main>
+
+<div class="switcher">
+  <button id="prev" title="Previous variant (left arrow)">&#8592;</button>
+  <div class="label" id="sw-label">—</div>
+  <button id="next" title="Next variant (right arrow)">&#8594;</button>
+</div>
+
+<script>
+/* ------------------------------------------------------------------ *
+ * Sample data. Vocabulary follows CONTEXT.md + the model in issue #11.
+ * ------------------------------------------------------------------ */
+
+const SHELTERS = {
+  huellitas: { name: "Refugio Huellitas", region: "Distrito Capital" },
+  patitas:   { name: "Patitas de Valencia", region: "Carabobo" },
+  rescate:   { name: "Rescate Maracay", region: "Aragua" },
+  amigos:    { name: "Fundación Amigos Peludos", region: "Miranda" },
+};
+
+// ageBand and size are derived/closed vocabularies (issue #11).
+// goodWith: 'yes' | 'no' | 'unknown'. Only an explicit 'no' excludes.
+const A = (id, name, species, band, size, sex, region, shelter, days, desc, extra) =>
+  Object.assign({ id, name, species, band, size, sex, region, shelter, days, desc }, extra || {});
+
+const ANIMALS = [
+  // --- Section 1: small dogs in Distrito Capital -------------------------
+  A("7a1c","Luna","dog","puppy","small","f","Distrito Capital","huellitas",1,
+    { es:"Llegó en una caja frente a una panadería. Duerme boca arriba y le teme a las escobas.",
+      en:"Found in a box outside a bakery. Sleeps on her back and is scared of brooms." },
+    { goodChildren:"yes", goodDogs:"yes", goodCats:"unknown" }),
+  A("3f92","Canela","dog","young","small","f","Distrito Capital","huellitas",2,
+    { es:"Tranquila, camina bien con correa y ya está esterilizada.",
+      en:"Calm, walks well on a lead and already spayed." },
+    { goodChildren:"yes", goodDogs:"unknown", goodCats:"no" }),
+  A("b40e","Tobías","dog","adult","small","m","Distrito Capital","amigos",2,
+    { es:"Rescatado de la autopista. Necesita una casa sin escaleras por una cadera vieja.",
+      en:"Rescued from the motorway. Needs a home without stairs because of an old hip." },
+    { goodChildren:"unknown", goodDogs:"yes", goodCats:"yes", urgent:
+      { es:"Su cuidadora temporal se muda el 20 de septiembre", en:"His foster carer moves out on 20 September" } }),
+  A("c118","Nube","dog","puppy","small","f","Distrito Capital","huellitas",3,
+    { es:"Hermana de Trueno. Se adoptan juntos.", en:"Trueno's sister. Adopted together." },
+    { goodChildren:"yes", goodDogs:"yes", goodCats:"unknown", bonded:"nube-trueno" }),
+  A("c119","Trueno","dog","puppy","small","m","Distrito Capital","huellitas",3,
+    { es:"Hermano de Nube. Se adoptan juntos.", en:"Nube's brother. Adopted together." },
+    { goodChildren:"yes", goodDogs:"yes", goodCats:"unknown", bonded:"nube-trueno" }),
+  A("5d27","Mota","dog","adult","small","f","Distrito Capital","amigos",4,
+    { es:"Doce años de calle y sigue moviendo la cola. Busca un sofá y poco más.",
+      en:"Twelve years on the street and still wagging. Wants a sofa and little else." },
+    { goodChildren:"yes", goodDogs:"yes", goodCats:"unknown" }),
+  A("9e63","Pepe","dog","young","small","m","Distrito Capital","huellitas",5,
+    { es:"Ladra a las motos y a nada más. Aprende rápido.",
+      en:"Barks at motorbikes and nothing else. Learns fast." },
+    { goodChildren:"unknown", goodDogs:"yes", goodCats:"unknown" }),
+  A("2ab8","Frida","dog","senior","small","f","Distrito Capital","amigos",6,
+    { es:"Ciega de un ojo, no le importa. Le gusta el sol de la mañana.",
+      en:"Blind in one eye and untroubled by it. Likes the morning sun." },
+    { goodChildren:"yes", goodDogs:"unknown", goodCats:"yes" }),
+  A("6c04","Simón","dog","adult","small","m","Distrito Capital","huellitas",6,
+    { es:"Serio con desconocidos, ridículo con su gente.",
+      en:"Serious with strangers, ridiculous with his people." },
+    { goodChildren:"no", goodDogs:"yes", goodCats:"unknown" }),
+  A("8f55","Bruma","dog","young","small","f","Distrito Capital","amigos",7,
+    { es:"Vivía debajo de un carro en Chacao. Todavía se esconde, pero ya sale a comer.",
+      en:"Lived under a car in Chacao. Still hides, but comes out to eat now." },
+    { goodChildren:"unknown", goodDogs:"yes", goodCats:"unknown" }),
+  A("1d7b","Coco","dog","puppy","small","m","Distrito Capital","huellitas",7,
+    { es:"Muerde zapatos. Se le pasará, dicen.", en:"Chews shoes. It will pass, they say." },
+    { goodChildren:"yes", goodDogs:"yes", goodCats:"yes" }),
+  A("4e90","Perla","dog","adult","small","f","Distrito Capital","amigos",8,
+    { es:"Callada, limpia y ya sabe dónde hacer sus cosas.",
+      en:"Quiet, clean and already house-trained." },
+    { goodChildren:"yes", goodDogs:"unknown", goodCats:"unknown" }),
+
+  // --- Section 2: cats in Miranda / Distrito Capital ---------------------
+  A("aa31","Sombra","cat","young",null,"m","Miranda","amigos",1,
+    { es:"Negro entero, ojos amarillos. Duerme en cualquier bolso que dejes abierto.",
+      en:"All black, yellow eyes. Sleeps in any bag you leave open." },
+    { goodChildren:"yes", goodDogs:"unknown", goodCats:"yes" }),
+  A("bb72","Mía","cat","kitten",null,"f","Miranda","amigos",2,
+    { es:"Encontrada en un techo. Come como si le fueran a quitar el plato.",
+      en:"Found on a roof. Eats as if the bowl were about to be taken away." },
+    { goodChildren:"unknown", goodDogs:"unknown", goodCats:"yes" }),
+  A("cc19","Olivo","cat","adult",null,"m","Distrito Capital","huellitas",3,
+    { es:"Le falta media oreja de una pelea vieja. Ahora es estrictamente de interior.",
+      en:"Missing half an ear from an old fight. Strictly an indoor cat now." },
+    { goodChildren:"yes", goodDogs:"no", goodCats:"unknown" }),
+  A("dd84","Nieve","cat","senior",null,"f","Miranda","amigos",4,
+    { es:"Catorce años. Necesita comida renal y una ventana.",
+      en:"Fourteen years old. Needs renal food and a window." },
+    { goodChildren:"unknown", goodDogs:"unknown", goodCats:"no" }),
+  A("ee07","Tinta","cat","kitten",null,"f","Distrito Capital","huellitas",5,
+    { es:"Se sube a las cortinas. Aviso dado.", en:"Climbs the curtains. You have been warned." },
+    { goodChildren:"yes", goodDogs:"yes", goodCats:"yes" }),
+  A("ff58","Ceniza","cat","young",null,"m","Miranda","amigos",6,
+    { es:"Tímido dos semanas y luego no te deja en paz.",
+      en:"Shy for two weeks and then he never leaves you alone." },
+    { goodChildren:"unknown", goodDogs:"unknown", goodCats:"yes" }),
+  A("0a2d","Miel","cat","adult",null,"f","Miranda","amigos",8,
+    { es:"Naranja, redonda, absolutamente indiferente a todo.",
+      en:"Orange, round, utterly indifferent to everything." },
+    { goodChildren:"yes", goodDogs:"unknown", goodCats:"yes" }),
+
+  // --- Section 3: dogs good with children, Carabobo ---------------------
+  A("1b3e","Rocco","dog","adult","large","m","Carabobo","patitas",1,
+    { es:"Cuarenta kilos de nada. Se acuesta cuando ve a un niño.",
+      en:"Forty kilos of nothing at all. Lies down when he sees a child." },
+    { goodChildren:"yes", goodDogs:"yes", goodCats:"unknown" }),
+  A("2c4f","Chispa","dog","young","medium","f","Carabobo","patitas",3,
+    { es:"Energía infinita. Necesita patio o alguien que corra.",
+      en:"Endless energy. Needs a yard or someone who runs." },
+    { goodChildren:"yes", goodDogs:"yes", goodCats:"no" }),
+  A("3d50","Tuco","dog","senior","medium","m","Carabobo","rescate",4,
+    { es:"Su familia emigró y lo dejó amarrado. Sigue confiando en la gente.",
+      en:"His family emigrated and left him tied up. He still trusts people." },
+    { goodChildren:"yes", goodDogs:"unknown", goodCats:"unknown" }),
+  A("4e61","Maya","dog","adult","large","f","Carabobo","patitas",6,
+    { es:"Fue madre de nueve. Ahora sólo quiere dormir.",
+      en:"Mother of nine. Now she just wants to sleep." },
+    { goodChildren:"yes", goodDogs:"yes", goodCats:"yes" }),
+  A("5f72","Nino","dog","puppy","medium","m","Carabobo","rescate",7,
+    { es:"Tres meses, todo patas.", en:"Three months old, all legs." },
+    { goodChildren:"yes", goodDogs:"yes", goodCats:"unknown" }),
+];
+
+const SUBS = [
+  { id:"s1", total:17, animals:ANIMALS.filter(a=>a.species==="dog"&&a.size==="small"),
+    crit:{ es:["Perros","Pequeños","Distrito Capital"], en:["Dogs","Small","Distrito Capital"] },
+    phrase:{ es:"perros pequeños en Distrito Capital", en:"small dogs in Distrito Capital" } },
+  { id:"s2", total:9, animals:ANIMALS.filter(a=>a.species==="cat"),
+    crit:{ es:["Gatos","Miranda","Distrito Capital"], en:["Cats","Miranda","Distrito Capital"] },
+    phrase:{ es:"gatos en Miranda y Distrito Capital", en:"cats in Miranda and Distrito Capital" } },
+  { id:"s3", total:5, animals:ANIMALS.filter(a=>a.species==="dog"&&a.region==="Carabobo"),
+    crit:{ es:["Perros","Buenos con niños","Carabobo"], en:["Dogs","Good with children","Carabobo"] },
+    phrase:{ es:"perros buenos con niños en Carabobo", en:"dogs good with children in Carabobo" } },
+];
+
+/* ------------------------------------------------------------------ *
+ * Copy. es-VE is the product default; en is here to check that the
+ * layout survives a language whose strings run ~15% shorter.
+ * ------------------------------------------------------------------ */
+
+const T = {
+  es: {
+    preheaderNew: n => `${n} animales nuevos que coinciden con lo que buscas`,
+    preheaderFirst: n => `${n} animales que ya están esperando`,
+    brandTag: "Adopción de animales en Venezuela",
+    heroNew: "Nuevas coincidencias",
+    heroFirst: "Para empezar",
+    introNew: "Estos animales se publicaron desde tu último resumen.",
+    introFirst: "Todavía no hay nada nuevo que enseñarte — acabas de suscribirte. Estos ya estaban publicados y coinciden con lo que buscas.",
+    firstBadge: "No son nuevos de esta semana",
+    because: p => `Porque buscas ${p}`,
+    matchesOne: "1 coincidencia",
+    matches: n => `${n} coincidencias`,
+    more: n => `Ver las ${n} restantes`,
+    seeAll: n => `Ver las ${n} coincidencias`,
+    view: n => `Conocer a ${n}`,
+    viewPair: "Conocer a los dos",
+    bonded: "Se adoptan juntos",
+    urgent: "Urgente",
+    confirmed: d => d === 1 ? "confirmado ayer" : `confirmado hace ${d} días`,
+    band: { puppy:"Cachorro", kitten:"Gatito", young:"Joven", adult:"Adulto", senior:"Senior" },
+    size: { small:"Pequeño", medium:"Mediano", large:"Grande", giant:"Gigante" },
+    sex: { m:"Macho", f:"Hembra" },
+    kids: { yes:"Bien con niños", no:"Sin niños", unknown:"Niños: no se sabe" },
+    silence: "Sólo te escribimos cuando hay coincidencias nuevas. Si no llega nada, es que no hubo.",
+    manage: "Cambiar mis búsquedas",
+    unsub: "Darme de baja",
+    sentTo: e => `Enviado a ${e}`,
+    footerWhy: "Recibes esto porque confirmaste tu correo en Pawster.",
+  },
+  en: {
+    preheaderNew: n => `${n} new animals matching what you're looking for`,
+    preheaderFirst: n => `${n} animals already waiting`,
+    brandTag: "Animal adoption in Venezuela",
+    heroNew: "New matches",
+    heroFirst: "To get you started",
+    introNew: "These animals were published since your last digest.",
+    introFirst: "There's nothing new to show you yet — you've only just subscribed. These were already published and match what you're looking for.",
+    firstBadge: "Not new this week",
+    because: p => `Because you're looking for ${p}`,
+    matchesOne: "1 match",
+    matches: n => `${n} matches`,
+    more: n => `See the other ${n}`,
+    seeAll: n => `See all ${n} matches`,
+    view: n => `Meet ${n}`,
+    viewPair: "Meet them both",
+    bonded: "Adopted together",
+    urgent: "Urgent",
+    confirmed: d => d === 1 ? "confirmed yesterday" : `confirmed ${d} days ago`,
+    band: { puppy:"Puppy", kitten:"Kitten", young:"Young", adult:"Adult", senior:"Senior" },
+    size: { small:"Small", medium:"Medium", large:"Large", giant:"Giant" },
+    sex: { m:"Male", f:"Female" },
+    kids: { yes:"Good with children", no:"No children", unknown:"Children: not known" },
+    silence: "We only write when there are new matches. If nothing arrives, there was nothing.",
+    manage: "Change my searches",
+    unsub: "Unsubscribe",
+    sentTo: e => `Sent to ${e}`,
+    footerWhy: "You're getting this because you confirmed your email address on Pawster.",
+  },
+};
+
+/* ------------------------------------------------------------------ *
+ * Photo tokens. Emitted as {{P:seed:w:h}} so the same template can be
+ * measured with real R2 URLs and rendered with inline placeholders.
+ * ------------------------------------------------------------------ */
+
+const P = (id, w, h) => `{{P:${id}:${w}:${h}}}`;
+const R2 = (id, w) => `https://img.pawster.org/a/${id}/${w}.webp`;
+const TOKEN_RE = /\{\{P:([0-9a-z]+):(\d+):(\d+)\}\}/g;
+
+function placeholder(id, w, h) {
+  let s = 0; for (const c of id) s += c.charCodeAt(0);
+  const hues = [16, 28, 40, 96, 190, 258, 330];
+  const a = hues[s % hues.length], b = hues[(s * 3 + 2) % hues.length];
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">` +
+    `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">` +
+    `<stop offset="0" stop-color="hsl(${a},52%,74%)"/>` +
+    `<stop offset="1" stop-color="hsl(${b},42%,48%)"/></linearGradient></defs>` +
+    `<rect width="${w}" height="${h}" fill="url(#g)"/>` +
+    `<ellipse cx="${w * .5}" cy="${h * .74}" rx="${w * .3}" ry="${h * .3}" fill="rgba(255,255,255,.26)"/>` +
+    `<circle cx="${w * .5}" cy="${h * .42}" r="${Math.min(w, h) * .18}" fill="rgba(255,255,255,.36)"/>` +
+    `<circle cx="${w * .5 - Math.min(w,h) * .17}" cy="${h * .3}" r="${Math.min(w,h) * .07}" fill="rgba(255,255,255,.36)"/>` +
+    `<circle cx="${w * .5 + Math.min(w,h) * .17}" cy="${h * .3}" r="${Math.min(w,h) * .07}" fill="rgba(255,255,255,.36)"/>` +
+    `</svg>`;
+  return "data:image/svg+xml;utf8," + encodeURIComponent(svg);
+}
+
+/** Bytes a pre-generated WebP derivative of this size would plausibly weigh. */
+const imgBytes = (w, h) => Math.round(w * h * 0.17 + 800);
+
+function forMeasurement(html) {
+  return html.replace(TOKEN_RE, (_, id, w) => R2(id, w));
+}
+function forRender(html, imagesOn) {
+  return html.replace(TOKEN_RE, (_, id, w, h) =>
+    imagesOn ? placeholder(id, +w, +h) : "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==");
+}
+function imagePayload(html) {
+  let total = 0, n = 0;
+  html.replace(TOKEN_RE, (_, id, w, h) => { total += imgBytes(+w, +h); n++; return ""; });
+  return { total, n };
+}
+
+/* ------------------------------------------------------------------ *
+ * Shared email shell. Real email HTML: tables, inline styles, a <style>
+ * head for the dark-mode block and one media query. No flexbox, no grid.
+ * ------------------------------------------------------------------ */
+
+const PAL = {
+  light: { page:"#f4f1ec", card:"#ffffff", ink:"#1d1b18", mute:"#6b6560", rule:"#e6e0d7",
+           accent:"#1f6f5c", onAccent:"#ffffff", chip:"#f0ece4", urgentBg:"#fdecea", urgentInk:"#a3231d" },
+  dark:  { page:"#161514", card:"#211f1d", ink:"#f0ece6", mute:"#a49d95", rule:"#332f2b",
+           accent:"#4fbf9f", onAccent:"#10201b", chip:"#2c2926", urgentBg:"#3a1f1d", urgentInk:"#f5a9a4" },
+};
+
+function darkBlock(sel) {
+  const d = PAL.dark;
+  return `
+  ${sel} .p-page   { background:${d.page} !important; }
+  ${sel} .p-card   { background:${d.card} !important; }
+  ${sel} .p-ink    { color:${d.ink} !important; }
+  ${sel} .p-mute   { color:${d.mute} !important; }
+  ${sel} .p-rule   { border-color:${d.rule} !important; }
+  ${sel} .p-ruleb  { background:${d.rule} !important; }
+  ${sel} .p-accent { color:${d.accent} !important; }
+  ${sel} .p-btn    { background:${d.accent} !important; color:${d.onAccent} !important; }
+  ${sel} .p-chip   { background:${d.chip} !important; color:${d.mute} !important; }
+  ${sel} .p-urgent { background:${d.urgentBg} !important; color:${d.urgentInk} !important; }
+  ${sel} a         { color:${d.accent} !important; }`;
+}
+
+function shell(inner, o) {
+  const t = T[o.lang], L = PAL.light;
+  const pre = o.kind === "first" ? t.preheaderFirst(o.shown) : t.preheaderNew(o.shown);
+  return `<!doctype html>
+<html lang="${o.lang}" data-force="${o.theme}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<style>
+  body { margin:0; padding:0; width:100% !important; }
+  img { border:0; outline:none; display:block; -ms-interpolation-mode:bicubic; }
+  table { border-collapse:collapse; }
+  td { word-break:break-word; overflow-wrap:break-word; }
+  .p-fixed { table-layout:fixed; }
+  a { text-decoration:none; }
+  .p-body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+  @media (prefers-color-scheme: dark) { ${darkBlock("")} }
+  ${darkBlock('html[data-force="dark"]')}
+  @media only screen and (max-width:620px) {
+    .p-shrink { width:100% !important; }
+    .p-pad { padding-left:16px !important; padding-right:16px !important; }
+    .p-hide-sm { display:none !important; }
+  }
+</style>
+</head>
+<body class="p-body p-page" style="background:${L.page};margin:0;padding:0;">
+<div class="p-page p-mute" style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;color:${L.page};">${pre}&#8203;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="p-page" style="background:${L.page};width:100%;">
+<tr><td align="center" style="padding:0;">
+<table role="presentation" cellpadding="0" cellspacing="0" class="p-shrink" style="width:100%;max-width:600px;">
+${inner}
+</table>
+</td></tr></table>
+</body></html>`;
+}
+
+function brand(o) {
+  const L = PAL.light, t = T[o.lang];
+  return `<tr><td class="p-pad" style="padding:22px 24px 14px;">
+  <table role="presentation" width="100%"><tr>
+    <td style="vertical-align:middle;">
+      <span class="p-ink" style="font-size:19px;font-weight:800;letter-spacing:-.02em;color:${L.ink};">Pawster</span>
+      <span class="p-mute" style="font-size:11px;color:${L.mute};padding-left:8px;">${t.brandTag}</span>
+    </td>
+  </tr></table>
+</td></tr>`;
+}
+
+function footer(o) {
+  const L = PAL.light, t = T[o.lang];
+  return `<tr><td class="p-pad" style="padding:8px 24px 34px;">
+  <div class="p-ruleb" style="height:1px;background:${L.rule};margin:0 0 16px;"></div>
+  <p class="p-mute" style="margin:0 0 12px;font-size:12px;line-height:1.55;color:${L.mute};">${t.silence}</p>
+  <p style="margin:0 0 10px;font-size:12px;">
+    <a href="https://pawster.org/m/8f2b" class="p-accent" style="color:${L.accent};font-weight:600;">${t.manage}</a>
+    <span class="p-mute" style="color:${L.mute};padding:0 6px;">&middot;</span>
+    <a href="https://pawster.org/u/91ac" class="p-accent" style="color:${L.accent};font-weight:600;">${t.unsub}</a>
+  </p>
+  <p class="p-mute" style="margin:0;font-size:11px;line-height:1.5;color:${L.mute};">
+    ${t.footerWhy}<br>${t.sentTo("maria.****@gmail.com")}
+  </p>
+</td></tr>`;
+}
+
+/** Meta line pieces for one animal, in reading order. */
+function metaParts(a, o) {
+  const t = T[o.lang], p = [t.band[a.band]];
+  if (a.size) p.push(t.size[a.size]);
+  p.push(t.sex[a.sex]);
+  return p;
+}
+
+/* ------------------------------------------------------------------ *
+ * VARIANT A — Photo-forward stack
+ * One big photo per animal, name, meta, description, its own button.
+ * Section header names the criteria back as a full sentence.
+ * Maximum emotional pull, maximum weight. The "does it still scan at 12
+ * animals?" end of the question.
+ * ------------------------------------------------------------------ */
+
+function variantA(o) {
+  const L = PAL.light, t = T[o.lang];
+  let out = brand(o);
+
+  out += `<tr><td class="p-pad" style="padding:0 24px 6px;">
+    <h1 class="p-ink" style="margin:0 0 8px;font-size:26px;line-height:1.2;font-weight:800;letter-spacing:-.02em;color:${L.ink};">${o.kind === "first" ? t.heroFirst : t.heroNew}</h1>
+    <p class="p-mute" style="margin:0 0 20px;font-size:14px;line-height:1.55;color:${L.mute};">${o.kind === "first" ? t.introFirst : t.introNew}</p>
+  </td></tr>`;
+
+  o.sections.forEach(sec => {
+    const shown = sec.animals.slice(0, 12);
+    out += `<tr><td class="p-pad" style="padding:10px 24px 4px;">
+      <div class="p-ruleb" style="height:2px;background:${L.ink};width:34px;margin:0 0 10px;"></div>
+      <p class="p-ink" style="margin:0 0 2px;font-size:15px;font-weight:700;color:${L.ink};">${t.because(sec.phrase[o.lang])}</p>
+      <p class="p-mute" style="margin:0 0 4px;font-size:12px;color:${L.mute};">${shown.length === 1 ? t.matchesOne : t.matches(shown.length)}</p>
+    </td></tr>`;
+
+    shown.forEach(a => {
+      const parts = metaParts(a, o);
+      out += `<tr><td class="p-pad" style="padding:14px 24px;">
+        <table role="presentation" width="100%" class="p-card" style="background:${L.card};border-radius:12px;overflow:hidden;">
+          <tr><td style="padding:0;">
+            <a href="https://pawster.org/a/${a.id}"><img src="${P(a.id, 552, 368)}" width="552" height="368" alt="${a.name}" style="width:100%;height:auto;display:block;"></a>
+          </td></tr>
+          <tr><td style="padding:16px 18px 18px;">
+            ${a.urgent ? `<div class="p-urgent" style="display:inline-block;background:${L.urgentBg};color:${L.urgentInk};font-size:11px;font-weight:700;padding:3px 8px;border-radius:4px;margin:0 0 8px;">${t.urgent} &middot; ${a.urgent[o.lang]}</div>` : ``}
+            <p class="p-ink" style="margin:0 0 4px;font-size:20px;font-weight:800;color:${L.ink};">${a.name}${a.bonded ? ` <span class="p-mute" style="font-size:12px;font-weight:600;color:${L.mute};">&mdash; ${t.bonded}</span>` : ``}</p>
+            <p class="p-mute" style="margin:0 0 8px;font-size:13px;color:${L.mute};">${parts.join(" &middot; ")} &middot; ${t.kids[a.goodChildren]}</p>
+            <p class="p-ink" style="margin:0 0 12px;font-size:14px;line-height:1.55;color:${L.ink};">${a.desc[o.lang]}</p>
+            <p class="p-mute" style="margin:0 0 14px;font-size:12px;color:${L.mute};">${a.region} &middot; ${SHELTERS[a.shelter].name} &middot; ${t.confirmed(a.days)}</p>
+            <a href="https://pawster.org/a/${a.id}" class="p-btn" style="display:inline-block;background:${L.accent};color:${L.onAccent};font-size:14px;font-weight:700;padding:10px 18px;border-radius:8px;">${a.bonded ? t.viewPair : t.view(a.name)}</a>
+          </td></tr>
+        </table>
+      </td></tr>`;
+    });
+
+    const rest = sec.total - shown.length;
+    if (rest > 0) out += `<tr><td class="p-pad" style="padding:6px 24px 18px;">
+      <a href="https://pawster.org/animales?s=${sec.id}" class="p-accent" style="font-size:14px;font-weight:700;color:${L.accent};">${t.more(rest)} &rarr;</a>
+    </td></tr>`;
+  });
+
+  return shell(out + footer(o), o);
+}
+
+/* ------------------------------------------------------------------ *
+ * VARIANT B — Scannable rows
+ * 72px thumbnail left, text right, no description, one meta line.
+ * Section header is the criteria as terse chips.
+ * The "one screen, one glance" end of the question.
+ * ------------------------------------------------------------------ */
+
+function variantB(o) {
+  const L = PAL.light, t = T[o.lang];
+  let out = brand(o);
+
+  out += `<tr><td class="p-pad" style="padding:0 24px 14px;">
+    <h1 class="p-ink" style="margin:0 0 6px;font-size:21px;line-height:1.25;font-weight:800;color:${L.ink};">${o.kind === "first" ? t.heroFirst : t.heroNew}</h1>
+    <p class="p-mute" style="margin:0;font-size:13px;line-height:1.5;color:${L.mute};">${o.kind === "first" ? t.introFirst : t.introNew}</p>
+  </td></tr>`;
+
+  o.sections.forEach(sec => {
+    const shown = sec.animals.slice(0, 12);
+    const chips = sec.crit[o.lang].map(c =>
+      `<span class="p-chip" style="display:inline-block;background:${L.chip};color:${L.mute};font-size:11px;font-weight:600;padding:3px 8px;border-radius:99px;margin:0 4px 4px 0;">${c}</span>`).join("");
+
+    out += `<tr><td class="p-pad" style="padding:16px 24px 6px;">
+      <div class="p-ruleb" style="height:1px;background:${L.rule};margin:0 0 12px;"></div>
+      <div style="margin:0 0 6px;">${chips}</div>
+      ${o.kind === "first" ? `<p class="p-mute" style="margin:0 0 2px;font-size:11px;font-style:italic;color:${L.mute};">${t.firstBadge}</p>` : ``}
+    </td></tr>`;
+
+    out += `<tr><td class="p-pad" style="padding:0 16px;">
+      <table role="presentation" width="100%" class="p-card" style="background:${L.card};border-radius:10px;">`;
+
+    shown.forEach((a, i) => {
+      const parts = metaParts(a, o);
+      out += `<tr><td style="padding:${i ? 10 : 12}px 12px 10px;border-top:${i ? `1px solid ${L.rule}` : "0"};" class="${i ? "p-rule" : ""}">
+        <table role="presentation" width="100%" class="p-fixed" style="width:100%;table-layout:fixed;"><tr>
+          <td width="72" style="width:72px;padding-right:12px;vertical-align:top;">
+            <a href="https://pawster.org/a/${a.id}"><img src="${P(a.id, 144, 144)}" width="72" height="72" alt="" style="width:72px;height:72px;border-radius:8px;display:block;"></a>
+          </td>
+          <td style="vertical-align:top;">
+            <a href="https://pawster.org/a/${a.id}" class="p-ink" style="font-size:16px;font-weight:700;color:${L.ink};">${a.name}</a>${a.urgent ? ` <span class="p-urgent" style="background:${L.urgentBg};color:${L.urgentInk};font-size:10px;font-weight:700;padding:2px 6px;border-radius:3px;">${t.urgent}</span>` : ``}${a.bonded ? ` <span class="p-chip" style="background:${L.chip};color:${L.mute};font-size:10px;font-weight:600;padding:2px 6px;border-radius:3px;">${t.bonded}</span>` : ``}
+            <p class="p-mute" style="margin:3px 0 2px;font-size:12px;line-height:1.4;color:${L.mute};">${parts.join(" &middot; ")}</p>
+            <p class="p-mute" style="margin:0;font-size:12px;line-height:1.4;color:${L.mute};">${a.region} &middot; ${SHELTERS[a.shelter].name}</p>
+            <p class="p-mute p-hide-sm" style="margin:2px 0 0;font-size:11px;color:${L.mute};">${t.confirmed(a.days)}</p>
+          </td>
+        </tr></table>
+      </td></tr>`;
+    });
+
+    out += `</table></td></tr>`;
+
+    const rest = sec.total - shown.length;
+    if (rest > 0) out += `<tr><td class="p-pad" style="padding:10px 24px 4px;">
+      <a href="https://pawster.org/animales?s=${sec.id}" class="p-accent" style="font-size:13px;font-weight:700;color:${L.accent};">${t.more(rest)} &rarr;</a>
+    </td></tr>`;
+  });
+
+  return shell(out + `<tr><td style="height:16px;"></td></tr>` + footer(o), o);
+}
+
+/* ------------------------------------------------------------------ *
+ * VARIANT C — One hero per section, the rest as text
+ * The newest match gets a photo and a paragraph. Everything else is a
+ * plain linked line with no image at all.
+ * The "are the other eleven photos earning their bytes?" end.
+ * ------------------------------------------------------------------ */
+
+function variantC(o) {
+  const L = PAL.light, t = T[o.lang];
+  let out = brand(o);
+
+  out += `<tr><td class="p-pad" style="padding:0 24px 10px;">
+    <h1 class="p-ink" style="margin:0 0 6px;font-size:22px;line-height:1.25;font-weight:800;color:${L.ink};">${o.kind === "first" ? t.heroFirst : t.heroNew}</h1>
+    <p class="p-mute" style="margin:0;font-size:13px;line-height:1.55;color:${L.mute};">${o.kind === "first" ? t.introFirst : t.introNew}</p>
+  </td></tr>`;
+
+  o.sections.forEach(sec => {
+    const shown = sec.animals.slice(0, 12);
+    const hero = shown[0], rest = shown.slice(1);
+
+    out += `<tr><td class="p-pad" style="padding:20px 24px 8px;">
+      <table role="presentation" width="100%"><tr>
+        <td style="vertical-align:baseline;">
+          <span class="p-ink" style="font-size:13px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:${L.ink};">${sec.crit[o.lang].join(" &middot; ")}</span>
+        </td>
+        <td align="right" style="vertical-align:baseline;">
+          <a href="https://pawster.org/m/8f2b" class="p-mute" style="font-size:11px;color:${L.mute};text-decoration:underline;">${t.manage}</a>
+        </td>
+      </tr></table>
+      <div class="p-ruleb" style="height:1px;background:${L.rule};margin:8px 0 0;"></div>
+    </td></tr>`;
+
+    out += `<tr><td class="p-pad" style="padding:14px 24px 6px;">
+      <a href="https://pawster.org/a/${hero.id}"><img src="${P(hero.id, 552, 330)}" width="552" height="330" alt="${hero.name}" style="width:100%;height:auto;border-radius:10px;display:block;"></a>
+      ${hero.urgent ? `<div class="p-urgent" style="display:inline-block;background:${L.urgentBg};color:${L.urgentInk};font-size:11px;font-weight:700;padding:3px 8px;border-radius:4px;margin:10px 0 0;">${t.urgent} &middot; ${hero.urgent[o.lang]}</div>` : ``}
+      <p class="p-ink" style="margin:10px 0 3px;font-size:19px;font-weight:800;color:${L.ink};">${hero.name}</p>
+      <p class="p-mute" style="margin:0 0 6px;font-size:12px;color:${L.mute};">${metaParts(hero, o).join(" &middot; ")} &middot; ${hero.region} &middot; ${SHELTERS[hero.shelter].name}</p>
+      <p class="p-ink" style="margin:0 0 10px;font-size:14px;line-height:1.55;color:${L.ink};">${hero.desc[o.lang]}</p>
+      <a href="https://pawster.org/a/${hero.id}" class="p-btn" style="display:inline-block;background:${L.accent};color:${L.onAccent};font-size:13px;font-weight:700;padding:9px 16px;border-radius:8px;">${hero.bonded ? t.viewPair : t.view(hero.name)}</a>
+    </td></tr>`;
+
+    if (rest.length) {
+      out += `<tr><td class="p-pad" style="padding:14px 24px 0;">
+        <table role="presentation" width="100%" class="p-card" style="background:${L.card};border-radius:10px;">`;
+      rest.forEach((a, i) => {
+        out += `<tr><td class="${i ? "p-rule" : ""}" style="padding:9px 14px;border-top:${i ? `1px solid ${L.rule}` : "0"};">
+          <a href="https://pawster.org/a/${a.id}" class="p-ink" style="font-size:14px;font-weight:700;color:${L.ink};">${a.name}</a>${a.bonded ? ` <span class="p-mute" style="font-size:11px;color:${L.mute};">(${t.bonded})</span>` : ``}
+          <span class="p-mute" style="font-size:12px;color:${L.mute};"> &mdash; ${metaParts(a, o).join(", ")} &mdash; ${a.region}</span>
+        </td></tr>`;
+      });
+      out += `</table></td></tr>`;
+    }
+
+    const more = sec.total - shown.length;
+    out += `<tr><td class="p-pad" style="padding:12px 24px 4px;">
+      <a href="https://pawster.org/animales?s=${sec.id}" class="p-accent" style="font-size:13px;font-weight:700;color:${L.accent};">${more > 0 ? t.more(more) : t.seeAll(sec.total)} &rarr;</a>
+    </td></tr>`;
+  });
+
+  return shell(out + `<tr><td style="height:14px;"></td></tr>` + footer(o), o);
+}
+
+/* ------------------------------------------------------------------ *
+ * Harness
+ * ------------------------------------------------------------------ */
+
+const VARIANTS = {
+  A: { name: "Photo-forward stack", build: variantA },
+  B: { name: "Scannable rows",      build: variantB },
+  C: { name: "Hero + text list",    build: variantC },
+};
+const KEYS = Object.keys(VARIANTS);
+
+const state = {
+  variant: "A", sections: 3, kind: "ongoing", theme: "light",
+  images: true, width: 390, lang: "es",
+};
+
+function readURL() {
+  const q = new URLSearchParams(location.search.slice(1) || location.hash.slice(1));
+  if (KEYS.includes(q.get("variant"))) state.variant = q.get("variant");
+  for (const k of ["sections", "width"]) if (q.get(k)) state[k] = +q.get(k);
+  for (const k of ["kind", "theme", "lang"]) if (q.get(k)) state[k] = q.get(k);
+  if (q.get("images")) state.images = q.get("images") === "1";
+}
+function writeURL() {
+  const q = new URLSearchParams({
+    variant: state.variant, sections: state.sections, kind: state.kind,
+    theme: state.theme, images: state.images ? "1" : "0", width: state.width, lang: state.lang,
+  });
+  try { history.replaceState(null, "", "?" + q); }
+  catch { location.hash = q.toString(); }
+}
+
+const seg = (host, opts, get, set) => {
+  const el = document.getElementById(host);
+  el.innerHTML = "";
+  opts.forEach(([label, value]) => {
+    const b = document.createElement("button");
+    b.textContent = label;
+    b.setAttribute("aria-pressed", String(get() === value));
+    b.onclick = () => { set(value); render(); };
+    el.appendChild(b);
+  });
+};
+
+function controls() {
+  seg("ctl-variant", KEYS.map(k => [k, k]), () => state.variant, v => state.variant = v);
+  seg("ctl-sections", [["1", 1], ["2", 2], ["3", 3]], () => state.sections, v => state.sections = v);
+  seg("ctl-kind", [["Ongoing", "ongoing"], ["First (opt-in)", "first"]], () => state.kind, v => state.kind = v);
+  seg("ctl-theme", [["Light", "light"], ["Dark", "dark"]], () => state.theme, v => state.theme = v);
+  seg("ctl-images", [["Loaded", true], ["Blocked", false]], () => state.images, v => state.images = v);
+  seg("ctl-width", [["Phone 390", 390], ["Small 320", 320], ["Desktop 640", 640]], () => state.width, v => state.width = v);
+  seg("ctl-lang", [["es-VE", "es"], ["English", "en"]], () => state.lang, v => state.lang = v);
+}
+
+function render() {
+  const sections = SUBS.slice(0, state.sections);
+  const shown = sections.reduce((n, s) => n + Math.min(s.animals.length, 12), 0);
+  const opts = Object.assign({}, state, { sections, shown });
+
+  const html = VARIANTS[state.variant].build(opts);
+
+  // Measure with real R2 URLs — that is what Gmail counts.
+  const measured = forMeasurement(html);
+  const bytes = new TextEncoder().encode(measured).length;
+  const CLIP = 102 * 1024;
+  const pct = bytes / CLIP;
+
+  document.getElementById("m-html").textContent = (bytes / 1024).toFixed(1) + " KB";
+  const bar = document.getElementById("m-html-bar");
+  bar.style.width = Math.min(100, pct * 100).toFixed(1) + "%";
+  bar.className = pct >= 1 ? "bad" : pct >= 0.7 ? "warn" : "";
+  document.getElementById("m-html-sub").textContent =
+    pct >= 1 ? `CLIPPED — ${(pct * 100).toFixed(0)}% of the 102 KB limit`
+             : `${(pct * 100).toFixed(0)}% of the 102 KB Gmail clip limit`;
+
+  const img = imagePayload(html);
+  document.getElementById("m-img").textContent =
+    state.images ? (img.total / 1024).toFixed(0) + " KB" : "0 KB";
+  document.getElementById("m-img-sub").textContent =
+    state.images ? `${img.n} images loaded` : `${img.n} images blocked by the client`;
+
+  document.getElementById("m-count").textContent = shown;
+  const totals = sections.reduce((n, s) => n + s.total, 0);
+  document.getElementById("m-count-sub").textContent =
+    `of ${totals} matching · cap is 12/section, 24/email`;
+
+  const frame = document.getElementById("stage");
+  frame.style.width = state.width + "px";
+  frame.srcdoc = forRender(html, state.images);
+  frame.onload = () => {
+    try {
+      const d = frame.contentDocument;
+      frame.style.height = d.documentElement.scrollHeight + "px";
+      d.addEventListener("keydown", onKey);
+    } catch (e) {}
+  };
+  document.getElementById("device").className = "device" + (state.theme === "dark" ? " isdark" : "");
+  document.getElementById("sw-label").innerHTML =
+    `<b>${state.variant}</b> &nbsp;${VARIANTS[state.variant].name}`;
+
+  controls();
+  writeURL();
+}
+
+function cycle(step) {
+  const i = KEYS.indexOf(state.variant);
+  state.variant = KEYS[(i + step + KEYS.length) % KEYS.length];
+  render();
+}
+function onKey(e) {
+  const el = e.target;
+  if (el && /^(INPUT|TEXTAREA)$/.test(el.tagName || "")) return;
+  if (el && el.isContentEditable) return;
+  if (e.key === "ArrowLeft") cycle(-1);
+  if (e.key === "ArrowRight") cycle(1);
+}
+
+document.getElementById("prev").onclick = function () { cycle(-1); };
+document.getElementById("next").onclick = function () { cycle(1); };
+document.addEventListener("keydown", onKey);
+
+readURL();
+render();
+</script>
+</body>
+</html>
