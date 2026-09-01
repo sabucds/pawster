@@ -13,13 +13,22 @@ An organisation that takes in animals and publishes them for adoption. Holds an 
 on the platform and must be verified before its animals appear publicly.
 _Avoid_: Rescue, refugio, organisation, NGO
 
+**Notification Address**:
+The single shelter-level email address the platform writes to, deliberately not a named
+person's, so it survives a volunteer leaving. Distinct from a shelter's public contact
+details, which exist for adopters. Because confirmation links are sent there, it is in
+effect the shelter's credential for confirmation.
+_Avoid_: Owner email, admin email, contact email, primary user
+
 **Adopter**:
 A member of the public looking to adopt. Has no account and no password; identified only
 by an email address when they subscribe.
 _Avoid_: User, customer, adoptante
 
 **Platform Admin**:
-The maintainer who verifies shelters. Not a shelter role.
+The maintainer who verifies shelters. A role in the domain, not in the auth system: an
+admin holds no account and is identified only by the email address a signed link was
+sent to.
 _Avoid_: Moderator, superuser
 
 ### Publishing
@@ -36,8 +45,17 @@ _Avoid_: Advert, publication, post
 
 **Confirmation**:
 A shelter's deliberate write to one animal - an edit, a new photo, or an explicit
-"still available" click - which records that the animal was true as of that moment.
+"still available" click - which records that the animal was true as of that moment. It
+may be made from a session or from a confirmation nudge's link, without logging in;
+either way it records which of the two it was.
 _Avoid_: Refresh, renewal, bump, touch
+
+**Confirmation Nudge**:
+The monthly email asking one shelter to confirm the animals it has left unconfirmed for
+thirty days, listing them so the shelter can confirm them all at once or say which have
+gone. One per shelter and never one per animal, because animals go stale a shelterful at
+a time. A nudge is answered by acting on it, not by opening it.
+_Avoid_: Reminder, ping, chase, re-confirmation request
 
 **Staleness**:
 How long ago an animal was last confirmed, derived at read time and never stored. It
@@ -70,10 +88,18 @@ _Avoid_: Newsletter, notification, alert email
 ### Trust
 
 **Verification**:
-A record that a platform admin judged a shelter to be genuine, capturing the method used
-and the evidence noted. A record rather than a flag, because acceptable evidence differs
-by country.
-_Avoid_: Approval, KYC, validation
+An append-only log of the judgements a platform admin has made about one shelter, each
+entry capturing the outcome, the methods used and the evidence noted. A log rather than
+a flag, because acceptable evidence differs by country and because a later judgement
+must never erase the reasoning behind an earlier one. A shelter's current standing is
+the latest entry; a shelter with no entries is awaiting verification.
+_Avoid_: Approval, KYC, validation, verified flag
+
+**Revocation**:
+A verification entry that withdraws a shelter's standing, delisting its animals without
+archiving them. Rare, adversarial, and always deliberate: verification never lapses on
+its own.
+_Avoid_: Suspension, ban, deactivation
 
 **Region**:
 The sub-national area a shelter operates in and an animal is located in, within a country.
