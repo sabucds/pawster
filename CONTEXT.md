@@ -166,6 +166,20 @@ or its owner reported us as spam. Distinct from unsubscribing, which is the subs
 decision. A complaint retirement is permanent; a bounce retirement is not.
 _Avoid_: Deactivation, ban, bounce, churn
 
+**Erasure**:
+The destruction of everything Pawster holds about a subscriber. Distinct from unsubscribing,
+which only stops the sending: a subscriber who unsubscribes keeps their subscriptions for
+ninety days in case the click was an accident, and is erased automatically at the end of it.
+Erasure leaves behind only a Do-Not-Contact entry, and only where one is owed.
+_Avoid_: Deletion, purge, removal, forget me
+
+**Do-Not-Contact**:
+A one-way fingerprint of an address that reported us as spam, kept forever so the signup form
+can refuse it. The residue of a Retirement that outlives the subscriber it belonged to: it can
+answer whether an address is refused and nothing else, because it holds no address to read.
+Ours alone, and distinct from the suppression list our email provider keeps in plaintext.
+_Avoid_: Suppression, blocklist, tombstone, ban list
+
 ### Trust
 
 **Verification**:
