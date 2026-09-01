@@ -464,6 +464,8 @@ function shell(inner, o) {
   body { margin:0; padding:0; width:100% !important; }
   img { border:0; outline:none; display:block; -ms-interpolation-mode:bicubic; }
   table { border-collapse:collapse; }
+  td { word-break:break-word; overflow-wrap:break-word; }
+  .p-fixed { table-layout:fixed; }
   a { text-decoration:none; }
   .p-body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
   @media (prefers-color-scheme: dark) { ${darkBlock("")} }
@@ -477,9 +479,9 @@ function shell(inner, o) {
 </head>
 <body class="p-body p-page" style="background:${L.page};margin:0;padding:0;">
 <div class="p-page p-mute" style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;color:${L.page};">${pre}&#8203;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;</div>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="p-page" style="background:${L.page};">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="p-page" style="background:${L.page};width:100%;">
 <tr><td align="center" style="padding:0;">
-<table role="presentation" width="600" cellpadding="0" cellspacing="0" class="p-shrink" style="width:600px;max-width:600px;">
+<table role="presentation" cellpadding="0" cellspacing="0" class="p-shrink" style="width:100%;max-width:600px;">
 ${inner}
 </table>
 </td></tr></table>
@@ -608,7 +610,7 @@ function variantB(o) {
     shown.forEach((a, i) => {
       const parts = metaParts(a, o);
       out += `<tr><td style="padding:${i ? 10 : 12}px 12px 10px;border-top:${i ? `1px solid ${L.rule}` : "0"};" class="${i ? "p-rule" : ""}">
-        <table role="presentation" width="100%"><tr>
+        <table role="presentation" width="100%" class="p-fixed" style="width:100%;table-layout:fixed;"><tr>
           <td width="72" style="width:72px;padding-right:12px;vertical-align:top;">
             <a href="https://pawster.org/a/${a.id}"><img src="${P(a.id, 144, 144)}" width="72" height="72" alt="" style="width:72px;height:72px;border-radius:8px;display:block;"></a>
           </td>
