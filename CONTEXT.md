@@ -14,6 +14,14 @@ on the platform, must be verified before its animals appear publicly, and publis
 a display name that is its public identity.
 _Avoid_: Rescue, refugio, organisation, NGO
 
+**Account Email**:
+The single shelter-level address a shelter holds its account under, and the only address
+the platform writes to. Deliberately not a named person's, so it survives a volunteer
+leaving. Never published - adopters reach a shelter through its contact points. Because
+confirmation links are sent here, it is also the shelter's credential for confirming
+animals.
+_Avoid_: Owner email, admin email, login email, notification address, primary user
+
 **Contact Point**:
 A public channel - WhatsApp, Instagram, email or phone - through which an adopter reaches
 a shelter about an animal. Distinct from the shelter's account email, which is auth
@@ -48,8 +56,17 @@ _Avoid_: Advert, publication, post
 **Confirmation**:
 A shelter's deliberate write to one animal - an edit, a new photo, or an explicit
 "still available" click - which records that the animal was true as of that moment.
-A confirmation of any member of a bonded group confirms the whole group.
+A confirmation of any member of a bonded group confirms the whole group. It may be made
+from a session or from a confirmation nudge, without logging in; either way it records
+which of the two it was.
 _Avoid_: Refresh, renewal, bump, touch
+
+**Confirmation Nudge**:
+The monthly email asking one shelter to confirm the animals it has left unconfirmed for
+thirty days, listing them so the shelter can confirm them all at once or say which have
+gone. One per shelter and never one per animal, because animals go stale a shelterful at
+a time. A nudge is answered by acting on it, not by opening it.
+_Avoid_: Reminder, ping, chase, re-confirmation request
 
 **Staleness**:
 How long ago an animal was last confirmed, derived at read time and never stored. It
