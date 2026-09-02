@@ -188,7 +188,51 @@ finish() {
 # you can paste onto the ticket as its resolution.
 # ──────────────────────────────────────────────────────────────────────────
 
-TOTAL_STAGES=18
+# ── Modes ─────────────────────────────────────────────────────────────────
+# --no-domain provisions everything that does not need a domain, for the
+# prototype phase ADR 0014 describes.
+NO_DOMAIN=0
+
+usage() {
+  cat <<'USAGE'
+Usage: scripts/provision.sh [--no-domain]
+
+  --no-domain   Skip every stage that needs a domain and its Cloudflare zone
+                (the domain itself, the zone id, Images transformations, and
+                both Resend DNS stages), and serve R2 from its auto-generated
+                r2.dev hostname instead of a custom domain.
+
+                Sending email to anyone other than this account own address
+                is NOT possible in this mode: Resend domain verification needs
+                DNS records that a hosting free-tier hostname cannot publish.
+                See docs/adr/0014-domain-free-prototype-phase.md.
+
+  -h, --help    Show this message.
+
+Re-running is safe: values already in .env are offered as defaults.
+USAGE
+}
+
+for _arg in "$@"; do
+  case "$_arg" in
+    --no-domain) NO_DOMAIN=1 ;;
+    -h|--help)   usage; exit 0 ;;
+    *) printf 'provision.sh: unknown option %s\n\n' "$_arg" >&2; usage >&2; exit 2 ;;
+  esac
+done
+
+if (( NO_DOMAIN )); then
+  TOTAL_STAGES=14
+  # Stages 2, 8, 11 and 12 never run, so the facts they would have captured are
+  # defined empty here: under `set -u` the stage 18 record would abort instead.
+  PAWSTER_DOMAIN=""
+  CLOUDFLARE_ZONE_ID=""
+  IMAGES_TRANSFORMATIONS_ON_FREE="not observed - no zone in this phase"
+  RESEND_SENDING_DOMAIN=""
+  RESEND_DOMAIN_STATUS="sandbox only - onboarding@resend.dev"
+else
+  TOTAL_STAGES=18
+fi
 RECORD="docs/provisioning-record.md"
 
 # Suppress wrangler's first-run telemetry question: it is interactive, and a
@@ -214,7 +258,34 @@ capture() {
   return "$rc"
 }
 
-banner "Pawster: provision the stack accounts and the domain"
+if (( NO_DOMAIN )); then
+  banner "Pawster: provision the stack - domain-free prototype phase"
+else
+  banner "Pawster: provision the stack accounts and the domain"
+fi
+
+# The notice sits after banner() and ends with its own pause, because stage()
+# clears the screen: printed any earlier it would be wiped before it is read.
+if (( NO_DOMAIN )); then
+  printf '\n%s%s  Domain-free prototype phase%s\n\n' "$BOLD" "$YELLOW" "$RESET"
+  warn "Four stages need a domain and its Cloudflare zone. They are skipped,"
+  warn "and the r2.dev hostname is substituted for the custom domain. Numbered"
+  warn "as they would be in a full run, the four are:"
+  note "   2  the domain, and its zone on Cloudflare"
+  note "   8  Images transformations (observation only; needs a zone)"
+  note "  11  the Resend sending subdomain"
+  note "  12  the Resend DNS records (MX, SPF, DKIM)"
+  printf '\n'
+  warn "The consequence, stated plainly: Resend can only send to this account"
+  warn "own address, because domain verification needs DNS records that this"
+  warn "phase has nowhere to publish. Shelter sign-in codes (ADR 0013), admin"
+  warn "verification links (ADR 0002) and the subscriber digest (ADR 0009)"
+  warn "therefore work for you alone. Onboarding a second shelter, or one real"
+  warn "subscriber, requires a domain. No hosting free tier substitutes."
+  printf '\n'
+  note "The reasoning is recorded in docs/adr/0014-domain-free-prototype-phase.md."
+  pause "Press Enter to acknowledge and begin."
+fi
 
 # ── 1 ─────────────────────────────────────────────────────────────────────
 stage "Preflight: tools, and keeping .env out of version control"
@@ -250,49 +321,60 @@ for _pat in '.env' '.env.*' '!.env.example' '.dev.vars' 'node_modules/' '.wrangl
   fi
 done
 printf '\n'
-warn "Nothing has been bought or created yet. Stage 2 is the one that costs money."
-pause "Press Enter to continue."
-
-# ── 2 ─────────────────────────────────────────────────────────────────────
-stage "The domain, and its zone on Cloudflare"
-say "The domain comes first because everything hangs off it: R2 must serve"
-say "images from a custom domain, and a custom domain requires the zone to sit"
-say "in the same Cloudflare account as the bucket."
-printf '\n'
-warn "The zone must be a FULL setup — nameservers delegated to Cloudflare."
-note "A partial (CNAME) setup would avoid moving nameservers, but Cloudflare's"
-note "docs restrict it: 'A CNAME setup (partial) is only available to customers"
-note "on a Business or Enterprise plan.' Free and Pro are listed as No, so for"
-note "a \$0 project full setup is the only route. This corrects"
-note "docs/research/free-tier-image-storage.md, which reads the other way."
-printf '\n'
-say "Easiest path: register at Cloudflare Registrar, which sells at wholesale"
-say "cost and creates the zone as a full setup for you. Registering elsewhere is"
-say "fine — you then repoint the nameservers by hand at that registrar."
-open_url "https://dash.cloudflare.com/?to=/:account/domains/register"
-step "Register the domain (or 'Add a site' if you bought it elsewhere)."
-step "Follow it through until the zone shows Active."
-ask PAWSTER_DOMAIN "Domain you registered (e.g. pawster.org):"
-write_env PAWSTER_DOMAIN "$PAWSTER_DOMAIN"
-printf '\n'
-say "Checking the delegation actually points at Cloudflare:"
-NS_OUT=$(dig +short NS "$PAWSTER_DOMAIN" 2>/dev/null || true)
-if [[ -z "$NS_OUT" ]]; then
-  warn "no NS records answered yet — delegation can take a few hours."
-  SKIPPED+=("re-check: dig +short NS $PAWSTER_DOMAIN should return *.ns.cloudflare.com")
-elif [[ "$(printf '%s' "$NS_OUT" | tr '[:upper:]' '[:lower:]')" == *ns.cloudflare.com* ]]; then
-  printf '%s\n' "$NS_OUT" | sed 's/^/    /'
-  step "nameservers are Cloudflare — full setup confirmed."
+if (( NO_DOMAIN )); then
+  warn "Nothing has been bought or created yet, and nothing in this run costs"
+  warn "money: the one stage that spends any is the domain, which is skipped."
 else
-  printf '%s\n' "$NS_OUT" | sed 's/^/    /'
-  warn "those are not Cloudflare nameservers. R2's custom domain will not"
-  warn "attach until they are. Fix the delegation before stage 6."
-  SKIPPED+=("delegate $PAWSTER_DOMAIN nameservers to Cloudflare (full setup)")
+  warn "Nothing has been bought or created yet. Stage 2 is the one that costs money."
 fi
 pause "Press Enter to continue."
 
+# ── 2 ─────────────────────────────────────────────────────────────────────
+if (( ! NO_DOMAIN )); then
+  stage "The domain, and its zone on Cloudflare"
+  say "The domain comes first because everything hangs off it: R2 must serve"
+  say "images from a custom domain, and a custom domain requires the zone to sit"
+  say "in the same Cloudflare account as the bucket."
+  printf '\n'
+  warn "The zone must be a FULL setup — nameservers delegated to Cloudflare."
+  note "A partial (CNAME) setup would avoid moving nameservers, but Cloudflare's"
+  note "docs restrict it: 'A CNAME setup (partial) is only available to customers"
+  note "on a Business or Enterprise plan.' Free and Pro are listed as No, so for"
+  note "a \$0 project full setup is the only route. This corrects"
+  note "docs/research/free-tier-image-storage.md, which reads the other way."
+  printf '\n'
+  say "Easiest path: register at Cloudflare Registrar, which sells at wholesale"
+  say "cost and creates the zone as a full setup for you. Registering elsewhere is"
+  say "fine — you then repoint the nameservers by hand at that registrar."
+  open_url "https://dash.cloudflare.com/?to=/:account/domains/register"
+  step "Register the domain (or 'Add a site' if you bought it elsewhere)."
+  step "Follow it through until the zone shows Active."
+  ask PAWSTER_DOMAIN "Domain you registered (e.g. pawster.org):"
+  write_env PAWSTER_DOMAIN "$PAWSTER_DOMAIN"
+  printf '\n'
+  say "Checking the delegation actually points at Cloudflare:"
+  NS_OUT=$(dig +short NS "$PAWSTER_DOMAIN" 2>/dev/null || true)
+  if [[ -z "$NS_OUT" ]]; then
+    warn "no NS records answered yet — delegation can take a few hours."
+    SKIPPED+=("re-check: dig +short NS $PAWSTER_DOMAIN should return *.ns.cloudflare.com")
+  elif [[ "$(printf '%s' "$NS_OUT" | tr '[:upper:]' '[:lower:]')" == *ns.cloudflare.com* ]]; then
+    printf '%s\n' "$NS_OUT" | sed 's/^/    /'
+    step "nameservers are Cloudflare — full setup confirmed."
+  else
+    printf '%s\n' "$NS_OUT" | sed 's/^/    /'
+    warn "those are not Cloudflare nameservers. R2's custom domain will not"
+    warn "attach until they are. Fix the delegation before stage 6."
+    SKIPPED+=("delegate $PAWSTER_DOMAIN nameservers to Cloudflare (full setup)")
+  fi
+  pause "Press Enter to continue."
+fi
+
 # ── 3 ─────────────────────────────────────────────────────────────────────
-stage "Cloudflare: confirm Workers Free, capture account and zone ids"
+if (( NO_DOMAIN )); then
+  stage "Cloudflare: confirm Workers Free, capture the account id"
+else
+  stage "Cloudflare: confirm Workers Free, capture account and zone ids"
+fi
 say "We stay on Workers Free. The \$5/month Workers Paid plan is ADR 0006's"
 say "named escape hatch, not the baseline — do not subscribe to it now."
 open_url "https://dash.cloudflare.com/?to=/:account/workers/plans"
@@ -315,21 +397,29 @@ else
   ask CLOUDFLARE_ACCOUNT_ID "Paste the Account ID (32 hex characters):"
   write_env CLOUDFLARE_ACCOUNT_ID "$CLOUDFLARE_ACCOUNT_ID"
 fi
-printf '\n'
-say "The Zone ID is what stage 6 needs to attach R2's custom domain."
-open_url "https://dash.cloudflare.com/?to=/:account/$PAWSTER_DOMAIN"
-step "On the domain's Overview page, find 'API' low in the right sidebar and"
-step "copy the Zone ID."
-ask CLOUDFLARE_ZONE_ID "Paste the Zone ID (32 hex characters):"
-write_env CLOUDFLARE_ZONE_ID "$CLOUDFLARE_ZONE_ID"
-pause "Press Enter to continue."
+if (( NO_DOMAIN )); then
+  printf '\n'
+  note "Skipping the Zone ID: this phase has no zone, and the stage that needed"
+  note "it - attaching the R2 custom domain - is substituted by the r2.dev"
+  note "stage that follows the bucket."
+  pause "Press Enter to continue."
+else
+  printf '\n'
+  say "The Zone ID is what stage 6 needs to attach R2's custom domain."
+  open_url "https://dash.cloudflare.com/?to=/:account/$PAWSTER_DOMAIN"
+  step "On the domain's Overview page, find 'API' low in the right sidebar and"
+  step "copy the Zone ID."
+  ask CLOUDFLARE_ZONE_ID "Paste the Zone ID (32 hex characters):"
+  write_env CLOUDFLARE_ZONE_ID "$CLOUDFLARE_ZONE_ID"
+  pause "Press Enter to continue."
+fi
 
 # ── 4 ─────────────────────────────────────────────────────────────────────
 stage "Activate R2 — and settle the card question"
 say "R2 activation runs a checkout flow. Cloudflare's docs say only 'complete"
 say "the checkout flow' and never state whether card details are required."
 say "Issue #12 left this unobserved; it gates nothing, but it decides whether"
-say "stage 7's budget alert is even available, so record what actually happens."
+say "the budget-alert stage below is even available, so record what happens."
 open_url "https://dash.cloudflare.com/?to=/:account/r2/overview"
 step "Click through to enable R2 on this account."
 printf '\n'
@@ -357,39 +447,77 @@ fi
 pause "Press Enter to continue."
 
 # ── 6 ─────────────────────────────────────────────────────────────────────
-stage "Attach the custom domain to the bucket"
-say "Serving images from our own hostname is what puts the Cloudflare CDN cache"
-say "in front of them, and what keeps the prerendered listing cheap on the"
-say "metered connections most adopters are browsing from."
-ask R2_PUBLIC_HOST "Public image hostname [Enter for media.$PAWSTER_DOMAIN]:"
-[[ -z "$R2_PUBLIC_HOST" ]] && R2_PUBLIC_HOST="media.$PAWSTER_DOMAIN"
-write_env R2_PUBLIC_HOST "$R2_PUBLIC_HOST"
-printf '\n'
-say "Attaching it by CLI. Wrangler may ask you to confirm the DNS record."
-# Run directly rather than through capture(): this command can prompt, and
-# capture() redirects stdout to a file, which would hide the prompt and hang.
-if wr r2 bucket domain add "$R2_BUCKET" --domain "$R2_PUBLIC_HOST" --zone-id "$CLOUDFLARE_ZONE_ID"; then
-  step "custom domain attached."
+if (( NO_DOMAIN )); then
+  stage "Serve the bucket from its r2.dev hostname"
+  say "Without a zone there is no custom domain, so the bucket is served from"
+  say "the hostname Cloudflare generates for it: pub-<hash>.r2.dev."
+  printf '\n'
+  warn "This is the trade ADR 0014 records. r2.dev is not CDN-cached, so an"
+  warn "image view is a billable Class B GetObject instead of an edge hit, and"
+  warn "the hostname carries a variable rate limit Cloudflare does not publish."
+  printf '\n'
+  note "Why it is affordable anyway: the free allowance is 10M Class B ops per"
+  note "month, and the image-storage research puts a lean session at ~28 image"
+  note "requests, so reads do not bind until ~357,000 sessions/month - and that"
+  note "figure already assumes zero cache hits. This costs the growth phase,"
+  note "not the prototype."
+  printf '\n'
+  say "Enabling the dev URL by CLI. Passing -y because capture() hides a"
+  say "confirmation prompt, which would hang the wizard invisibly."
+  if capture wr r2 bucket dev-url enable "$R2_BUCKET" -y; then
+    step "public dev URL enabled."
+  else
+    warn "the CLI could not enable it. Do it in the dashboard instead:"
+    note "R2 -> $R2_BUCKET -> Settings -> Public Development URL -> Allow"
+    open_url "https://dash.cloudflare.com/?to=/:account/r2/default/buckets/$R2_BUCKET/settings"
+    pause "Press Enter once the dev URL is showing as enabled."
+  fi
+  capture wr r2 bucket dev-url get "$R2_BUCKET" || true
+  R2_HOST_GUESS=$(printf '%s\n' "$CAPTURED" | grep -oE 'pub-[0-9a-z]+\.r2\.dev' | head -n1 || true)
+  if [[ -n "$R2_HOST_GUESS" ]]; then
+    step "detected public hostname: $R2_HOST_GUESS"
+    R2_PUBLIC_HOST="$R2_HOST_GUESS"
+  else
+    ask R2_PUBLIC_HOST "Paste the r2.dev hostname (pub-....r2.dev):"
+  fi
+  write_env R2_PUBLIC_HOST "$R2_PUBLIC_HOST"
+  SKIPPED+=("point R2_PUBLIC_HOST at a custom domain once the project has a domain (ADR 0011)")
+  pause "Press Enter to continue."
 else
-  warn "the CLI could not attach it. Do it in the dashboard instead:"
-  note "R2 object storage -> $R2_BUCKET -> Settings -> Custom Domains -> Add"
-  open_url "https://dash.cloudflare.com/?to=/:account/r2/default/buckets/$R2_BUCKET/settings"
-  pause "Press Enter once the custom domain shows as connected."
+  stage "Attach the custom domain to the bucket"
+  say "Serving images from our own hostname is what puts the Cloudflare CDN cache"
+  say "in front of them, and what keeps the prerendered listing cheap on the"
+  say "metered connections most adopters are browsing from."
+  ask R2_PUBLIC_HOST "Public image hostname [Enter for media.$PAWSTER_DOMAIN]:"
+  [[ -z "$R2_PUBLIC_HOST" ]] && R2_PUBLIC_HOST="media.$PAWSTER_DOMAIN"
+  write_env R2_PUBLIC_HOST "$R2_PUBLIC_HOST"
+  printf '\n'
+  say "Attaching it by CLI. Wrangler may ask you to confirm the DNS record."
+  # Run directly rather than through capture(): this command can prompt, and
+  # capture() redirects stdout to a file, which would hide the prompt and hang.
+  if wr r2 bucket domain add "$R2_BUCKET" --domain "$R2_PUBLIC_HOST" --zone-id "$CLOUDFLARE_ZONE_ID"; then
+    step "custom domain attached."
+  else
+    warn "the CLI could not attach it. Do it in the dashboard instead:"
+    note "R2 object storage -> $R2_BUCKET -> Settings -> Custom Domains -> Add"
+    open_url "https://dash.cloudflare.com/?to=/:account/r2/default/buckets/$R2_BUCKET/settings"
+    pause "Press Enter once the custom domain shows as connected."
+  fi
+  printf '\n'
+  say "Do NOT enable the r2.dev development URL. It is rate-limited and not"
+  say "meant for production, and the custom domain replaces it."
+  printf '\n'
+  say "Checking the hostname resolves:"
+  R2_HOST_DNS=$(dig +short "$R2_PUBLIC_HOST" 2>/dev/null || true)
+  if [[ -n "$R2_HOST_DNS" ]]; then
+    printf '%s\n' "$R2_HOST_DNS" | sed 's/^/    /'
+    step "$R2_PUBLIC_HOST resolves."
+  else
+    warn "not resolving yet — give it a few minutes."
+    SKIPPED+=("re-check: dig +short $R2_PUBLIC_HOST resolves")
+  fi
+  pause "Press Enter to continue."
 fi
-printf '\n'
-say "Do NOT enable the r2.dev development URL. It is rate-limited and not"
-say "meant for production, and the custom domain replaces it."
-printf '\n'
-say "Checking the hostname resolves:"
-R2_HOST_DNS=$(dig +short "$R2_PUBLIC_HOST" 2>/dev/null || true)
-if [[ -n "$R2_HOST_DNS" ]]; then
-  printf '%s\n' "$R2_HOST_DNS" | sed 's/^/    /'
-  step "$R2_PUBLIC_HOST resolves."
-else
-  warn "not resolving yet — give it a few minutes."
-  SKIPPED+=("re-check: dig +short $R2_PUBLIC_HOST resolves")
-fi
-pause "Press Enter to continue."
 
 # ── 7 ─────────────────────────────────────────────────────────────────────
 stage "Budget alert on usage-based spend"
@@ -416,19 +544,21 @@ write_env R2_BUDGET_ALERT "$R2_BUDGET_ALERT"
 pause "Press Enter to continue."
 
 # ── 8 ─────────────────────────────────────────────────────────────────────
-stage "Images transformations on a Free zone (observation only)"
-say "Issue #12 established that transformations are documented as available on"
-say "Free plans, correcting an older belief that they were gated behind Pro."
-say "Nobody has confirmed it on a real Free zone, so confirm it now."
-printf '\n'
-note "This is not load-bearing: ADR 0007 pre-generates every derivative at"
-note "upload time, so no transformation runs when an adopter loads a page. We"
-note "are recording a fact, not unblocking anything."
-open_url "https://dash.cloudflare.com/?to=/:account/$PAWSTER_DOMAIN/images"
-step "Look for Images -> Transformations and try enabling it for this zone."
-ask IMAGES_TRANSFORMATIONS_ON_FREE "Did transformations enable on the Free zone? (yes / no / notes):"
-write_env IMAGES_TRANSFORMATIONS_ON_FREE "$IMAGES_TRANSFORMATIONS_ON_FREE"
-pause "Press Enter to continue."
+if (( ! NO_DOMAIN )); then
+  stage "Images transformations on a Free zone (observation only)"
+  say "Issue #12 established that transformations are documented as available on"
+  say "Free plans, correcting an older belief that they were gated behind Pro."
+  say "Nobody has confirmed it on a real Free zone, so confirm it now."
+  printf '\n'
+  note "This is not load-bearing: ADR 0007 pre-generates every derivative at"
+  note "upload time, so no transformation runs when an adopter loads a page. We"
+  note "are recording a fact, not unblocking anything."
+  open_url "https://dash.cloudflare.com/?to=/:account/$PAWSTER_DOMAIN/images"
+  step "Look for Images -> Transformations and try enabling it for this zone."
+  ask IMAGES_TRANSFORMATIONS_ON_FREE "Did transformations enable on the Free zone? (yes / no / notes):"
+  write_env IMAGES_TRANSFORMATIONS_ON_FREE "$IMAGES_TRANSFORMATIONS_ON_FREE"
+  pause "Press Enter to continue."
+fi
 
 # ── 9 ─────────────────────────────────────────────────────────────────────
 stage "Create the D1 database"
@@ -482,61 +612,63 @@ note "'wrangler queues consumer add' — there is no Worker to bind yet."
 pause "Press Enter to continue."
 
 # ── 11 ────────────────────────────────────────────────────────────────────
-stage "Resend: the account and the sending subdomain"
-say "Resend carries everything: shelter magic links, subscriber opt-ins,"
-say "confirmation nudges and the digest itself."
-printf '\n'
-warn "The ceiling that binds is 100 emails/day and 3,000/month on the"
-warn "transactional path. ADR 0009 budgets the digest at 100 minus 30, holding"
-warn "30 back so magic links and opt-ins always win, which is what makes the"
-warn "\$0 ceiling roughly 500 weekly subscribers rather than 1,000."
-printf '\n'
-say "Resend recommends a subdomain over the root domain, so that a deliverability"
-say "problem with bulk mail never contaminates the root domain's reputation."
-open_url "https://resend.com/domains"
-step "Create the account, then Add Domain."
-ask RESEND_SENDING_DOMAIN "Sending subdomain [Enter for mail.$PAWSTER_DOMAIN]:"
-[[ -z "$RESEND_SENDING_DOMAIN" ]] && RESEND_SENDING_DOMAIN="mail.$PAWSTER_DOMAIN"
-write_env RESEND_SENDING_DOMAIN "$RESEND_SENDING_DOMAIN"
-step "Add '$RESEND_SENDING_DOMAIN' as the domain in Resend."
-pause "Press Enter once Resend is showing you the DNS records."
+if (( ! NO_DOMAIN )); then
+  stage "Resend: the account and the sending subdomain"
+  say "Resend carries everything: shelter magic links, subscriber opt-ins,"
+  say "confirmation nudges and the digest itself."
+  printf '\n'
+  warn "The ceiling that binds is 100 emails/day and 3,000/month on the"
+  warn "transactional path. ADR 0009 budgets the digest at 100 minus 30, holding"
+  warn "30 back so magic links and opt-ins always win, which is what makes the"
+  warn "\$0 ceiling roughly 500 weekly subscribers rather than 1,000."
+  printf '\n'
+  say "Resend recommends a subdomain over the root domain, so that a deliverability"
+  say "problem with bulk mail never contaminates the root domain's reputation."
+  open_url "https://resend.com/domains"
+  step "Create the account, then Add Domain."
+  ask RESEND_SENDING_DOMAIN "Sending subdomain [Enter for mail.$PAWSTER_DOMAIN]:"
+  [[ -z "$RESEND_SENDING_DOMAIN" ]] && RESEND_SENDING_DOMAIN="mail.$PAWSTER_DOMAIN"
+  write_env RESEND_SENDING_DOMAIN "$RESEND_SENDING_DOMAIN"
+  step "Add '$RESEND_SENDING_DOMAIN' as the domain in Resend."
+  pause "Press Enter once Resend is showing you the DNS records."
 
-# ── 12 ────────────────────────────────────────────────────────────────────
-stage "Resend: the DNS records, in the Cloudflare zone"
-say "Resend generates the values per domain, so copy them from the page you"
-say "just opened. Three records, all on the sending subdomain:"
-printf '\n'
-step "MX    name 'send'                priority 10   value from Resend"
-step "TXT   name 'send'                SPF          value from Resend"
-step "TXT   name 'resend._domainkey'   DKIM         value from Resend"
-printf '\n'
-warn "Set every one of them to 'DNS only' — the grey cloud, not the orange one."
-note "Cloudflare's default is proxied, and a proxied DKIM record will not"
-note "verify. Resend's own Cloudflare guide is explicit: 'Confirm your proxy"
-note "settings are set to DNS Only on the record you are adding.'"
-printf '\n'
-note "Paste only the short name ('send', 'resend._domainkey') — Cloudflare"
-note "appends the zone for you, and pasting the full hostname double-suffixes it."
-printf '\n'
-say "Resend also offers a 'Sign in to Cloudflare' button that writes these"
-say "records for you over Domain Connect. If you use it, still go back and"
-say "check the proxy status on each record afterwards."
-open_url "https://dash.cloudflare.com/?to=/:account/$PAWSTER_DOMAIN/dns/records"
-pause "Press Enter once all three records are added, DNS only."
-printf '\n'
-say "Checking DKIM has propagated:"
-DKIM_DNS=$(dig +short TXT "resend._domainkey.$RESEND_SENDING_DOMAIN" 2>/dev/null || true)
-if [[ -n "$DKIM_DNS" ]]; then
-  printf '%s\n' "$DKIM_DNS" | sed 's/^/    /'
-  step "DKIM record is visible."
-else
-  warn "not visible yet. Propagation is usually minutes; verification in"
-  warn "Resend will stay pending until it is."
-  SKIPPED+=("verify $RESEND_SENDING_DOMAIN in Resend once DKIM propagates")
+  # ── 12 ────────────────────────────────────────────────────────────────────
+  stage "Resend: the DNS records, in the Cloudflare zone"
+  say "Resend generates the values per domain, so copy them from the page you"
+  say "just opened. Three records, all on the sending subdomain:"
+  printf '\n'
+  step "MX    name 'send'                priority 10   value from Resend"
+  step "TXT   name 'send'                SPF          value from Resend"
+  step "TXT   name 'resend._domainkey'   DKIM         value from Resend"
+  printf '\n'
+  warn "Set every one of them to 'DNS only' — the grey cloud, not the orange one."
+  note "Cloudflare's default is proxied, and a proxied DKIM record will not"
+  note "verify. Resend's own Cloudflare guide is explicit: 'Confirm your proxy"
+  note "settings are set to DNS Only on the record you are adding.'"
+  printf '\n'
+  note "Paste only the short name ('send', 'resend._domainkey') — Cloudflare"
+  note "appends the zone for you, and pasting the full hostname double-suffixes it."
+  printf '\n'
+  say "Resend also offers a 'Sign in to Cloudflare' button that writes these"
+  say "records for you over Domain Connect. If you use it, still go back and"
+  say "check the proxy status on each record afterwards."
+  open_url "https://dash.cloudflare.com/?to=/:account/$PAWSTER_DOMAIN/dns/records"
+  pause "Press Enter once all three records are added, DNS only."
+  printf '\n'
+  say "Checking DKIM has propagated:"
+  DKIM_DNS=$(dig +short TXT "resend._domainkey.$RESEND_SENDING_DOMAIN" 2>/dev/null || true)
+  if [[ -n "$DKIM_DNS" ]]; then
+    printf '%s\n' "$DKIM_DNS" | sed 's/^/    /'
+    step "DKIM record is visible."
+  else
+    warn "not visible yet. Propagation is usually minutes; verification in"
+    warn "Resend will stay pending until it is."
+    SKIPPED+=("verify $RESEND_SENDING_DOMAIN in Resend once DKIM propagates")
+  fi
+  ask RESEND_DOMAIN_STATUS "Domain status in Resend right now (verified / pending):"
+  write_env RESEND_DOMAIN_STATUS "$RESEND_DOMAIN_STATUS"
+  pause "Press Enter to continue."
 fi
-ask RESEND_DOMAIN_STATUS "Domain status in Resend right now (verified / pending):"
-write_env RESEND_DOMAIN_STATUS "$RESEND_DOMAIN_STATUS"
-pause "Press Enter to continue."
 
 # ── 13 ────────────────────────────────────────────────────────────────────
 stage "Resend: the API key"
@@ -547,6 +679,13 @@ step "access, and a sending-only key cannot delete your domains."
 ask_secret RESEND_API_KEY "Paste the API key (hidden, starts re_):"
 write_env RESEND_API_KEY "$RESEND_API_KEY"
 set_secret RESEND_API_KEY "$RESEND_API_KEY"
+if (( NO_DOMAIN )); then
+  printf '\n'
+  warn "In this phase the key can only send to this account own address."
+  note "Use onboarding@resend.dev as the From address. That is enough to build"
+  note "and test every email path end to end with yourself as the recipient -"
+  note "shelter sign-in, confirmation, digest - but not to reach anyone else."
+fi
 printf '\n'
 note "Also stored as a GitHub Actions secret, because CI needs it. It is not"
 note "in the provisioning record — no secret goes on a public issue."
@@ -698,19 +837,42 @@ say "issue #18 as its resolution comment."
 mkdir -p "$(dirname "$RECORD")"
 {
   printf '# Provisioning record\n\n'
-  printf 'Resolves [#18 Provision the stack accounts and the domain](https://github.com/sabucds/pawster/issues/18).\n'
+  if (( NO_DOMAIN )); then
+    printf 'Partially addresses [#18 Provision the stack accounts and the domain](https://github.com/sabucds/pawster/issues/18):\n'
+    printf 'run with `--no-domain`, so the domain-dependent stages are outstanding.\n'
+  else
+    printf 'Resolves [#18 Provision the stack accounts and the domain](https://github.com/sabucds/pawster/issues/18).\n'
+  fi
   printf 'Generated by `scripts/provision.sh` on %s.\n\n' "$(date -u '+%Y-%m-%d %H:%M UTC')"
   printf '## Facts later tickets depend on\n\n'
   printf '| Fact | Value |\n| --- | --- |\n'
-  printf '| Zone / domain | `%s` |\n' "$PAWSTER_DOMAIN"
+  if (( NO_DOMAIN )); then
+    printf '| Phase | domain-free prototype (`--no-domain`, ADR 0014) |\n'
+    printf '| Zone / domain | none in this phase |\n'
+  else
+    printf '| Phase | full provisioning |\n'
+    printf '| Zone / domain | `%s` |\n' "$PAWSTER_DOMAIN"
+  fi
   printf '| Cloudflare account id | `%s` |\n' "$CLOUDFLARE_ACCOUNT_ID"
-  printf '| Cloudflare zone id | `%s` |\n' "$CLOUDFLARE_ZONE_ID"
+  if (( NO_DOMAIN )); then
+    printf '| Cloudflare zone id | none in this phase |\n'
+  else
+    printf '| Cloudflare zone id | `%s` |\n' "$CLOUDFLARE_ZONE_ID"
+  fi
   printf '| R2 bucket | `%s` |\n' "$R2_BUCKET"
-  printf '| R2 public hostname | `%s` |\n' "$R2_PUBLIC_HOST"
+  if (( NO_DOMAIN )); then
+    printf '| R2 public hostname | `%s` (r2.dev, uncached - ADR 0014) |\n' "$R2_PUBLIC_HOST"
+  else
+    printf '| R2 public hostname | `%s` |\n' "$R2_PUBLIC_HOST"
+  fi
   printf '| D1 database name | `%s` |\n' "$D1_DATABASE_NAME"
   printf '| D1 database id | `%s` |\n' "$D1_DATABASE_ID"
   printf '| Queue name | `%s` |\n' "$QUEUE_NAME"
-  printf '| Resend sending domain | `%s` (%s) |\n' "$RESEND_SENDING_DOMAIN" "$RESEND_DOMAIN_STATUS"
+  if (( NO_DOMAIN )); then
+    printf '| Resend sending domain | none - sandbox `onboarding@resend.dev`, own inbox only |\n'
+  else
+    printf '| Resend sending domain | `%s` (%s) |\n' "$RESEND_SENDING_DOMAIN" "$RESEND_DOMAIN_STATUS"
+  fi
   printf '| Digest cron (UTC) | `%s` |\n' "$DIGEST_CRON_UTC"
   printf '| Repository visibility | %s |\n' "${REPO_VISIBILITY:-unchanged}"
   printf '\n## Observations the ticket asked for\n\n'
@@ -728,10 +890,28 @@ mkdir -p "$(dirname "$RECORD")"
   printf '\n## Ceilings now live\n\n'
   printf -- '- Resend transactional: 100/day, 3,000/month. ADR 0009 budgets the digest\n'
   printf -- '  at `100 - 30`, so the $0 ceiling is ~500 weekly subscribers.\n'
+  if (( NO_DOMAIN )); then
+    printf -- '  Not reachable in this phase: without a verified domain the only\n'
+    printf -- '  deliverable address is this account own, so the binding limit is\n'
+    printf -- '  domain verification, not the quota.\n'
+  fi
   printf -- '- R2: 10 GB-month, 1M Class A, 10M Class B, egress free. The only\n'
   printf -- '  component that bills instead of failing.\n'
   printf -- '- Queues: 10,000 operations/day; messages retained 24h on Free.\n'
   printf -- '- D1: 500 MB per database.\n'
+  if (( NO_DOMAIN )); then
+    printf '\n## Deferred by `--no-domain`\n\n'
+    printf 'Four stages need a domain and its Cloudflare zone, and did not run:\n\n'
+    printf -- '- **2** the domain, and its zone on Cloudflare\n'
+    printf -- '- **8** Images transformations (observation only; needs a zone)\n'
+    printf -- '- **11** the Resend sending subdomain\n'
+    printf -- '- **12** the Resend DNS records (MX, SPF, DKIM)\n'
+    printf '\nConsequence: Resend reaches only this account own address, so shelter\n'
+    printf 'sign-in codes (ADR 0013), admin verification links (ADR 0002) and the\n'
+    printf 'subscriber digest (ADR 0009) work for the operator alone. Onboarding a\n'
+    printf 'second shelter, or one real subscriber, requires a domain.\n'
+    printf '\nSee [ADR 0014](adr/0014-domain-free-prototype-phase.md).\n'
+  fi
   printf '\n## Still to do by hand\n\n'
   if [[ -n "${SKIPPED[*]:-}" ]]; then
     for _s in "${SKIPPED[@]:-}"; do
@@ -744,9 +924,15 @@ mkdir -p "$(dirname "$RECORD")"
 } > "$RECORD"
 step "wrote $RECORD"
 printf '\n'
-say "Paste that file onto issue #18, then close it:"
-note "  gh issue comment 18 --body-file $RECORD"
-note "  gh issue close 18"
+if (( NO_DOMAIN )); then
+  say "Paste that file onto issue #18. Do NOT close it: the domain-dependent"
+  say "stages are still outstanding."
+  note "  gh issue comment 18 --body-file $RECORD"
+else
+  say "Paste that file onto issue #18, then close it:"
+  note "  gh issue comment 18 --body-file $RECORD"
+  note "  gh issue close 18"
+fi
 pause "Press Enter for the summary."
 
 finish

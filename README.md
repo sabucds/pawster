@@ -24,3 +24,24 @@ values to `.env` and the CI secrets to GitHub, and finishes by writing
 are offered as defaults, and the one secret that must never rotate — the
 Do-Not-Contact pepper of [ADR 0010](docs/adr/0010-subscriber-data-retention.md)
 — is never regenerated once present.
+
+### Without a domain
+
+To provision everything that does not need a domain:
+
+```sh
+./scripts/provision.sh --no-domain
+```
+
+Fourteen of the eighteen stages run. The four that need a domain and its
+Cloudflare zone are skipped, and R2 is served from its auto-generated
+`pub-<hash>.r2.dev` hostname instead of a custom domain.
+
+**Email is what this costs.** Resend domain verification needs DNS records
+that a free-tier hostname cannot publish, so Pawster can send only to the
+operator's own inbox. Because every actor here is authenticated by control of
+an inbox ([ADR 0013](docs/adr/0013-shelters-sign-in-with-an-emailed-code.md)),
+that means the operator is the only shelter until a domain exists — though
+every email path is still built and testable against the Resend sandbox. The
+reasoning, and the condition that ends the phase, are in
+[ADR 0014](docs/adr/0014-domain-free-prototype-phase.md).
