@@ -1,0 +1,1556 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PROTOTYPE — Pawster public listing &amp; animal page (es-VE, mobile)</title>
+<!--
+  THROWAWAY PROTOTYPE. Not production code. No tests, no error handling, no abstractions.
+
+  Question (issue #17): what do the public listing and the animal page look like on a phone,
+  in Spanish, and what earns a place on the listing card?
+
+  PLAN: three structurally different listing variants and three animal-page variants on one
+  harness, switchable via ?variant= / ?screen= and the floating bottom bar, rendered at 360px
+  in es-VE by default.
+
+  Each of the four unresolved things in the ticket also gets its own independent toggle, so a
+  treatment can be judged apart from the variant it happens to be sitting in:
+    staleness    uniform line | badge only when bad | page only
+    convivencia  three chips  | graduated          | known only (the forbidden one)
+    bonded       photo strip  | stacked +N         | text only
+    urgency      chip         | banner with note   | page only
+    contact CTA  primary+rest | equal row          | sheet
+
+  The real pages will live in web/src/pages per the topology in #9. This file will not.
+
+  Open it by double-clicking. Nothing to install, no build step, no network.
+
+  Vocabulary follows CONTEXT.md and the model settled in #11. Age bands and staleness are
+  DERIVED here at render time, as ADR 0004 / ADR 0001 require, rather than seeded as strings
+  — which is how this prototype found the filter-index bug written up in the README.
+-->
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: #16181d; color: #e7e9ee;
+    font: 13px/1.5 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+    height: 100vh; display: flex; flex-direction: column; overflow: hidden;
+  }
+  header.bar {
+    display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+    padding: 10px 16px; border-bottom: 1px solid #2b2f38; background: #1c1f26; flex: none;
+  }
+  header.bar h1 { font-size: 13px; margin: 0; font-weight: 700; letter-spacing: .02em; }
+  header.bar .tag {
+    font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+    background: #f0b429; color: #16181d; padding: 2px 6px; border-radius: 3px;
+  }
+  header.bar .q { color: #98a0b0; }
+
+  main { flex: 1; display: flex; min-height: 0; }
+
+  .stagewrap {
+    flex: 1; display: flex; justify-content: center; align-items: flex-start;
+    padding: 20px 16px 96px; overflow: auto;
+    background:
+      linear-gradient(45deg, #1a1d23 25%, transparent 25%) -8px 0/16px 16px,
+      linear-gradient(-45deg, #1a1d23 25%, transparent 25%) -8px 0/16px 16px,
+      linear-gradient(45deg, transparent 75%, #1a1d23 75%) -8px 0/16px 16px,
+      linear-gradient(-45deg, transparent 75%, #1a1d23 75%) -8px 0/16px 16px,
+      #16181d;
+  }
+  .device {
+    background: #fff; border-radius: 16px; overflow: hidden; flex: none;
+    box-shadow: 0 10px 40px rgba(0,0,0,.5); border: 1px solid #2b2f38;
+  }
+  .device.isdark { background: #14161a; }
+  #stage { display: block; border: 0; width: 100%; }
+
+  aside.panel {
+    width: 290px; flex: none; border-left: 1px solid #2b2f38; background: #1c1f26;
+    padding: 14px 14px 96px; overflow: auto;
+  }
+  aside.panel h2 {
+    font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: #7b8496;
+    margin: 15px 0 6px; font-weight: 700;
+  }
+  aside.panel h2:first-child { margin-top: 0; }
+  aside.panel h2 .hint { text-transform: none; letter-spacing: 0; color: #5d6675; font-weight: 400; }
+  .seg { display: flex; flex-wrap: wrap; gap: 4px; }
+  .seg button {
+    font: inherit; font-size: 11px; padding: 5px 9px; border-radius: 5px; cursor: pointer;
+    border: 1px solid #363b46; background: #23262e; color: #c3c9d6;
+  }
+  .seg button:hover { border-color: #4a515f; }
+  .seg button[aria-pressed="true"] { background: #3a5bd9; border-color: #3a5bd9; color: #fff; }
+  .seg.q4 button[aria-pressed="true"] { background: #9a7318; border-color: #9a7318; color: #fff; }
+
+  .metric { border-top: 1px solid #2b2f38; padding: 8px 0 0; margin-top: 8px; }
+  .metric .lbl { color: #7b8496; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; }
+  .metric .val { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 1px; }
+  .metric .sub { color: #98a0b0; font-size: 11px; }
+  .meter { height: 5px; border-radius: 3px; background: #2b2f38; margin-top: 5px; overflow: hidden; }
+  .meter i { display: block; height: 100%; background: #3a5bd9; }
+  .meter i.warn { background: #f0b429; }
+  .meter i.bad { background: #e0574a; }
+
+  nav.switcher {
+    position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+    display: flex; z-index: 50; background: #f4f6fa; color: #16181d; border-radius: 999px;
+    box-shadow: 0 6px 28px rgba(0,0,0,.55); overflow: hidden; font-size: 12px; font-weight: 600;
+  }
+  nav.switcher button { font: inherit; border: 0; background: transparent; cursor: pointer; padding: 9px 14px; color: #16181d; }
+  nav.switcher button:hover { background: #dfe4ee; }
+  nav.switcher .cur { padding: 9px 6px; display: flex; align-items: center; gap: 8px; min-width: 250px; justify-content: center; }
+  nav.switcher .cur b { font-weight: 800; }
+  nav.switcher .cur .scr { font-size: 10px; text-transform: uppercase; letter-spacing: .07em; background: #16181d; color: #f4f6fa; border-radius: 3px; padding: 2px 5px; }
+  .kbd { font-size: 10px; color: #5d6675; margin-top: 8px; line-height: 1.6; }
+  .note { font-size: 11px; color: #98a0b0; margin: 6px 0 0; }
+  .note b { color: #c3c9d6; }
+</style>
+</head>
+<body>
+
+<header class="bar">
+  <span class="tag">prototype</span>
+  <h1>Pawster &mdash; listado p&uacute;blico y ficha del animal</h1>
+  <span class="q">#17 &mdash; what a shelter's data looks like to an adopter on a 360px screen, in Spanish</span>
+</header>
+
+<main>
+  <div class="stagewrap">
+    <div class="device" id="device"><iframe id="stage" title="prototype stage"></iframe></div>
+  </div>
+
+  <aside class="panel">
+    <h2>Pantalla</h2>
+    <div class="seg" id="c-screen"></div>
+
+    <h2>Variante</h2>
+    <div class="seg" id="c-variant"></div>
+    <p class="note" id="variant-note"></p>
+
+    <div id="ficha-only">
+      <h2>Ficha de <span class="hint">&mdash; casos l&iacute;mite</span></h2>
+      <div class="seg" id="c-animal"></div>
+    </div>
+
+    <h2>Staleness <span class="hint">&mdash; ADR 0001</span></h2>
+    <div class="seg q4" id="c-stale"></div>
+
+    <h2>Convivencia <span class="hint">&mdash; good-with</span></h2>
+    <div class="seg q4" id="c-goodwith"></div>
+
+    <h2>Grupo vinculado</h2>
+    <div class="seg q4" id="c-bonded"></div>
+
+    <h2>Urgencia</h2>
+    <div class="seg q4" id="c-urgency"></div>
+
+    <h2>Contacto <span class="hint">&mdash; ficha</span></h2>
+    <div class="seg q4" id="c-cta"></div>
+
+    <h2>Idioma</h2>
+    <div class="seg" id="c-locale"></div>
+
+    <h2>Ancho</h2>
+    <div class="seg" id="c-vw"></div>
+
+    <h2>Fotos <span class="hint">&mdash; conexi&oacute;n</span></h2>
+    <div class="seg" id="c-img"></div>
+
+    <h2>Tema</h2>
+    <div class="seg" id="c-theme"></div>
+
+    <h2>Presupuestos medidos</h2>
+    <div id="metrics"></div>
+    <p class="kbd">
+      &larr; &rarr; variante &middot; &uarr; &darr; pantalla.<br>
+      Todo el estado va en la URL: una vista concreta se puede compartir.
+    </p>
+  </aside>
+</main>
+
+<nav class="switcher">
+  <button id="prev" title="Variante anterior">&larr;</button>
+  <div class="cur"><span class="scr" id="cur-screen"></span><b id="cur-variant"></b></div>
+  <button id="next" title="Variante siguiente">&rarr;</button>
+</nav>
+
+<script>
+"use strict";
+
+/* =================================================================== *
+ * TODAY. Fixed so that derived age bands and staleness bands are
+ * reproducible; the whole point of ADR 0001 / 0004 is that both are
+ * derived at read time, so nothing below stores a band.
+ * =================================================================== */
+const TODAY = new Date("2026-09-02T12:00:00Z");
+
+/* =================================================================== *
+ * SEED DATA — es-VE. Weighted the way a real Venezuelan listing is:
+ * mostly street dogs, mostly Unknown on every good-with flag.
+ * =================================================================== */
+
+const SHELTERS = {
+  s1: {
+    name: "Refugio Patitas Felices", region: "Distrito Capital", country: "VE",
+    slug: "patitas-felices", dormant: false,
+    contacts: [
+      { type: "WhatsApp",  value: "+58 412-555-0134", href: "https://wa.me/584125550134" },
+      { type: "Instagram", value: "@patitasfelicesccs", href: "https://instagram.com/patitasfelicesccs" },
+      { type: "Email",     value: "adopciones@patitasfelices.org", href: "mailto:adopciones@patitasfelices.org" }
+    ]
+  },
+  s2: {
+    name: "Huellitas de Amor Valencia", region: "Carabobo", country: "VE",
+    slug: "huellitas-valencia", dormant: false,
+    contacts: [
+      { type: "Instagram", value: "@huellitasvalencia", href: "https://instagram.com/huellitasvalencia" },
+      { type: "WhatsApp",  value: "+58 414-555-0288", href: "https://wa.me/584145550288" }
+    ]
+  },
+  s3: {
+    name: "Rescate Animal Maracaibo", region: "Zulia", country: "VE",
+    slug: "rescate-maracaibo", dormant: false,
+    contacts: [
+      { type: "WhatsApp", value: "+58 424-555-0771", href: "https://wa.me/584245550771" }
+    ]
+  },
+  s4: {
+    // Dormant: 90 days without activity of any kind (#7). Its animals stay listed
+    // and carry a shelter-level notice — dormancy is about the shelter, not the animal.
+    name: "Fundación Cuatro Patas", region: "Aragua", country: "VE",
+    slug: "cuatro-patas", dormant: true,
+    contacts: [
+      { type: "WhatsApp",  value: "+58 416-555-0910", href: "https://wa.me/584165550910" },
+      { type: "Phone",     value: "+58 243-555-1122", href: "tel:+582435551122" },
+      { type: "Email",     value: "cuatropatas.aragua@gmail.com", href: "mailto:cuatropatas.aragua@gmail.com" },
+      { type: "Instagram", value: "@cuatropatasaragua", href: "https://instagram.com/cuatropatasaragua" }
+    ]
+  }
+};
+
+// bondedGroupId is a nullable field on Animal (#11): animals sharing one are bonded.
+// The group carries no name and no description of its own.
+const ANIMALS = [
+  {
+    id: "7f3k", name: "Luna", shelter: "s1", species: "Dog", sex: "Female",
+    birth: "2022-03-10", basis: "VetEstimate", size: "Medium", region: "Miranda",
+    sterilised: "Yes", gwChildren: "Yes", gwDogs: "Unknown", gwCats: "No",
+    confirmed: "2026-09-01", urgent: false, urgencyNote: null, bonded: null, photos: 4,
+    medical: "",
+    desc: "Luna llegó al refugio en enero, muy flaca y con sarna, después de que unos vecinos de El Valle la vieran dos semanas durmiendo debajo de un carro. Ya está recuperada, con todas sus vacunas y esterilizada. Es una perra tranquila que camina bien con correa y que se queda dormida en cualquier rincón donde le dé el sol. Con los niños del refugio es paciente y cuidadosa. No la hemos podido probar con otros perros porque en el patio grande todavía se pone nerviosa, y con gatos no funciona: intentó perseguir al gato de la casa vecina. Busca una familia con paciencia para los primeros días, porque los ruidos fuertes todavía la asustan."
+  },
+  {
+    id: "b2m9", name: "Canela", shelter: "s1", species: "Dog", sex: "Female",
+    birth: "2026-06-01", basis: "ShelterGuess", size: "Small", region: "Distrito Capital",
+    sterilised: "No", gwChildren: "Unknown", gwDogs: "Unknown", gwCats: "Unknown",
+    confirmed: "2026-08-30", urgent: false, urgencyNote: null, bonded: null, photos: 2,
+    medical: "Pendiente la segunda dosis de la pentavalente.",
+    desc: "Cachorra rescatada de una caja frente al mercado de Quinta Crespo. Todavía no la hemos podido evaluar con niños ni con otros animales."
+  },
+  {
+    id: "q8w1", name: "Simón", shelter: "s2", species: "Dog", sex: "Male",
+    birth: "2018-01-15", basis: "Documented", size: "Large", region: "Carabobo",
+    sterilised: "Yes", gwChildren: "Yes", gwDogs: "Yes", gwCats: "Unknown",
+    confirmed: "2026-07-20", urgent: true,
+    urgencyNote: "Su cuidadora se mudó del país y el hogar de tránsito se entrega el 20 de septiembre. Después de esa fecha no tenemos dónde dejarlo.",
+    bonded: null, photos: 3, medical: "Displasia de cadera leve; no necesita tratamiento, sí piso sin resbalón.",
+    desc: "Simón tiene ocho años y la calma de un perro que ya vivió lo suyo. Vivió siete años con una familia que se fue del país. Camina con correa, duerme toda la noche y se lleva bien con los otros perros del tránsito."
+  },
+  {
+    id: "k4t7", name: "Mora", shelter: "s3", species: "Dog", sex: "Female",
+    birth: "2023-05-01", basis: "VetEstimate", size: "Medium", region: "Lara",
+    sterilised: "Yes", gwChildren: "Yes", gwDogs: "Yes", gwCats: "Unknown",
+    confirmed: "2026-08-14", urgent: false, urgencyNote: null, bonded: "g1", photos: 3,
+    medical: "",
+    desc: "Mora es la mamá. Apareció pariéndose en el estacionamiento de una panadería en Barquisimeto y se quedó con sus dos hijos. No los separamos: cuando intentamos dejar a los cachorros en otro cuarto, se pasa la noche llorando."
+  },
+  {
+    id: "k4t8", name: "Nube", shelter: "s3", species: "Dog", sex: "Female",
+    birth: "2026-05-20", basis: "VetEstimate", size: "Small", region: "Lara",
+    sterilised: "No", gwChildren: "Unknown", gwDogs: "Yes", gwCats: "Unknown",
+    confirmed: "2026-08-14", urgent: false, urgencyNote: null, bonded: "g1", photos: 2,
+    medical: "", desc: "Hija de Mora. Es la más atrevida de los dos."
+  },
+  {
+    id: "k4t9", name: "Panita", shelter: "s3", species: "Dog", sex: "Male",
+    birth: "2026-05-20", basis: "VetEstimate", size: "Small", region: "Lara",
+    sterilised: "No", gwChildren: "Unknown", gwDogs: "Yes", gwCats: "Unknown",
+    confirmed: "2026-08-14", urgent: false, urgencyNote: null, bonded: "g1", photos: 2,
+    medical: "", desc: "Hijo de Mora. Duerme encima de su hermana."
+  },
+  {
+    id: "z1x5", name: "Negrita", shelter: "s2", species: "Cat", sex: "Female",
+    birth: "2024-02-01", basis: "VetEstimate", size: null, region: "Zulia",
+    sterilised: "Yes", gwChildren: "Unknown", gwDogs: "No", gwCats: "Yes",
+    confirmed: "2026-06-05", urgent: false, urgencyNote: null, bonded: null, photos: 3,
+    medical: "", desc: "Gata de interior, esterilizada y desparasitada. Convive bien con las otras gatas de la casa de tránsito, pero con perros no: se esconde y deja de comer."
+  },
+  {
+    id: "m6p2", name: "Coco", shelter: "s4", species: "Dog", sex: "Male",
+    birth: "2025-11-01", basis: "ShelterGuess", size: "Medium", region: "Aragua",
+    sterilised: "No", gwChildren: "Unknown", gwDogs: "Unknown", gwCats: "Unknown",
+    confirmed: "2026-04-28", urgent: false, urgencyNote: null, bonded: null, photos: 1,
+    medical: "", desc: "Perro joven, sano, rescatado de la carretera vieja de Maracay."
+  },
+  {
+    id: "v9c3", name: "Pelusa", shelter: "s1", species: "Cat", sex: "Female",
+    birth: "2016-04-01", basis: "Documented", size: null, region: "Distrito Capital",
+    sterilised: "Yes", gwChildren: "Yes", gwDogs: "Unknown", gwCats: "Yes",
+    confirmed: "2026-08-28", urgent: false, urgencyNote: null, bonded: null, photos: 2,
+    medical: "Enfermedad renal crónica en etapa temprana; come alimento renal y va a control cada seis meses.",
+    desc: "Pelusa tiene diez años y pasa el día durmiendo en una ventana. Su familia la dejó cuando se mudó. Busca una casa tranquila donde la dejen envejecer en paz."
+  },
+  {
+    id: "h3n8", name: "Manchas", shelter: "s4", species: "Dog", sex: "Male",
+    birth: "2021-09-01", basis: "VetEstimate", size: "Giant", region: "Miranda",
+    sterilised: "Unknown", gwChildren: "No", gwDogs: "Yes", gwCats: "No",
+    confirmed: "2026-08-01", urgent: false, urgencyNote: null, bonded: null, photos: 2,
+    medical: "", desc: "Manchas es grande y fuerte, y no es un perro para una casa con niños pequeños: juega con el peso de un perro de cuarenta kilos y no lo mide. Con otros perros es excelente."
+  },
+  {
+    id: "j7r4", name: "Chispa", shelter: "s2", species: "Cat", sex: "Female",
+    birth: "2026-07-10", basis: "ShelterGuess", size: null, region: "Carabobo",
+    sterilised: "No", gwChildren: "Unknown", gwDogs: "Unknown", gwCats: "Unknown",
+    confirmed: "2026-09-02", urgent: false, urgencyNote: null, bonded: null, photos: 2,
+    medical: "", desc: "Gatica de dos meses, recién desparasitada."
+  },
+  {
+    id: "t5y2", name: "Toby", shelter: "s3", species: "Dog", sex: "Male",
+    birth: "2019-06-15", basis: "VetEstimate", size: "Small", region: "Mérida",
+    sterilised: "Yes", gwChildren: "Yes", gwDogs: "Unknown", gwCats: "Unknown",
+    confirmed: "2026-05-10", urgent: false, urgencyNote: null, bonded: null, photos: 2,
+    medical: "", desc: "Toby es pequeño, ladrador y muy cariñoso con la gente."
+  },
+  {
+    id: "n2b6", name: "Rayo", shelter: "s4", species: "Dog", sex: "Male",
+    birth: "2024-11-20", basis: "ShelterGuess", size: "Large", region: "Anzoátegui",
+    sterilised: "No", gwChildren: "Unknown", gwDogs: "Unknown", gwCats: "Unknown",
+    confirmed: "2026-08-25", urgent: true,
+    urgencyNote: "Sigue en la calle frente al mercado de Puerto La Cruz y ya lo atacaron dos veces. No tenemos cupo para recogerlo sin un hogar esperando.",
+    bonded: null, photos: 1, medical: "Herida cicatrizada en la pata trasera derecha.",
+    desc: "Rayo no está en el refugio: lo alimentamos en la calle todos los días. Es dócil con la gente que conoce."
+  },
+  {
+    id: "d8f1", name: "Mía", shelter: "s1", species: "Cat", sex: "Female",
+    birth: "2023-08-01", basis: "VetEstimate", size: null, region: "Lara",
+    sterilised: "Yes", gwChildren: "Unknown", gwDogs: "Unknown", gwCats: "Yes",
+    confirmed: "2026-07-02", urgent: false, urgencyNote: null, bonded: null, photos: 3,
+    medical: "", desc: "Mía está en un hogar de tránsito en Barquisimeto aunque el refugio es de Caracas. La entrega se hace allá."
+  }
+];
+
+/* =================================================================== *
+ * DERIVATION — nothing here is stored on the animal.
+ * =================================================================== */
+
+// ADR 0004: thresholds differ by species and live in code next to the derivation.
+const BAND_THRESHOLDS = {
+  Dog: [["Baby", 1], ["Young", 3], ["Adult", 8], ["Senior", Infinity]],
+  Cat: [["Baby", 1], ["Young", 3], ["Adult", 10], ["Senior", Infinity]]
+};
+
+const days = (from, to) => Math.floor((to - new Date(from + "T12:00:00Z")) / 86400000);
+const years = (birth) => days(birth, TODAY) / 365.25;
+
+function ageBand(a) {
+  const y = years(a.birth);
+  for (const [band, ceiling] of BAND_THRESHOLDS[a.species]) if (y < ceiling) return band;
+}
+
+// ADR 0001: derived at read time into display bands. The thresholds below are this
+// prototype's ASSUMPTION — ADR 0001 fixed the shape but never the numbers. 30 days is
+// where the confirmation nudge fires (#7); 90 is where a shelter is called dormant.
+const STALE_FRESH_DAYS = 30;
+const STALE_AGEING_DAYS = 90;
+function staleBand(a) {
+  const d = days(a.confirmed, TODAY);
+  return d <= STALE_FRESH_DAYS ? "fresh" : d <= STALE_AGEING_DAYS ? "ageing" : "stale";
+}
+
+// #11: matching is the INTERSECTION of safety axes and the UNION of descriptive ones.
+const intersectFlag = (vals) =>
+  vals.includes("No") ? "No" : vals.every((v) => v === "Yes") ? "Yes" : "Unknown";
+
+/* A listing row is either one animal or one bonded group. The digest emits one card
+   per group (#11) and so does the listing. */
+function rows() {
+  const seen = new Set();
+  const out = [];
+  for (const a of ANIMALS) {
+    if (!a.bonded) { out.push({ kind: "animal", a, members: [a] }); continue; }
+    if (seen.has(a.bonded)) continue;
+    seen.add(a.bonded);
+    const members = ANIMALS.filter((m) => m.bonded === a.bonded);
+    out.push({ kind: "group", a: members[0], members, groupId: a.bonded });
+  }
+  // ADR 0001: staleness changes sort order. Freshest first. Urgency is NOT a sort key —
+  // the cap is per shelter and the listing is cross-shelter, so urgency-first sorting
+  // would let a handful of shelters take over the first screen.
+  return out.sort((x, y) => days(x.a.confirmed, TODAY) - days(y.a.confirmed, TODAY));
+}
+
+function rowFlags(r) {
+  return {
+    gwChildren: intersectFlag(r.members.map((m) => m.gwChildren)),
+    gwDogs: intersectFlag(r.members.map((m) => m.gwDogs)),
+    gwCats: intersectFlag(r.members.map((m) => m.gwCats))
+  };
+}
+
+/* =================================================================== *
+ * COPY. es-VE is the default; en exists to show what the layout costs
+ * in the shorter language, not because English ships first.
+ *
+ * Spanish needs grammatical gender agreement driven by the animal's
+ * sex, so a flat string table is not enough — hence {m,f} pairs.
+ * =================================================================== */
+
+const G = (pair, sex) => (sex === "Female" ? pair[1] : pair[0]);
+
+const COPY = {
+  es: {
+    lang: "es-VE",
+    brand: "Pawster",
+    tagline: "Animales en adopción en Venezuela",
+    filters: "Filtros",
+    results: (n) => `${n} ${n === 1 ? "resultado" : "resultados"}`,
+    sortNote: "Orden: confirmados más recientemente primero",
+    // species + sex collapse into ONE Spanish word. English cannot do this.
+    speciesSex: { Dog: ["Perro", "Perra"], Cat: ["Gato", "Gata"] },
+    speciesPlural: { Dog: "perros", Cat: "gatos" },
+    band: {
+      Dog: { Baby: ["Cachorro", "Cachorra"], Young: ["Joven", "Joven"], Adult: ["Adulto", "Adulta"], Senior: ["Senior", "Senior"] },
+      Cat: { Baby: ["Gatito", "Gatica"], Young: ["Joven", "Joven"], Adult: ["Adulto", "Adulta"], Senior: ["Senior", "Senior"] }
+    },
+    bandPlural: { Baby: "cachorros", Young: "jóvenes", Adult: "adultos", Senior: "senior" },
+    size: { Small: ["Pequeño", "Pequeña"], Medium: ["Mediano", "Mediana"], Large: ["Grande", "Grande"], Giant: ["Gigante", "Gigante"] },
+    sexUnknown: "sexo no registrado",
+    sterilised: { Yes: ["Esterilizado", "Esterilizada"], No: ["Sin esterilizar", "Sin esterilizar"], Unknown: ["No se sabe", "No se sabe"] },
+    confirmedPrefix: ["Confirmado", "Confirmada"],
+    confirmedNeutral: "Última confirmación:",
+    byTheShelter: "por el refugio",
+    ago: {
+      today: "hoy", yesterday: "ayer",
+      days: (n) => `hace ${n} días`,
+      weeks: (n) => (n === 1 ? "hace 1 semana" : `hace ${n} semanas`),
+      months: (n) => (n === 1 ? "hace 1 mes" : `hace ${n} meses`)
+    },
+    maybeGone: "Puede que ya no esté disponible",
+    kids: "niños", dogs: "perros", cats: "gatos",
+    with: "Con", notWith: "No convive con",
+    unevaluated: (list) => `Sin evaluar: ${list}`,
+    unevaluatedAll: "Convivencia sin evaluar",
+    gwLabel: { Yes: "sí", No: "no", Unknown: "no se sabe" },
+    gwTitle: "Convivencia",
+    together: "Se adoptan juntos",
+    groupOf: (n, sp) => `${n} ${sp} que se adoptan juntos`,
+    andJoin: " y ",
+    urgent: "Urgente",
+    aboutAge: (t) => `unos ${t}`,
+    ageMonths: (n) => (n === 1 ? "1 mes" : `${n} meses`),
+    ageYears: (n) => (n === 1 ? "1 año" : `${n} años`),
+    basis: { Documented: "según documentos", VetEstimate: "estimada por veterinario", ShelterGuess: "estimada por el refugio" },
+    photoAlt: (n) => `Foto de ${n}`,
+    photosBlocked: "Foto no disponible",
+    // "refugio" is the only natural es-VE word for Shelter. CONTEXT.md lists it under
+    // _Avoid_, which governs the English codebase vocabulary, not user-facing Spanish.
+    shelter: "Refugio",
+    publishedBy: "Publicado por",
+    verified: "Refugio verificado",
+    dormantNotice: "Este refugio no ha entrado a la plataforma en más de 90 días. Sus animales siguen publicados, pero la respuesta puede tardar.",
+    factsTitle: "Datos",
+    fSpecies: "Especie", fAge: "Edad", fBand: "Etapa", fSize: "Tamaño adulto",
+    fSex: "Sexo", fRegion: "Dónde está", fSterilised: "Esterilización",
+    fMedical: "Salud", fConfirmed: "Última confirmación", fShelter: "Refugio",
+    sexLabel: { Male: "Macho", Female: "Hembra", Unknown: "No se sabe" },
+    speciesLabel: { Dog: "Perro", Cat: "Gato" },
+    aboutTitle: (n) => `Sobre ${n}`,
+    aboutGroup: "Sobre el grupo",
+    groupTitle: "Los tres del grupo",
+    groupNote: "Estos animales se adoptan juntos. Si adoptas a uno, adoptas a todos.",
+    contact: "Contactar al refugio",
+    contactVia: { WhatsApp: "Escribir por WhatsApp", Instagram: "Escribir por Instagram", Email: "Escribir un correo", Phone: "Llamar" },
+    contactShort: { WhatsApp: "WhatsApp", Instagram: "Instagram", Email: "Correo", Phone: "Teléfono" },
+    contactOther: "Otras formas de contacto",
+    contactSheetTitle: "¿Cómo prefieres escribirle?",
+    prefillNote: "El mensaje sale escrito así:",
+    prefill: (n, id) => `Hola, les escribo por ${n} (pawster.org/a/${id}). ¿Sigue disponible?`,
+    offPlatform: "La conversación sigue fuera de Pawster. No guardamos nada de lo que hablen.",
+    stillAvailable: "¿Ya no está disponible? Avísanos",
+    backToList: "Volver al listado",
+    more: (n) => `+${n}`
+  },
+  en: {
+    lang: "en",
+    brand: "Pawster",
+    tagline: "Animals for adoption in Venezuela",
+    filters: "Filters",
+    results: (n) => `${n} ${n === 1 ? "result" : "results"}`,
+    sortNote: "Sorted by most recently confirmed",
+    speciesSex: { Dog: ["Dog", "Dog"], Cat: ["Cat", "Cat"] },
+    speciesPlural: { Dog: "dogs", Cat: "cats" },
+    band: {
+      Dog: { Baby: ["Puppy", "Puppy"], Young: ["Young", "Young"], Adult: ["Adult", "Adult"], Senior: ["Senior", "Senior"] },
+      Cat: { Baby: ["Kitten", "Kitten"], Young: ["Young", "Young"], Adult: ["Adult", "Adult"], Senior: ["Senior", "Senior"] }
+    },
+    bandPlural: { Baby: "puppies", Young: "young", Adult: "adults", Senior: "senior" },
+    size: { Small: ["Small", "Small"], Medium: ["Medium", "Medium"], Large: ["Large", "Large"], Giant: ["Giant", "Giant"] },
+    sexUnknown: "sex not recorded",
+    sterilised: { Yes: ["Neutered", "Spayed"], No: ["Not neutered", "Not spayed"], Unknown: ["Not known", "Not known"] },
+    confirmedPrefix: ["Confirmed", "Confirmed"],
+    confirmedNeutral: "Last confirmed:",
+    byTheShelter: "by the shelter",
+    ago: {
+      today: "today", yesterday: "yesterday",
+      days: (n) => `${n} days ago`,
+      weeks: (n) => (n === 1 ? "1 week ago" : `${n} weeks ago`),
+      months: (n) => (n === 1 ? "1 month ago" : `${n} months ago`)
+    },
+    maybeGone: "May no longer be available",
+    kids: "children", dogs: "dogs", cats: "cats",
+    with: "Good with", notWith: "Not good with",
+    unevaluated: (list) => `Not assessed: ${list}`,
+    unevaluatedAll: "Not assessed with children, dogs or cats",
+    gwLabel: { Yes: "yes", No: "no", Unknown: "not known" },
+    gwTitle: "Lives with",
+    together: "Adopted together",
+    groupOf: (n, sp) => `${n} ${sp} adopted together`,
+    andJoin: " and ",
+    urgent: "Urgent",
+    aboutAge: (t) => `about ${t}`,
+    ageMonths: (n) => (n === 1 ? "1 month" : `${n} months`),
+    ageYears: (n) => (n === 1 ? "1 year" : `${n} years`),
+    basis: { Documented: "from documents", VetEstimate: "vet estimate", ShelterGuess: "shelter estimate" },
+    photoAlt: (n) => `Photo of ${n}`,
+    photosBlocked: "Photo unavailable",
+    shelter: "Shelter",
+    publishedBy: "Published by",
+    verified: "Verified shelter",
+    dormantNotice: "This shelter has not signed in for more than 90 days. Its animals are still listed, but a reply may take longer.",
+    factsTitle: "Facts",
+    fSpecies: "Species", fAge: "Age", fBand: "Life stage", fSize: "Adult size",
+    fSex: "Sex", fRegion: "Where they are", fSterilised: "Neutered",
+    fMedical: "Health", fConfirmed: "Last confirmed", fShelter: "Shelter",
+    sexLabel: { Male: "Male", Female: "Female", Unknown: "Not known" },
+    speciesLabel: { Dog: "Dog", Cat: "Cat" },
+    aboutTitle: (n) => `About ${n}`,
+    aboutGroup: "About the group",
+    groupTitle: "The three in the group",
+    groupNote: "These animals are adopted together. Adopt one and you adopt all of them.",
+    contact: "Contact the shelter",
+    contactVia: { WhatsApp: "Message on WhatsApp", Instagram: "Message on Instagram", Email: "Send an email", Phone: "Call" },
+    contactShort: { WhatsApp: "WhatsApp", Instagram: "Instagram", Email: "Email", Phone: "Phone" },
+    contactOther: "Other ways to get in touch",
+    contactSheetTitle: "How would you rather write?",
+    prefillNote: "The message arrives written like this:",
+    prefill: (n, id) => `Hi, I am writing about ${n} (pawster.org/a/${id}). Is she still available?`,
+    offPlatform: "The conversation continues off Pawster. We keep nothing of what you say.",
+    stillAvailable: "No longer available? Tell us",
+    backToList: "Back to the list",
+    more: (n) => `+${n}`
+  }
+};
+
+/* --- derived copy helpers ------------------------------------------ */
+
+function agoText(t, dateStr) {
+  const d = days(dateStr, TODAY);
+  if (d <= 0) return t.ago.today;
+  if (d === 1) return t.ago.yesterday;
+  if (d < 7) return t.ago.days(d);
+  if (d < 35) return t.ago.weeks(Math.round(d / 7));
+  return t.ago.months(Math.round(d / 30));
+}
+
+function ageText(t, a) {
+  const y = years(a.birth);
+  const txt = y < 1.5 ? t.ageMonths(Math.max(1, Math.round(y * 12))) : t.ageYears(Math.round(y));
+  return a.basis === "Documented" ? txt : t.aboutAge(txt);
+}
+
+/* The card's headline meta line. In Spanish "Perra" carries species AND sex in one
+   word, so the same line costs one token less than in English. */
+function metaLine(t, a) {
+  const band = ageBand(a);
+  const bandWord = G(t.band[a.species][band], a.sex);
+  const speciesWord = G(t.speciesSex[a.species], a.sex);
+  // The Baby band word is itself a species noun in both languages — "cachorra",
+  // "gatica", "puppy", "kitten" — so pairing it with the species word double-names
+  // the animal ("Gata gatica"). For that band the band word replaces the species word.
+  const head = band === "Baby" ? bandWord
+    : t.lang === "en" ? bandWord + " " + speciesWord.toLowerCase()
+    : speciesWord + " " + bandWord.toLowerCase();
+  const parts = [head];
+  if (a.size) parts.push(G(t.size[a.size], a.sex));
+  if (t.lang === "en" && a.sex !== "Unknown") parts.push(t.sexLabel[a.sex]);
+  if (a.sex === "Unknown") parts.push(t.sexUnknown);
+  return parts.join(" · ");
+}
+
+/* Composition of a bonded group: a count, a species and the spread of age bands.
+   NOT per-member attributes — that is what turns a card into a second listing page. */
+function groupComposition(t, r) {
+  const n = r.members.length;
+  const sp = t.speciesPlural[r.a.species];
+  const bands = {};
+  for (const m of r.members) { const b = ageBand(m); bands[b] = (bands[b] || 0) + 1; }
+  const spread = Object.entries(bands)
+    .map(([b, c]) => `${c} ${c === 1 ? G(t.band[r.a.species][b], "Female").toLowerCase() : t.bandPlural[b]}`)
+    .join(t.andJoin);
+  return { head: t.groupOf(n, sp), spread, names: nameList(t, r.members.map((m) => m.name)) };
+}
+
+function nameList(t, names) {
+  if (names.length === 1) return names[0];
+  return names.slice(0, -1).join(", ") + t.andJoin + names[names.length - 1];
+}
+
+/* =================================================================== *
+ * PLACEHOLDER PHOTOS. Deterministic SVG data URIs. These test size and
+ * position on the card, NOT whether a real photo out-pulls the text.
+ * =================================================================== */
+const PALETTES = [
+  ["#d8c3a5", "#8a6f4e"], ["#c8d3dd", "#6d7f93"], ["#e0cbb6", "#9a7355"],
+  ["#cdd8c6", "#6f8465"], ["#e3d1cd", "#9b6f6a"], ["#d3cde3", "#726a94"]
+];
+function photoURI(seedStr, w, h, species) {
+  let s = 0; for (const ch of seedStr) s = (s * 31 + ch.charCodeAt(0)) % 997;
+  const [bg, fg] = PALETTES[s % PALETTES.length];
+  const cx = w * 0.5, cy = h * 0.56, R = Math.min(w, h) * 0.21;
+  const ear = species === "Cat"
+    ? `<path d="M${cx - R * 1.05} ${cy - R * .55} L${cx - R * 1.25} ${cy - R * 1.9} L${cx - R * .2} ${cy - R * .95} Z" fill="${fg}"/>
+       <path d="M${cx + R * 1.05} ${cy - R * .55} L${cx + R * 1.25} ${cy - R * 1.9} L${cx + R * .2} ${cy - R * .95} Z" fill="${fg}"/>`
+    : `<ellipse cx="${cx - R * 1.05}" cy="${cy - R * .35}" rx="${R * .34}" ry="${R * .72}" fill="${fg}"/>
+       <ellipse cx="${cx + R * 1.05}" cy="${cy - R * .35}" rx="${R * .34}" ry="${R * .72}" fill="${fg}"/>`;
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+      <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="${bg}"/><stop offset="1" stop-color="${fg}" stop-opacity=".55"/>
+      </linearGradient></defs>
+      <rect width="${w}" height="${h}" fill="url(#g)"/>
+      <ellipse cx="${cx}" cy="${h * 1.02}" rx="${R * 2.3}" ry="${R * 1.5}" fill="${fg}" opacity=".85"/>
+      ${ear}<circle cx="${cx}" cy="${cy}" r="${R}" fill="${fg}"/>
+      <circle cx="${cx}" cy="${cy + R * .28}" r="${R * .17}" fill="${bg}" opacity=".8"/>
+    </svg>`.replace(/\s+/g, " ");
+  return "data:image/svg+xml," + encodeURIComponent(svg);
+}
+
+/* =================================================================== *
+ * STATE
+ * =================================================================== */
+const VARIANTS = {
+  listado: [
+    { key: "A", name: "Mosaico 2×", note: "Two cards per row, tall photo. Tests whether a gallery survives when the meta is what decides. The four things the ticket asks about have nowhere to go." },
+    { key: "B", name: "Tarjeta ancha", note: "One full-width photo card per row with the whole meta stack. Room for everything; costs photo bytes and scroll." },
+    { key: "C", name: "Filas", note: "96px thumbnail left, text right — the shape #15 chose for the digest. Densest and cheapest; the photo stops doing the persuading." }
+  ],
+  ficha: [
+    { key: "A", name: "Galería primero", note: "Swipeable photo strip, then chips, facts, description, contact at the very end." },
+    { key: "B", name: "Datos primero", note: "One photo, then the facts as a list, then the description. Sticky contact bar." },
+    { key: "C", name: "Héroe + CTA fija", note: "Full-bleed hero with the name over it, description first, facts folded away, contact always on screen." }
+  ]
+};
+const SCREENS = [{ key: "listado", name: "Listado" }, { key: "ficha", name: "Ficha" }];
+const FICHA_CASES = [
+  { key: "luna", id: "7f3k", name: "Luna — normal" },
+  { key: "simon", id: "q8w1", name: "Simón — urgente" },
+  { key: "grupo", id: "k4t7", name: "Mora — grupo" },
+  { key: "coco", id: "m6p2", name: "Coco — el peor caso" }
+];
+
+const OPTS = {
+  screen: { list: SCREENS.map((s) => s.key), def: "listado" },
+  variant: { list: ["A", "B", "C"], def: "B" },
+  animal: { list: FICHA_CASES.map((c) => c.key), def: "luna" },
+  stale: { list: ["uniforme", "insignia", "ficha"], def: "uniforme" },
+  goodwith: { list: ["tres-chips", "graduada", "solo-conocido"], def: "graduada" },
+  bonded: { list: ["tira", "apilada", "texto"], def: "tira" },
+  urgency: { list: ["chip", "banner", "ficha"], def: "chip" },
+  cta: { list: ["principal", "fila", "hoja"], def: "principal" },
+  locale: { list: ["es", "en"], def: "es" },
+  vw: { list: ["320", "360", "390", "430"], def: "360" },
+  img: { list: ["cargadas", "cargando", "bloqueadas"], def: "cargadas" },
+  theme: { list: ["claro", "oscuro"], def: "claro" }
+};
+
+const state = {};
+function readURL() {
+  const q = new URLSearchParams(location.search);
+  for (const [k, o] of Object.entries(OPTS)) {
+    const v = q.get(k);
+    state[k] = o.list.includes(v) ? v : o.def;
+  }
+}
+function writeURL() {
+  const q = new URLSearchParams();
+  for (const [k, o] of Object.entries(OPTS)) if (state[k] !== o.def) q.set(k, state[k]);
+  history.replaceState(null, "", location.pathname + (q.toString() ? "?" + q : ""));
+}
+
+/* =================================================================== *
+ * PAGE CSS — one token set, two themes. Shared by every variant; each
+ * variant is free to throw out the layout, not the palette.
+ * =================================================================== */
+function pageCSS() {
+  return `
+  :root {
+    --ink:#191b1f; --ink2:#5b6270; --ink3:#868d9b; --bg:#ffffff; --bg2:#f5f6f8;
+    --line:#e3e6ea; --brand:#1f6d4f; --brand-ink:#ffffff; --chip:#eef1f4; --chip-ink:#3d444f;
+    --warn-bg:#fdf1e3; --warn-ink:#8a4f11; --warn-line:#f0d5b0;
+    --alert-bg:#fdeceb; --alert-ink:#96261c; --alert-line:#f2c8c4;
+    --ok-bg:#e9f4ee; --ok-ink:#1c5b3f;
+    --skel:#e8eaee;
+  }
+  [data-theme="oscuro"] {
+    --ink:#e9ebef; --ink2:#a3aab8; --ink3:#7d8493; --bg:#14161a; --bg2:#1b1e24;
+    --line:#2a2e36; --brand:#3f9c74; --brand-ink:#08110d; --chip:#22262d; --chip-ink:#c2c8d3;
+    --warn-bg:#2c2314; --warn-ink:#e3b472; --warn-line:#463a1c;
+    --alert-bg:#2e1a18; --alert-ink:#e79a92; --alert-line:#4a2723;
+    --ok-bg:#16281f; --ok-ink:#79c2a0; --skel:#23272e;
+  }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; }
+  body {
+    background:var(--bg); color:var(--ink);
+    font:15px/1.45 -apple-system, "Segoe UI", Roboto, system-ui, sans-serif;
+    padding-bottom:24px;
+  }
+  a { color:inherit; text-decoration:none; }
+  /* height:auto is load-bearing: without it an <img> carrying width/height attributes
+     ignores the aspect-ratio on .ph and renders at its intrinsic height. The width/height
+     attributes stay, because they are what reserves the box before the bytes arrive. */
+  img { display:block; max-width:100%; height:auto; }
+  img.ph { width:100%; object-fit:cover; }
+  .sr { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); }
+
+  /* --- shared chrome. A shared header is fine; a shared layout is not. --- */
+  .top {
+    position:sticky; top:0; z-index:9; background:var(--bg);
+    border-bottom:1px solid var(--line);
+  }
+  .top .brandrow { display:flex; align-items:center; justify-content:space-between; padding:9px 12px 7px; }
+  .top .brand { font-weight:800; font-size:16px; letter-spacing:-.01em; }
+  .top .brand span { color:var(--brand); }
+  .top .lang { font-size:11px; color:var(--ink2); border:1px solid var(--line); border-radius:99px; padding:2px 8px; }
+  .filterrow { display:flex; gap:6px; padding:0 12px 9px; overflow-x:auto; scrollbar-width:none; }
+  .filterrow::-webkit-scrollbar { display:none; }
+  .fbtn {
+    flex:none; font:inherit; font-size:12.5px; font-weight:600; border:1px solid var(--ink);
+    background:var(--ink); color:var(--bg); border-radius:99px; padding:5px 11px;
+  }
+  .fchip {
+    flex:none; font-size:12.5px; border:1px solid var(--line); background:var(--chip);
+    color:var(--chip-ink); border-radius:99px; padding:5px 9px 5px 11px; white-space:nowrap;
+  }
+  .fchip b { font-weight:600; }
+  .fchip i { font-style:normal; color:var(--ink3); margin-left:5px; }
+  .countrow { padding:9px 12px 4px; font-size:12px; color:var(--ink2); }
+  .countrow b { color:var(--ink); font-size:13px; display:block; }
+
+  /* --- pieces every variant may use --------------------------------- */
+  .ph { background:var(--skel); position:relative; overflow:hidden; }
+  .ph.blocked::after {
+    content:attr(data-alt); position:absolute; inset:0; display:flex; align-items:center;
+    justify-content:center; text-align:center; padding:8px; font-size:11px; color:var(--ink3);
+    background:var(--bg2); border:1px dashed var(--line);
+  }
+  .name { font-weight:700; letter-spacing:-.01em; }
+  .meta { color:var(--ink2); font-size:13px; }
+  .prov { color:var(--ink3); font-size:12px; }
+  .prov.ageing { color:var(--warn-ink); }
+  .prov.stale { color:var(--warn-ink); }
+  .badge-gone {
+    display:inline-block; font-size:11.5px; font-weight:600; padding:2px 7px; border-radius:4px;
+    background:var(--warn-bg); color:var(--warn-ink); border:1px solid var(--warn-line);
+  }
+  .urg-chip {
+    display:inline-block; font-size:11px; font-weight:800; letter-spacing:.04em; text-transform:uppercase;
+    padding:2px 6px; border-radius:4px; background:var(--alert-bg); color:var(--alert-ink);
+    border:1px solid var(--alert-line); vertical-align:2px;
+  }
+  .urg-banner {
+    background:var(--alert-bg); border:1px solid var(--alert-line); color:var(--alert-ink);
+    border-radius:7px; padding:7px 9px; font-size:12.5px; margin-top:6px;
+  }
+  .urg-banner b { display:block; font-size:11px; letter-spacing:.04em; text-transform:uppercase; }
+  .gw { display:flex; flex-wrap:wrap; gap:4px; font-size:12px; margin-top:5px; }
+  .gw .y { background:var(--ok-bg); color:var(--ok-ink); padding:2px 7px; border-radius:4px; font-weight:600; }
+  .gw .n { background:var(--alert-bg); color:var(--alert-ink); padding:2px 7px; border-radius:4px; font-weight:600; border:1px solid var(--alert-line); }
+  .gw .u { background:var(--chip); color:var(--ink3); padding:2px 7px; border-radius:4px; }
+  .gw .flat { color:var(--ink3); padding:2px 0; }
+  .bond {
+    display:inline-flex; align-items:center; gap:5px; font-size:11.5px; font-weight:700;
+    background:var(--chip); color:var(--chip-ink); border-radius:4px; padding:2px 7px;
+  }
+  .bondline { font-size:12.5px; color:var(--ink2); margin-top:4px; display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+
+  /* --- A: mosaico ---------------------------------------------------- */
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:9px; padding:8px 12px 0; }
+  .gcard { border:1px solid var(--line); border-radius:11px; overflow:hidden; background:var(--bg); }
+  .gcard .ph { aspect-ratio:4/5; }
+  .gcard .body { padding:7px 8px 9px; }
+  .gcard .name { font-size:15px; }
+  .gcard .meta { font-size:11.5px; line-height:1.3; margin-top:1px; }
+  .gcard .prov { font-size:11px; margin-top:3px; }
+  .gcard .gw { font-size:10.5px; gap:3px; margin-top:4px; }
+  .gcard .gw span { padding:1px 5px; }
+  .gcard .bondline { font-size:11px; }
+  .gcard .photostrip { display:grid; grid-template-columns:repeat(3,1fr); gap:2px; }
+  .gcard .photostrip .ph { aspect-ratio:1; }
+
+  /* --- B: tarjeta ancha ---------------------------------------------- */
+  .stack { padding:8px 12px 0; display:flex; flex-direction:column; gap:12px; }
+  .wcard { border:1px solid var(--line); border-radius:13px; overflow:hidden; background:var(--bg); }
+  .wcard .ph { aspect-ratio:4/3; }
+  /* Base strip, so it also works on the animal page and not only inside .wcard. */
+  .photostrip { display:grid; grid-template-columns:2fr 1fr; gap:2px; }
+  .photostrip .side { display:grid; grid-template-rows:1fr 1fr; gap:2px; }
+  .photostrip .ph { aspect-ratio:auto; height:100%; min-height:0; }
+  .photostrip .main { aspect-ratio:1/1; }
+  .wcard .stacked { position:relative; }
+  .wcard .stacked .plus {
+    position:absolute; right:8px; bottom:8px; background:rgba(0,0,0,.62); color:#fff;
+    font-size:12px; font-weight:700; padding:3px 8px; border-radius:99px;
+  }
+  .wcard .body { padding:9px 11px 11px; }
+  .wcard .namerow { display:flex; align-items:baseline; gap:7px; flex-wrap:wrap; }
+  .wcard .name { font-size:18px; }
+  .wcard .meta { margin-top:1px; }
+  .wcard .prov { margin-top:3px; }
+
+  /* --- C: filas -------------------------------------------------------*/
+  .rowsw { padding:0 0 0; }
+  .rcard { display:flex; gap:10px; padding:11px 12px; border-bottom:1px solid var(--line); align-items:flex-start; }
+  .rcard .ph { width:96px; height:96px; flex:none; border-radius:9px; }
+  .rcard .photostrip { width:96px; flex:none; display:grid; grid-template-columns:1fr 1fr; gap:2px; }
+  .rcard .photostrip .ph { width:auto; height:47px; border-radius:5px; }
+  .rcard .rbody { min-width:0; flex:1; }
+  .rcard .name { font-size:16px; }
+  .rcard .meta { font-size:12.5px; }
+  .rcard .prov { margin-top:2px; }
+
+  /* --- ficha: shared pieces ------------------------------------------ */
+  .back { display:flex; align-items:center; gap:6px; padding:9px 12px; font-size:13px; color:var(--ink2); }
+  .h1 { font-size:24px; font-weight:800; letter-spacing:-.02em; margin:0; }
+  .pad { padding:0 12px; }
+  .sec { padding:14px 12px; border-top:1px solid var(--line); }
+  .sec h2 { font-size:11px; text-transform:uppercase; letter-spacing:.09em; color:var(--ink3); margin:0 0 8px; }
+  .desc { font-size:14.5px; line-height:1.55; color:var(--ink); white-space:pre-line; }
+  dl.facts { margin:0; display:grid; grid-template-columns:auto 1fr; gap:6px 12px; font-size:13.5px; }
+  dl.facts dt { color:var(--ink2); }
+  dl.facts dd { margin:0; font-weight:600; }
+  dl.facts dd small { font-weight:400; color:var(--ink3); }
+  .gallery { display:flex; gap:6px; overflow-x:auto; scroll-snap-type:x mandatory; padding:0 12px; scrollbar-width:none; }
+  .gallery::-webkit-scrollbar { display:none; }
+  .gallery .ph { flex:none; width:calc(100% - 34px); aspect-ratio:4/3; border-radius:11px; scroll-snap-align:center; }
+  .hero { position:relative; }
+  .hero .ph { aspect-ratio:1/1; }
+  .hero .over {
+    position:absolute; left:0; right:0; bottom:0; padding:34px 12px 12px; color:#fff;
+    background:linear-gradient(transparent,rgba(0,0,0,.72));
+  }
+  .hero .over .h1 { color:#fff; }
+  .hero .over .meta { color:rgba(255,255,255,.9); }
+  .dots { display:flex; gap:4px; justify-content:center; padding:8px 0 0; }
+  .dots i { width:5px; height:5px; border-radius:99px; background:var(--line); }
+  .dots i.on { background:var(--ink3); }
+  details.acc { border-top:1px solid var(--line); }
+  details.acc summary { padding:13px 12px; font-weight:600; font-size:14px; list-style:none; display:flex; justify-content:space-between; }
+  details.acc summary::-webkit-details-marker { display:none; }
+  details.acc summary::after { content:"+"; color:var(--ink3); }
+  details.acc[open] summary::after { content:"–"; }
+  details.acc .inner { padding:0 12px 14px; }
+  .shelterbox { border:1px solid var(--line); border-radius:11px; padding:11px; }
+  .shelterbox .snm { font-weight:700; }
+  .shelterbox .ver { font-size:12px; color:var(--ok-ink); background:var(--ok-bg); display:inline-block; padding:1px 7px; border-radius:4px; margin-top:4px; }
+  .dormant { margin-top:8px; font-size:12.5px; background:var(--warn-bg); color:var(--warn-ink); border:1px solid var(--warn-line); border-radius:7px; padding:8px 9px; }
+  .provbox {
+    display:flex; gap:8px; align-items:flex-start; font-size:13px; color:var(--ink2);
+    background:var(--bg2); border-radius:9px; padding:9px 10px;
+  }
+  .provbox.ageing, .provbox.stale { background:var(--warn-bg); color:var(--warn-ink); }
+  .groupmembers { display:flex; flex-direction:column; gap:9px; }
+  .gm { display:flex; gap:9px; align-items:center; }
+  .gm .ph { width:56px; height:56px; border-radius:8px; flex:none; }
+  .gm .gnm { font-weight:700; font-size:14px; }
+  .gm .meta { font-size:12px; }
+
+  /* --- contact -------------------------------------------------------- */
+  .cta-primary {
+    display:block; width:100%; text-align:center; background:var(--brand); color:var(--brand-ink);
+    font:inherit; font-size:16px; font-weight:700; border:0; border-radius:11px; padding:14px 12px;
+  }
+  .cta-secondaries { display:flex; gap:7px; margin-top:8px; }
+  .cta-secondaries a {
+    flex:1; text-align:center; border:1px solid var(--line); border-radius:9px; padding:9px 4px;
+    font-size:12.5px; font-weight:600; color:var(--ink2); background:var(--bg);
+  }
+  .cta-row { display:grid; gap:7px; grid-template-columns:1fr 1fr; }
+  .cta-row a {
+    text-align:center; border:1px solid var(--brand); color:var(--brand); border-radius:10px;
+    padding:12px 6px; font-size:13.5px; font-weight:700;
+  }
+  .cta-row a.only { grid-column:1 / -1; background:var(--brand); color:var(--brand-ink); }
+  .sheet { border:1px solid var(--line); border-radius:12px; overflow:hidden; margin-top:8px; }
+  .sheet .st { padding:10px 12px; font-size:12.5px; color:var(--ink2); background:var(--bg2); }
+  .sheet a { display:flex; justify-content:space-between; gap:10px; padding:12px; border-top:1px solid var(--line); font-size:14px; font-weight:600; }
+  .sheet a small { font-weight:400; color:var(--ink3); }
+  .prefill { margin-top:9px; font-size:12px; color:var(--ink3); }
+  .prefill q { display:block; margin-top:3px; color:var(--ink2); background:var(--bg2); border-radius:8px; padding:8px 9px; font-style:italic; }
+  .offnote { font-size:11.5px; color:var(--ink3); margin-top:9px; }
+  .ghost { display:block; text-align:center; font-size:12.5px; color:var(--ink3); margin-top:14px; text-decoration:underline; }
+  .stickybar {
+    position:sticky; bottom:0; z-index:8; background:var(--bg); border-top:1px solid var(--line);
+    padding:10px 12px calc(10px + env(safe-area-inset-bottom));
+  }
+  `;
+}
+
+/* =================================================================== *
+ * RENDER: shared fragments
+ * =================================================================== */
+function t() { return COPY[state.locale]; }
+
+function phImg(seed, w, h, species, alt, cls) {
+  const T = t();
+  if (state.img === "bloqueadas")
+    return `<div class="ph blocked ${cls || ""}" data-alt="${T.photosBlocked}" style="aspect-ratio:${w}/${h}"></div>`;
+  if (state.img === "cargando")
+    return `<div class="ph ${cls || ""}" style="aspect-ratio:${w}/${h}"></div>`;
+  return `<img class="ph ${cls || ""}" src="${photoURI(seed, w, h, species)}" width="${w}" height="${h}" alt="${alt}">`;
+}
+
+/* Staleness. The uniform treatment prints the SAME line on every card, fresh included —
+   which is the point: if the line only appears when there is a problem, its presence
+   is the warning. */
+function provFragment(r, opts) {
+  const T = t(), band = staleBand(r.a);
+  if (state.stale === "ficha") return "";
+  if (state.stale === "insignia")
+    return band === "fresh" ? "" : `<div style="margin-top:4px"><span class="badge-gone">${T.maybeGone}</span></div>`;
+  const region = opts && opts.withRegion ? r.a.region + " · " : "";
+  const line = `${G(T.confirmedPrefix, r.a.sex)} ${agoText(T, r.a.confirmed)}`;
+  return `<div class="prov ${band}">${region}${line}</div>`;
+}
+
+/* Good-with. Three visual weights, not one tri-state chip row:
+   a known Yes is quiet and positive, a known No is a safety fact that must stay legible,
+   and the Unknowns collapse into one named line. */
+function gwFragment(r) {
+  const T = t(), f = rowFlags(r);
+  const axes = [["gwChildren", T.kids], ["gwDogs", T.dogs], ["gwCats", T.cats]];
+
+  if (state.goodwith === "tres-chips") {
+    return `<div class="gw">` + axes.map(([k, label]) => {
+      const v = f[k], cls = v === "Yes" ? "y" : v === "No" ? "n" : "u";
+      return `<span class="${cls}">${label}: ${T.gwLabel[v]}</span>`;
+    }).join("") + `</div>`;
+  }
+
+  const yes = axes.filter(([k]) => f[k] === "Yes").map(([, l]) => l);
+  const no = axes.filter(([k]) => f[k] === "No").map(([, l]) => l);
+  const unk = axes.filter(([k]) => f[k] === "Unknown").map(([, l]) => l);
+
+  if (state.goodwith === "solo-conocido") {
+    if (!yes.length && !no.length) return "";
+    return `<div class="gw">`
+      + no.map((l) => `<span class="n">${T.notWith} ${l}</span>`).join("")
+      + (yes.length ? `<span class="y">${T.with} ${nameList(T, yes)}</span>` : "")
+      + `</div>`;
+  }
+
+  // graduada
+  if (unk.length === 3) return `<div class="gw"><span class="flat">${T.unevaluatedAll}</span></div>`;
+  return `<div class="gw">`
+    + no.map((l) => `<span class="n">${T.notWith} ${l}</span>`).join("")
+    + (yes.length ? `<span class="y">${T.with} ${nameList(T, yes)}</span>` : "")
+    + (unk.length ? `<span class="flat">${T.unevaluated(nameList(T, unk))}</span>` : "")
+    + `</div>`;
+}
+
+function urgFragment(r, where) {
+  const T = t();
+  if (!r.a.urgent) return "";
+  if (state.urgency === "ficha") return "";
+  if (state.urgency === "chip") return where === "chip" ? `<span class="urg-chip">${T.urgent}</span>` : "";
+  if (state.urgency === "banner" && where === "block")
+    return `<div class="urg-banner"><b>${T.urgent}</b>${r.a.urgencyNote}</div>`;
+  return "";
+}
+
+function bondFragment(r) {
+  const T = t();
+  if (r.kind !== "group") return "";
+  const c = groupComposition(T, r);
+  // The card heading already lists the names, so the composition line carries only the
+  // shape of the group — a count and the spread of age bands. Repeating the names here
+  // is what starts turning the card into a second listing page.
+  return `<div class="bondline"><span class="bond">⚭ ${T.together}</span>
+          <span>${r.members.length} ${T.speciesPlural[r.a.species]} · ${c.spread}</span></div>`;
+}
+
+function cardPhotos(r, w, h, shape) {
+  const T = t(), m = r.members;
+  if (r.kind !== "group" || state.bonded === "texto" || m.length < 2)
+    return phImg(r.a.id, w, h, r.a.species, T.photoAlt(r.a.name));
+
+  if (state.bonded === "apilada")
+    return `<div class="stacked">${phImg(r.a.id, w, h, r.a.species, T.photoAlt(r.a.name))}
+            <span class="plus">${T.more(m.length - 1)}</span></div>`;
+
+  // tira — a strip of member photos. Reads immediately as "more than one animal",
+  // which is the surprise the card exists to prevent.
+  if (shape === "wide")
+    return `<div class="photostrip">
+      ${phImg(m[0].id, 400, 400, m[0].species, T.photoAlt(m[0].name), "main")}
+      <div class="side">${m.slice(1, 3).map((x) => phImg(x.id, 200, 200, x.species, T.photoAlt(x.name))).join("")}</div>
+    </div>`;
+  return `<div class="photostrip">${m.slice(0, shape === "row" ? 4 : 3)
+    .map((x) => phImg(x.id, 200, 200, x.species, T.photoAlt(x.name))).join("")}</div>`;
+}
+
+function chrome(count) {
+  const T = t();
+  return `<div class="top">
+    <div class="brandrow">
+      <div class="brand">Paw<span>ster</span></div>
+      <div class="lang">${state.locale === "es" ? "ES" : "EN"}</div>
+    </div>
+    <div class="filterrow">
+      <button class="fbtn">${T.filters} (2)</button>
+      <span class="fchip"><b>${T.speciesLabel.Dog}</b><i>×</i></span>
+      <span class="fchip"><b>Miranda, Distrito Capital</b><i>×</i></span>
+      <span class="fchip"><b>${T.gwTitle}: ${T.cats}</b><i>×</i></span>
+    </div>
+  </div>
+  <div class="countrow"><b>${T.results(count)}</b><span>${T.sortNote}</span></div>`;
+}
+
+/* =================================================================== *
+ * LISTING VARIANTS
+ * =================================================================== */
+function listadoA(rs) {           // Mosaico 2×
+  const T = t();
+  return chrome(rs.length) + `<div class="grid">` + rs.map((r) => `
+    <a class="gcard" href="#">
+      ${cardPhotos(r, 344, 430, "grid")}
+      <div class="body">
+        <div class="name">${r.kind === "group" ? nameList(T, r.members.map((m) => m.name)) : r.a.name} ${urgFragment(r, "chip")}</div>
+        <div class="meta">${metaLine(T, r.a)}</div>
+        <div class="meta">${r.a.region}</div>
+        ${provFragment(r)}
+        ${bondFragment(r)}
+        ${gwFragment(r)}
+        ${urgFragment(r, "block")}
+      </div>
+    </a>`).join("") + `</div>`;
+}
+
+function listadoB(rs) {           // Tarjeta ancha
+  const T = t();
+  return chrome(rs.length) + `<div class="stack">` + rs.map((r) => `
+    <a class="wcard" href="#">
+      ${cardPhotos(r, 688, 516, "wide")}
+      <div class="body">
+        <div class="namerow">
+          <span class="name">${r.kind === "group" ? nameList(T, r.members.map((m) => m.name)) : r.a.name}</span>
+          ${urgFragment(r, "chip")}
+        </div>
+        <div class="meta">${metaLine(T, r.a)}</div>
+        ${provFragment(r, { withRegion: true })}
+        ${state.stale === "uniforme" ? "" : `<div class="meta">${r.a.region}</div>`}
+        ${bondFragment(r)}
+        ${gwFragment(r)}
+        ${urgFragment(r, "block")}
+      </div>
+    </a>`).join("") + `</div>`;
+}
+
+function listadoC(rs) {           // Filas
+  const T = t();
+  return chrome(rs.length) + `<div class="rowsw">` + rs.map((r) => `
+    <a class="rcard" href="#">
+      ${cardPhotos(r, 192, 192, "row")}
+      <div class="rbody">
+        <div class="name">${r.kind === "group" ? nameList(T, r.members.map((m) => m.name)) : r.a.name} ${urgFragment(r, "chip")}</div>
+        <div class="meta">${metaLine(T, r.a)}</div>
+        ${provFragment(r, { withRegion: true })}
+        ${state.stale === "uniforme" ? "" : `<div class="meta">${r.a.region}</div>`}
+        ${bondFragment(r)}
+        ${gwFragment(r)}
+        ${urgFragment(r, "block")}
+      </div>
+    </a>`).join("") + `</div>`;
+}
+
+/* =================================================================== *
+ * ANIMAL PAGE
+ * =================================================================== */
+/* A sticky bar carries the primary button and nothing else. Measured: putting the
+   secondary row, the prefill preview and the off-platform line in the sticky bar cost
+   250px of a 760px viewport — a third of the screen permanently gone. */
+function contactBar(a) {
+  const T = t(), cs = SHELTERS[a.shelter].contacts;
+  return `<a class="cta-primary" href="${cs[0].href}">${T.contactVia[cs[0].type]}</a>`;
+}
+
+/* The in-flow half of the sticky pattern: everything EXCEPT the primary button, which
+   the sticky bar already carries. Repeating the button here just stacks two identical
+   buttons at the foot of the page. */
+function contactDetails(a, r) {
+  const T = t(), cs = SHELTERS[a.shelter].contacts;
+  return `${cs.length > 1 ? `<h2>${T.contactOther}</h2>
+      <div class="cta-secondaries">${cs.slice(1).map((c) =>
+        `<a href="${c.href}">${T.contactShort[c.type]}</a>`).join("")}</div>` : ""}
+    <div class="prefill">${T.prefillNote}<q>${prefillFor(T, r)}</q></div>
+    <div class="offnote">${T.offPlatform}</div>`;
+}
+
+/* A bonded group has no name of its own (#11), so the prefill has to name every member.
+   "Hola, les escribo por Mora" about a mother-plus-two-pups group asks the shelter for
+   one puppy when the adopter means all three. */
+function prefillFor(T, r) {
+  const label = r.kind === "group" ? nameList(T, r.members.map((m) => m.name)) : r.a.name;
+  return T.prefill(label, r.a.id);
+}
+
+/* The sticky bar belongs to the "primary + rest" treatment: it is the pattern that has
+   one obvious button to pin. An equal row of four, or a sheet, has no primary to hoist,
+   so those treatments stay in the flow and the bar disappears — otherwise the toggle
+   stops changing anything on the pages that have a bar. */
+function contactSection(a, r, allowSticky) {
+  const T = t();
+  const ghost = `<a class="ghost" href="#">${T.stillAvailable}</a>`;
+  if (allowSticky && state.cta === "principal")
+    return { flow: `<div class="sec"><h2>${T.contact}</h2>${contactDetails(a, r)}${ghost}</div>`,
+             bar: `<div class="stickybar">${contactBar(a)}</div>` };
+  return { flow: `<div class="sec">${contactBlock(a, r)}${ghost}</div>`, bar: "" };
+}
+
+function contactBlock(a, r) {
+  const T = t(), sh = SHELTERS[a.shelter], cs = sh.contacts;
+  const prefillNote = `<div class="prefill">${T.prefillNote}<q>${prefillFor(T, r)}</q></div>`;
+
+  // Contact points are a typed, ORDERED set (#11), so the shelter's own order gives
+  // us the primary. No coin-flip, no picker for the common case.
+  if (state.cta === "principal") {
+    const [first, ...rest] = cs;
+    return `<a class="cta-primary" href="${first.href}">${T.contactVia[first.type]}</a>
+      ${rest.length ? `<div class="cta-secondaries">${rest.map((c) =>
+        `<a href="${c.href}">${T.contactShort[c.type]}</a>`).join("")}</div>` : ""}
+      ${prefillNote}<div class="offnote">${T.offPlatform}</div>`;
+  }
+  if (state.cta === "fila") {
+    return `<div class="cta-row">${cs.map((c, i) =>
+      `<a href="${c.href}" class="${cs.length === 1 || (cs.length % 2 === 1 && i === cs.length - 1) ? "only" : ""}">${T.contactShort[c.type]}</a>`).join("")}</div>
+      ${prefillNote}<div class="offnote">${T.offPlatform}</div>`;
+  }
+  return `<a class="cta-primary" href="#sheet">${T.contact}</a>
+    <div class="sheet"><div class="st">${T.contactSheetTitle}</div>
+      ${cs.map((c) => `<a href="${c.href}">${T.contactVia[c.type]}<small>${c.value}</small></a>`).join("")}
+    </div>${prefillNote}<div class="offnote">${T.offPlatform}</div>`;
+}
+
+/* A group's heading cannot borrow the primary member's meta line: "Perra adulta ·
+   Mediana" over a card called "Mora, Nube y Panita" describes one third of what is on
+   offer, and contradicts the composition line beside it. */
+function headMeta(T, r) {
+  if (r.kind !== "group") return metaLine(T, r.a);
+  const c = groupComposition(T, r);
+  return `${r.members.length} ${T.speciesPlural[r.a.species]} · ${c.spread}`;
+}
+
+/* Nor can a group share one facts table. Age, adult size and sterilisation are
+   per-animal, and #11 matches descriptive axes on the UNION — so a table showing only
+   the primary member's row is wrong for every group that spans two bands. What is
+   genuinely group-level is region and last-confirmed (confirmation applies to the whole
+   group). The rest moves into the member list. */
+function factsList(a, r) {
+  const T = t();
+  if (r.kind === "group") {
+    return `<dl class="facts"><dt>${T.fRegion}</dt><dd>${a.region}</dd></dl>`;
+  }
+  /* Species, life stage and sex are all carried by the heading's meta line directly
+     above ("Perra adulta · Mediana"), so restating them here is three duplications.
+     Adult size stays, because the heading's bare "Mediana" does not say that for a
+     puppy it is a prediction rather than an observation (#11). */
+  const rows = [
+    [T.fAge, `${ageText(T, a)} <small>(${T.basis[a.basis]})</small>`],
+    ...(a.size ? [[T.fSize, G(T.size[a.size], a.sex)]] : []),
+    [T.fRegion, a.region],
+    [T.fSterilised, G(T.sterilised[a.sterilised], a.sex)],
+    ...(a.medical ? [[T.fMedical, a.medical]] : [])
+  ];
+  return `<dl class="facts">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>`;
+}
+
+function gwPageBlock(r) {
+  const T = t(), f = rowFlags(r);
+  const axes = [["gwChildren", T.kids], ["gwDogs", T.dogs], ["gwCats", T.cats]];
+  // On the page there is room, so every flag is stated explicitly — including Unknown.
+  return `<dl class="facts">${axes.map(([k, l]) => {
+    const v = f[k];
+    const color = v === "Yes" ? "var(--ok-ink)" : v === "No" ? "var(--alert-ink)" : "var(--ink3)";
+    return `<dt>${l[0].toUpperCase() + l.slice(1)}</dt><dd style="color:${color}">${T.gwLabel[v]}</dd>`;
+  }).join("")}</dl>`;
+}
+
+function provPageBlock(r) {
+  const T = t(), band = staleBand(r.a);
+  return `<div class="provbox ${band}">
+    <span>●</span><span>${G(T.confirmedPrefix, r.a.sex)} ${agoText(T, r.a.confirmed)} ${T.byTheShelter}.
+    ${band === "fresh" ? "" : T.maybeGone + "."}</span></div>`;
+}
+
+function shelterBlock(a) {
+  const T = t(), sh = SHELTERS[a.shelter];
+  return `<div class="shelterbox">
+    <div class="snm">${sh.name}</div>
+    <div class="meta">${sh.region}</div>
+    <div class="ver">✓ ${T.verified}</div>
+    ${sh.dormant ? `<div class="dormant">${T.dormantNotice}</div>` : ""}
+  </div>`;
+}
+
+function groupBlock(r) {
+  const T = t();
+  if (r.kind !== "group") return "";
+  return `<div class="sec"><h2>${T.groupTitle}</h2>
+    <div class="meta" style="margin:-4px 0 10px">${T.groupNote}</div>
+    <div class="groupmembers">${r.members.map(memberRow).join("")}</div></div>`;
+}
+
+/* The member row is where a group's per-animal facts live, since the shared table above
+   cannot hold them. Age and sterilisation are the two that actually differ across a
+   mother-plus-pups group. */
+function memberRow(m) {
+  const T = t();
+  return `<div class="gm">
+    ${phImg(m.id, 112, 112, m.species, T.photoAlt(m.name))}
+    <div><div class="gnm">${m.name}</div>
+      <div class="meta">${metaLine(T, m)}</div>
+      <div class="meta">${ageText(T, m)} · ${G(T.sterilised[m.sterilised], m.sex)}</div>
+    </div>
+  </div>`;
+}
+
+function fichaA(r) {              // Galería primero
+  const T = t(), a = r.a;
+  const photos = r.kind === "group" ? r.members.map((m) => m.id) : Array.from({ length: a.photos }, (_, i) => a.id + i);
+  return `<div class="back">← ${T.backToList}</div>
+  <div class="gallery">${photos.map((p) => phImg(p, 688, 516, a.species, T.photoAlt(a.name))).join("")}</div>
+  <div class="dots">${photos.map((_, i) => `<i class="${i === 0 ? "on" : ""}"></i>`).join("")}</div>
+  <div class="pad" style="padding-top:12px">
+    <h1 class="h1">${r.kind === "group" ? nameList(T, r.members.map((m) => m.name)) : a.name} ${urgFragment(r, "chip")}</h1>
+    <div class="meta">${headMeta(T, r)} · ${a.region}</div>
+    ${r.kind === "group" ? `<div class="bondline"><span class="bond">⚭ ${T.together}</span></div>` : ""}
+    ${a.urgent ? `<div class="urg-banner"><b>${T.urgent}</b>${a.urgencyNote}</div>` : ""}
+    <div style="margin-top:10px">${provPageBlock(r)}</div>
+  </div>
+  <div class="sec"><h2>${r.kind === "group" ? T.aboutGroup : T.aboutTitle(a.name)}</h2><div class="desc">${a.desc}</div></div>
+  <div class="sec"><h2>${T.factsTitle}</h2>${factsList(a, r)}</div>
+  <div class="sec"><h2>${T.gwTitle}</h2>${gwPageBlock(r)}</div>
+  ${groupBlock(r)}
+  <div class="sec"><h2>${T.publishedBy}</h2>${shelterBlock(a)}</div>
+  <div class="sec">${contactBlock(a, r)}<a class="ghost" href="#">${T.stillAvailable}</a></div>`;
+}
+
+function fichaB(r) {              // Datos primero
+  const T = t(), a = r.a, cs = contactSection(a, r, true);
+  return `<div class="back">← ${T.backToList}</div>
+  <div class="pad">${cardPhotos(r, 688, 516, "wide")}</div>
+  <div class="pad" style="padding-top:11px">
+    <h1 class="h1">${r.kind === "group" ? nameList(T, r.members.map((m) => m.name)) : a.name} ${urgFragment(r, "chip")}</h1>
+    <div class="meta">${headMeta(T, r)}</div>
+    ${r.kind === "group" ? `<div class="bondline"><span class="bond">⚭ ${T.together}</span></div>` : ""}
+    ${a.urgent ? `<div class="urg-banner"><b>${T.urgent}</b>${a.urgencyNote}</div>` : ""}
+  </div>
+  <div class="sec"><h2>${T.factsTitle}</h2>${factsList(a, r)}
+    <div style="margin-top:10px">${provPageBlock(r)}</div></div>
+  <div class="sec"><h2>${T.gwTitle}</h2>${gwPageBlock(r)}</div>
+  <div class="sec"><h2>${r.kind === "group" ? T.aboutGroup : T.aboutTitle(a.name)}</h2><div class="desc">${a.desc}</div></div>
+  ${groupBlock(r)}
+  <div class="sec"><h2>${T.publishedBy}</h2>${shelterBlock(a)}</div>
+  ${cs.flow}${cs.bar}`;
+}
+
+function fichaC(r) {              // Héroe + CTA fija
+  const T = t(), a = r.a, cs = contactSection(a, r, true);
+  return `<div class="hero">
+    ${cardPhotos(r, 688, 688, "grid")}
+    <div class="over">
+      <h1 class="h1">${r.kind === "group" ? nameList(T, r.members.map((m) => m.name)) : a.name}</h1>
+      <div class="meta">${headMeta(T, r)} · ${a.region}</div>
+    </div>
+  </div>
+  <div class="pad" style="padding-top:12px">
+    ${a.urgent ? `<div class="urg-banner" style="margin-top:0"><b>${T.urgent}</b>${a.urgencyNote}</div>` : ""}
+    ${r.kind === "group" ? `<div class="bondline" style="margin-bottom:8px"><span class="bond">⚭ ${T.together}</span></div>` : ""}
+    <div class="desc">${a.desc}</div>
+    <div style="margin-top:12px">${provPageBlock(r)}</div>
+  </div>
+  <div style="margin-top:14px">
+    <details class="acc" open><summary>${T.factsTitle}</summary><div class="inner">${factsList(a, r)}</div></details>
+    <details class="acc"><summary>${T.gwTitle}</summary><div class="inner">${gwPageBlock(r)}</div></details>
+    ${r.kind === "group" ? `<details class="acc"><summary>${T.groupTitle}</summary><div class="inner">
+      <div class="meta" style="margin-bottom:9px">${T.groupNote}</div>
+      <div class="groupmembers">${r.members.map(memberRow).join("")}</div>
+    </div></details>` : ""}
+    <details class="acc"><summary>${T.publishedBy}</summary><div class="inner">${shelterBlock(a)}</div></details>
+  </div>
+  ${cs.flow}${cs.bar}`;
+}
+
+/* =================================================================== *
+ * COMPOSE + MOUNT
+ * =================================================================== */
+function docHTML() {
+  const T = t();
+  const rs = rows();
+  let body;
+  if (state.screen === "listado") {
+    body = { A: listadoA, B: listadoB, C: listadoC }[state.variant](rs);
+  } else {
+    const caseDef = FICHA_CASES.find((c) => c.key === state.animal);
+    const r = rs.find((x) => x.members.some((m) => m.id === caseDef.id));
+    body = { A: fichaA, B: fichaB, C: fichaC }[state.variant](r);
+  }
+  return `<!doctype html><html lang="${T.lang}" data-theme="${state.theme}"><head>
+    <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+    <style>${pageCSS()}</style></head><body>${body}</body></html>`;
+}
+
+const stage = document.getElementById("stage");
+const device = document.getElementById("device");
+
+function mount() {
+  const vw = Number(state.vw);
+  device.style.width = vw + "px";
+  device.classList.toggle("isdark", state.theme === "oscuro");
+  stage.style.width = vw + "px";
+  stage.style.height = "760px";
+  stage.srcdoc = docHTML();
+}
+
+/* =================================================================== *
+ * MEASURED BUDGETS
+ *
+ * The filter index is ADR 0007's named page-weight budget, and the card's
+ * field budget is exactly what sets its per-animal cost — so it is measured
+ * here rather than guessed, with real gzip via CompressionStream.
+ * =================================================================== */
+
+// Floor: every filter axis has to be in the index regardless of what the card shows,
+// because filtering happens in the browser.
+function indexRow(a, level) {
+  const row = {
+    i: a.id, n: a.name, s: a.species === "Dog" ? "D" : "C",
+    r: a.region, z: a.size ? a.size[0] : 0, b: a.birth,
+    x: a.sex === "Male" ? "M" : a.sex === "Female" ? "F" : "U",
+    c: a.gwChildren === "Yes" ? 1 : a.gwChildren === "No" ? -1 : 0,
+    d: a.gwDogs === "Yes" ? 1 : a.gwDogs === "No" ? -1 : 0,
+    t: a.gwCats === "Yes" ? 1 : a.gwCats === "No" ? -1 : 0,
+    k: a.id + "-1"
+  };
+  if (level === "floor") return row;
+  // chosen: what the winning card needs on top of the filter floor
+  row.f = a.confirmed;                       // staleness, derived client-side
+  if (a.bonded) row.g = a.bonded;            // bonded group id
+  if (a.urgent) row.u = 1;                   // urgency flag, note stays on the page
+  row.h = a.shelter;                         // shelter BY ID, not by name
+  if (level === "chosen") return row;
+  // notas: the one field whose inlining is genuinely high-entropy — the urgency note
+  if (a.urgent) row.u = a.urgencyNote;
+  if (level === "notas") return row;
+  // naive: also inline the shelter name and the bonded members' names
+  row.h = SHELTERS[a.shelter] ? SHELTERS[a.shelter].name : SYNTH_SHELTER_NAME(a.shelter);
+  if (a.bonded) row.m = ANIMALS.filter((x) => x.bonded === a.bonded).map((x) => x.name);
+  return row;
+}
+
+async function gzipBytes(str) {
+  if (typeof CompressionStream === "undefined") return null;
+  const cs = new CompressionStream("gzip");
+  const w = cs.writable.getWriter();
+  w.write(new TextEncoder().encode(str)); w.close();
+  const buf = await new Response(cs.readable).arrayBuffer();
+  return buf.byteLength;
+}
+
+const INDEX_N = 2500;   // R2's ~12,500-animal lifetime ceiling from #5, at 20% listed
+const N_SHELTERS = 40;  // 2,500 listed animals is roughly this many shelters
+
+/* Synthesising 2,500 rows by cycling 14 seed animals would let gzip dedupe strings that
+   are genuinely distinct in real data, and would flatter every "inline the string" option.
+   So entropy is injected where a real index has it: distinct-ish names, one shelter name
+   per ~60 animals, and — the field that matters — a distinct urgency note per urgent
+   animal. Urgency is capped at 3 per shelter (#11), so only ~3·40 rows carry one. */
+const NAME_POOL = ["Luna","Negrita","Canela","Simón","Mora","Nube","Panita","Coco","Pelusa","Manchas",
+  "Chispa","Toby","Rayo","Mía","Kiara","Rocky","Nina","Bruno","Maya","Zeus","Lola","Duque","Frida",
+  "Otto","Sasha","Milo","Roco","Bella","Tito","Kira"];
+function syntheticAnimal(i) {
+  const a = ANIMALS[i % ANIMALS.length];
+  const sh = "s" + (i % N_SHELTERS);
+  const urgent = i % N_SHELTERS < 3;   // ≤3 per shelter, per the cap
+  return {
+    ...a,
+    id: a.id.slice(0, 2) + i.toString(36),
+    name: NAME_POOL[(i * 7) % NAME_POOL.length],
+    shelter: sh,
+    urgent,
+    urgencyNote: urgent
+      ? `Caso ${i}: el hogar de tránsito se entrega el ${1 + (i % 28)} de ${["septiembre","octubre","noviembre"][i % 3]} y no tenemos dónde dejarlo después de esa fecha.`
+      : null
+  };
+}
+const SYNTH_SHELTER_NAME = (id) => `Refugio ${NAME_POOL[Number(id.slice(1)) % NAME_POOL.length]} de ${["Caracas","Valencia","Maracaibo","Barquisimeto","Maracay"][Number(id.slice(1)) % 5]}`;
+
+async function measureIndex() {
+  const out = {};
+  for (const level of ["floor", "chosen", "notas", "naive"]) {
+    const rowsArr = [];
+    for (let i = 0; i < INDEX_N; i++) rowsArr.push(indexRow(syntheticAnimal(i), level));
+    const json = JSON.stringify(rowsArr);
+    out[level] = { raw: json.length, gz: await gzipBytes(json) };
+  }
+  return out;
+}
+
+// Same WebP formula as the digest prototype (#15), so the two are comparable.
+const webpBytes = (w, h) => w * h * 0.17 + 800;
+const DERIV = {
+  listado: { A: [344, 430], B: [688, 516], C: [192, 192] },
+  ficha: { A: [688, 516], B: [688, 516], C: [688, 688] }
+};
+
+const kb = (b) => (b / 1024).toFixed(b < 10240 ? 1 : 0) + " KB";
+
+let indexMeasurement = null;
+function paintMetrics() {
+  const el = document.getElementById("metrics");
+  const [w, h] = DERIV[state.screen][state.variant];
+  const nCards = rows().length;
+  const cardBytes = webpBytes(w, h) * nCards;
+  const scroll = stage.contentDocument ? stage.contentDocument.body.scrollHeight : 0;
+  const nodes = stage.contentDocument ? stage.contentDocument.querySelectorAll("*").length : 0;
+  const idx = indexMeasurement;
+  const BUDGET = 150 * 1024;   // gzipped index a metered connection can wear
+
+  const bar = (v, max, cls) => `<div class="meter"><i class="${cls || ""}" style="width:${Math.min(100, (v / max) * 100).toFixed(1)}%"></i></div>`;
+
+  el.innerHTML = `
+  <div class="metric">
+    <div class="lbl">Fotos · ${nCards} tarjetas</div>
+    <div class="val">${kb(cardBytes)}</div>
+    <div class="sub">derivada ${w}×${h} · ${kb(webpBytes(w, h))} cada una</div>
+    ${bar(cardBytes, 1200 * 1024, cardBytes > 700 * 1024 ? "bad" : cardBytes > 300 * 1024 ? "warn" : "")}
+  </div>
+  <div class="metric">
+    <div class="lbl">Alto de scroll · medido</div>
+    <div class="val">${scroll.toLocaleString("es")} px</div>
+    <div class="sub">${(scroll / 760).toFixed(1)} pantallas de ${state.vw}×760 · ${nodes} nodos DOM</div>
+    ${bar(scroll, 8000, scroll > 5000 ? "bad" : scroll > 3000 ? "warn" : "")}
+  </div>
+  ${idx ? `
+  <div class="metric">
+    <div class="lbl">Índice de filtros · ${INDEX_N} animales</div>
+    <div class="val">${idx.chosen.gz ? kb(idx.chosen.gz) : kb(idx.chosen.raw)} <span class="sub" style="font-size:11px">gzip</span></div>
+    <div class="sub">
+      sólo filtrable ${kb(idx.floor.gz)} · <b>elegido ${kb(idx.chosen.gz)}</b>
+      · +notas ${kb(idx.notas.gz)} · +nombres ${kb(idx.naive.gz)}<br>
+      ${(idx.chosen.raw / INDEX_N).toFixed(0)} B/animal en crudo · presupuesto 150 KB
+    </div>
+    ${bar(idx.chosen.gz, BUDGET, idx.chosen.gz > BUDGET ? "bad" : idx.chosen.gz > BUDGET * 0.7 ? "warn" : "")}
+  </div>` : ""}
+  <p class="note">
+    <b>El índice no es la restricción.</b> Todo lo que la tarjeta añade sobre los ejes
+    filtrables cuesta ${idx ? "+" + kb(idx.chosen.gz - idx.floor.gz) : "…"} gzip sobre
+    ${INDEX_N} animales; inlinear las notas de urgencia
+    ${idx ? "+" + kb(idx.notas.gz - idx.chosen.gz) : "…"} y los nombres
+    ${idx ? "+" + kb(idx.naive.gz - idx.notas.gz) : "…"}. Ni la peor versión llega a
+    ${idx ? kb(idx.naive.gz) : "…"} contra un presupuesto de 150 KB. Lo que sí aprieta
+    son las fotos: <b>${kb(webpBytes(...DERIV.listado.C) * nCards)} en filas contra
+    ${kb(webpBytes(...DERIV.listado.B) * nCards)} en tarjeta ancha</b>, las mismas
+    ${nCards} tarjetas.
+  </p>`;
+}
+
+/* =================================================================== *
+ * CONTROLS
+ * =================================================================== */
+const LABELS = {
+  screen: { listado: "Listado", ficha: "Ficha" },
+  stale: { uniforme: "línea uniforme", insignia: "insignia si va mal", ficha: "sólo en la ficha" },
+  goodwith: { "tres-chips": "tres chips", graduada: "graduada", "solo-conocido": "sólo lo conocido" },
+  bonded: { tira: "tira de fotos", apilada: "apilada +N", texto: "sólo texto" },
+  urgency: { chip: "chip", banner: "banner con nota", ficha: "sólo en la ficha" },
+  cta: { principal: "principal + resto", fila: "fila igual", hoja: "hoja" },
+  locale: { es: "es-VE", en: "English" },
+  img: { cargadas: "cargadas", cargando: "cargando", bloqueadas: "bloqueadas" },
+  theme: { claro: "claro", oscuro: "oscuro" }
+};
+
+function seg(id, key, labelFn) {
+  const host = document.getElementById(id);
+  host.innerHTML = "";
+  for (const v of OPTS[key].list) {
+    const b = document.createElement("button");
+    b.textContent = labelFn ? labelFn(v) : (LABELS[key] && LABELS[key][v]) || v;
+    b.setAttribute("aria-pressed", String(state[key] === v));
+    b.onclick = () => { state[key] = v; if (key === "screen") state.variant = "B"; render(); };
+    host.appendChild(b);
+  }
+}
+
+function render() {
+  writeURL();
+  seg("c-screen", "screen");
+  seg("c-variant", "variant", (v) => v + " — " + VARIANTS[state.screen].find((x) => x.key === v).name);
+  seg("c-animal", "animal", (v) => FICHA_CASES.find((c) => c.key === v).name);
+  for (const k of ["stale", "goodwith", "bonded", "urgency", "cta", "locale", "img", "theme"]) seg("c-" + k, k);
+  seg("c-vw", "vw", (v) => v + "px");
+
+  document.getElementById("ficha-only").style.display = state.screen === "ficha" ? "" : "none";
+  const vd = VARIANTS[state.screen].find((x) => x.key === state.variant);
+  document.getElementById("variant-note").innerHTML = "<b>" + vd.name + "</b> — " + vd.note;
+  document.getElementById("cur-screen").textContent = LABELS.screen[state.screen];
+  document.getElementById("cur-variant").textContent = state.variant + " — " + vd.name;
+
+  mount();
+}
+
+function cycle(delta) {
+  const l = OPTS.variant.list, i = l.indexOf(state.variant);
+  state.variant = l[(i + delta + l.length) % l.length];
+  render();
+}
+function cycleScreen(delta) {
+  const l = OPTS.screen.list, i = l.indexOf(state.screen);
+  state.screen = l[(i + delta + l.length) % l.length];
+  state.variant = "B";
+  render();
+}
+
+document.getElementById("prev").onclick = () => cycle(-1);
+document.getElementById("next").onclick = () => cycle(1);
+addEventListener("keydown", (e) => {
+  const tag = (document.activeElement || {}).tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || (document.activeElement || {}).isContentEditable) return;
+  if (e.key === "ArrowLeft") cycle(-1);
+  else if (e.key === "ArrowRight") cycle(1);
+  else if (e.key === "ArrowUp") cycleScreen(-1);
+  else if (e.key === "ArrowDown") cycleScreen(1);
+});
+stage.addEventListener("load", paintMetrics);
+
+readURL();
+render();
+measureIndex().then((m) => { indexMeasurement = m; paintMetrics(); });
+</script>
+</body>
+</html>
