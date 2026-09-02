@@ -114,7 +114,9 @@ out near 830 animals.
   `fetch()`, KV and database waits without naming bindings generically. The `cf.image` fetch form
   avoids the question rather than betting on it, because the exclusion is documented for `fetch()`
   verbatim, and it is the only form for which `gravity` is documented at all. **If the measurement
-  is inconclusive, use `cf.image`.**
+  is inconclusive, use `cf.image`.** The zone requirement is already met either way:
+  [ADR 0011](0011-r2-custom-domain-requires-a-full-zone.md) put Pawster on a full Cloudflare zone,
+  and the `cf.image` form works on any zone hosting a Worker regardless.
 - **Photos upload one per request, browser to Worker to R2, streamed.** The Free request-body limit
   is 100 MB (an account-plan limit, not a Workers one), HTTP duration is documented as unlimited,
   and streaming to `R2.put()` is I/O rather than CPU - so presigned S3 URLs, their CORS policy and
@@ -127,7 +129,9 @@ out near 830 animals.
   coherent *old* index, never a new index pointing at an object that does not exist yet. It also
   means **no cache purge exists anywhere in the publish path** - a purge would be Worker work and an
   API dependency, against ADR 0007's rule that the Worker runs as rarely as possible. The cost is
-  opaque keys and an orphan sweep.
+  opaque keys and an orphan sweep. Immutability is what makes the custom domain of
+  [ADR 0011](0011-r2-custom-domain-requires-a-full-zone.md) pay off, since a derivative can be
+  cached at the edge forever and never re-read from the bucket.
 - **Nothing partial ever becomes an animal.** Photos are staged under an upload session and the
   animal row is created last, referencing derivative keys that already exist - which is what lets
   the domain model keep 1-6-photos-first-primary as a creation-time invariant with no `Draft` state.
