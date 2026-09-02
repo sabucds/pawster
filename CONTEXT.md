@@ -90,6 +90,33 @@ reason. A flag rather than a scale, and capped per shelter, because an uncapped 
 drifts to all-high and stops meaning anything.
 _Avoid_: Priority, severity, critical, featured
 
+### Photos
+
+**Photo**:
+One image of an animal, contributed by its shelter. An animal carries between one and six,
+ordered, and the platform keeps no photo an adopter never sees - what is stored is the set
+of derivatives, never the file the shelter sent.
+_Avoid_: Image, picture, media, asset, foto
+
+**Primary Photo**:
+The first photo in an animal's order, and the one every single-image surface shows: the
+listing card, the digest email and the social preview. A shelter chooses it by ordering,
+and reordering makes a different photo primary.
+_Avoid_: Cover photo, main photo, hero, featured photo, thumbnail
+
+**Derivative**:
+One of the fixed set of resized, reformatted copies of a photo that the platform serves.
+Produced once when the photo is uploaded and never afterwards, so a photo's derivatives
+are the only form in which it exists.
+_Avoid_: Variant, rendition, size, transform, resize
+
+**Upload Session**:
+A shelter's in-progress work assembling an animal's photos before the animal exists.
+Holds photos that have been accepted and turned into derivatives but belong to nothing
+yet; a shelter may resume one, and one it abandons expires. Nothing in a session is
+visible to an adopter.
+_Avoid_: Draft, pending animal, staging, unsaved animal
+
 ### Filtering
 
 **Filter Axis**:
