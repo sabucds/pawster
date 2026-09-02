@@ -17,9 +17,10 @@ _Avoid_: Rescue, refugio, organisation, NGO
 **Account Email**:
 The single shelter-level address a shelter holds its account under, and the only address
 the platform writes to. Deliberately not a named person's, so it survives a volunteer
-leaving. Never published - adopters reach a shelter through its contact points. Because
-confirmation links are sent here, it is also the shelter's credential for confirming
-animals.
+leaving. Never published - adopters reach a shelter through its contact points. It is the
+shelter's whole credential: confirmation links and one-time codes are both sent here, so
+control of this inbox is what it means to be this shelter. Losing it is therefore not a
+password reset but a question of identity, answered out of band.
 _Avoid_: Owner email, admin email, login email, notification address, primary user
 
 **Contact Point**:
@@ -179,6 +180,31 @@ can refuse it. The residue of a Retirement that outlives the subscriber it belon
 answer whether an address is refused and nothing else, because it holds no address to read.
 Ours alone, and distinct from the suppression list our email provider keeps in plaintext.
 _Avoid_: Suppression, blocklist, tombstone, ban list
+
+### Access
+
+**One-Time Code**:
+A short numeric credential sent to a shelter's account email, which the shelter types back
+to begin a session. Deliberately a code rather than a link, because a link in an inbox is
+fetched by mail scanners with no human behind them, and because the inbox and the browser
+are routinely on different devices. Only one is ever outstanding per shelter: requesting
+another retires the last, the same way a confirmation nudge retires its predecessor.
+_Avoid_: OTP, PIN, magic link, password, token
+
+**Session**:
+The state a shelter holds after proving control of its account email, carrying the writes a
+confirmation may not make - contact points, photos, descriptions, new animals, and the
+account email itself. Belongs to the shelter rather than to a person, so it is shared and
+delegated exactly as the account email is, and records nothing about which volunteer acted
+under it. Ends by lapsing, by being revoked wholesale, or by the account email changing.
+_Avoid_: Login, sign-in, cookie, token, staff account
+
+**Capability**:
+The narrow permission a signed link carries without granting a session: confirming animals
+and changing an animal's state, and nothing else. Named apart from Session because the
+distinction is the security boundary rather than an implementation detail - a leaked link
+must not become an account.
+_Avoid_: Permission, scope, grant, access level
 
 ### Trust
 
