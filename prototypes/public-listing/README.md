@@ -1,12 +1,12 @@
 # Prototype: the public listing and the animal page on a phone, in Spanish
 
-> **Verdict on the four unresolved things:** staleness is a **uniform provenance line on every
-> card, fresh included**, with the caution wording kept for the animal page; a bonded group is a
-> **photo strip plus one composition line and no per-member facts**; the good-with flags get
-> **three visual weights, not one tri-state chip row**; urgency is a **chip on the card and its
+> **Verdict: A — Mosaico 2×, with a fixed-height card.** Staleness is a **uniform provenance line
+> on every card, fresh included**, with the caution wording kept for the animal page; a bonded
+> group is a **photo strip plus one composition line and no per-member facts**; the good-with flags
+> get **three visual weights, not one tri-state chip row**; urgency is a **chip on the card and its
 > note on the page**. Contact is **primary + rest**, keyed off the shelter's own ordering.
-> The card shape (grid vs rows) is the one thing left for a human eye — see
-> [Still open](#still-open). Full reasoning on
+> B and C are kept here as the primary source of that decision — C remains the shape to fall back
+> to if photo payload ever binds. Full reasoning on
 > [issue #17](https://github.com/sabucds/pawster/issues/17).
 
 Throwaway. Not production code — no tests, no error handling, no abstractions. The real pages will
@@ -222,18 +222,18 @@ The page's facts table also **drops what the heading already says**. Species, li
 all carried by `Perra adulta · Mediana` directly above it; restating them was three duplications.
 Adult size stays, because a bare `Mediana` does not say that for a puppy it is a prediction.
 
-## Still open
+## The card shape — settled on A
 
-**The card shape.** The measurements rule out **B** outright: 6.3 screens and 717 KB for twelve
-animals is indefensible on a metered connection. Between **A** (3.0 screens, 304 KB) and **C**
-(2.2 screens, 83 KB) the numbers are close, and the choice turns on something placeholder rectangles
-cannot answer — whether a 344×430 photo converts a stranger where a 96px thumbnail does not.
+The measurements ruled out **B** outright: 6.3 screens and 717 KB for twelve animals is
+indefensible on a metered connection. Between **A** (3.0 screens, 304 KB) and **C** (2.2 screens,
+83 KB) the numbers are close, and the choice turned on something placeholder rectangles cannot
+answer — whether a 344×430 photo converts a stranger where a 96px thumbnail does not.
 
-**My recommendation is A**, on the grounds that the listing's job is not the digest's. #15 chose
-rows and accepted explicitly that the digest "carries nothing of an animal's character" — an
-affordable trade for a reader who already subscribed, and a bad one for someone arriving cold from a
-shelter's Instagram post, where the photo is the entire reason they keep scrolling. C stays the
-shape to fall back to if photo payload becomes binding.
+**A won**, on the grounds that the listing's job is not the digest's. #15 chose rows and accepted
+explicitly that the digest "carries nothing of an animal's character" — an affordable trade for a
+reader who already subscribed, and a bad one for someone arriving cold from a shelter's Instagram
+post, where the photo is the entire reason they keep scrolling. C stays the shape to fall back to
+if photo payload becomes binding, which is why it is retained here rather than deleted.
 
 **A has one real defect, and it is fixable:** a 2-up grid makes every row as tall as its tallest
 card, and this data is intrinsically variable-height — nought to three convivencia chip lines, an
@@ -244,7 +244,8 @@ the worst case in the seed data: two `No`s plus a `Yes`) and a strip whose heigh
 photo it sits beside. Note what that costs: making the grid uniform means committing to a fixed
 field set, which is the field-budget decision above, enforced by the layout rather than chosen.
 
-Flip between `?variant=A` and `?variant=C` at `?screen=listado` and the answer should be quick.
+`?variant=A` against `?variant=C` at `?screen=listado` is the comparison that settled it, and is
+worth re-running against real photos before the build commits to the derivative sizes.
 
 ## What this says about i18n
 
