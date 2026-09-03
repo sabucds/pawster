@@ -107,8 +107,12 @@ however often it runs.
   listing would stay empty until the next animal was published. The direction is the decision: a
   denylist would delete every object type added later by default, an allowlist makes anything new
   invisible to reclamation until it is deliberately opted in. Content-addressed keys are indifferent
-  to a prefix, so immutability, edge caching and [ADR 0011](0011-r2-custom-domain-requires-a-full-zone.md)'s
-  custom domain are untouched.
+  to a prefix, so immutability and edge caching are untouched. *(This clause was drafted against
+  [ADR 0011](0011-r2-custom-domain-requires-a-full-zone.md)'s R2 custom domain and said that too.
+  [ADR 0014](0014-the-domain-is-free-and-lives-outside-cloudflare.md) has since superseded ADR 0011:
+  Pawster holds no Cloudflare zone and wants no custom domain, serving images from `r2.dev` and
+  later from a Workers-Cache-backed Worker. The point survives the substitution unchanged, because
+  a prefix is invisible to whatever fronts the bucket.)*
 - **The run refuses rather than deletes when anything looks wrong.** This is the only operation in
   the platform that destroys data with no recovery path: originals are gone after 7 days, and
   `immutable` caching means a wrong delete surfaces slowly instead of immediately. So the run aborts

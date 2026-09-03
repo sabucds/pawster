@@ -201,6 +201,7 @@ out near 830 animals.
   survives anyway on CPU alone. The original wording follows.
 - **~~Crops are centre-cropped in v1~~**, ~~upgrading to saliency-aware `gravity=auto` if it proves
   available on the Images Free plan~~ - Cloudflare documents it for exactly this case ("useful when
+  you don't know the contents of the image ahead of time, such as with user-generated content") but
   attaches no plan badge either way, and does not show it for the binding's `.transform()` at all.
   Since the transform runs once at upload, a better gravity costs nothing at read time. A crop UI is
   out of scope: a shelter with a headless thumbnail already has a remedy in reordering or replacing
