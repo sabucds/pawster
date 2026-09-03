@@ -189,8 +189,9 @@ finish() {
 # ──────────────────────────────────────────────────────────────────────────
 
 # ── Modes ─────────────────────────────────────────────────────────────────
-# --no-domain provisions everything that does not need a domain, for the
-# prototype phase ADR 0014 describes.
+# --no-domain provisions everything that does not need a domain at all. It is
+# now an escape hatch rather than a phase: ADR 0014 takes a FREE domain, which
+# scripts/provision-domain.sh acquires. Use this only to defer that.
 NO_DOMAIN=0
 
 usage() {
@@ -205,7 +206,9 @@ Usage: scripts/provision.sh [--no-domain]
                 Sending email to anyone other than this account own address
                 is NOT possible in this mode: Resend domain verification needs
                 DNS records that a hosting free-tier hostname cannot publish.
-                See docs/adr/0014-domain-free-prototype-phase.md.
+                The fix costs nothing - run scripts/provision-domain.sh, which
+                registers a free domain and delegates it away from Cloudflare.
+                See docs/adr/0014-the-domain-is-free-and-lives-outside-cloudflare.md.
 
   -h, --help    Show this message.
 
@@ -259,7 +262,7 @@ capture() {
 }
 
 if (( NO_DOMAIN )); then
-  banner "Pawster: provision the stack - domain-free prototype phase"
+  banner "Pawster: provision the stack - deferring the domain"
 else
   banner "Pawster: provision the stack accounts and the domain"
 fi
@@ -267,7 +270,7 @@ fi
 # The notice sits after banner() and ends with its own pause, because stage()
 # clears the screen: printed any earlier it would be wiped before it is read.
 if (( NO_DOMAIN )); then
-  printf '\n%s%s  Domain-free prototype phase%s\n\n' "$BOLD" "$YELLOW" "$RESET"
+  printf '\n%s%s  Running without a domain%s\n\n' "$BOLD" "$YELLOW" "$RESET"
   warn "Four stages need a domain and its Cloudflare zone. They are skipped,"
   warn "and the r2.dev hostname is substituted for the custom domain. Numbered"
   warn "as they would be in a full run, the four are:"
@@ -281,9 +284,11 @@ if (( NO_DOMAIN )); then
   warn "phase has nowhere to publish. Shelter sign-in codes (ADR 0013), admin"
   warn "verification links (ADR 0002) and the subscriber digest (ADR 0009)"
   warn "therefore work for you alone. Onboarding a second shelter, or one real"
-  warn "subscriber, requires a domain. No hosting free tier substitutes."
+  warn "subscriber, requires a domain - but not a bought one."
   printf '\n'
-  note "The reasoning is recorded in docs/adr/0014-domain-free-prototype-phase.md."
+  note "ADR 0014 does NOT accept this as the end state: it takes a free domain"
+  note "and delegates it to deSEC, which scripts/provision-domain.sh does in about"
+  note "ten minutes and costs nothing. This mode only defers that."
   pause "Press Enter to acknowledge and begin."
 fi
 
@@ -951,7 +956,7 @@ mkdir -p "$(dirname "$RECORD")"
   printf '## Facts later tickets depend on\n\n'
   printf '| Fact | Value |\n| --- | --- |\n'
   if (( NO_DOMAIN )); then
-    printf '| Phase | domain-free prototype (`--no-domain`, ADR 0014) |\n'
+    printf '| Domain | none yet (`--no-domain`); ADR 0014 takes a free one |\n'
     printf '| Zone / domain | none in this phase |\n'
   else
     printf '| Phase | full provisioning |\n'
@@ -1025,7 +1030,7 @@ mkdir -p "$(dirname "$RECORD")"
     printf 'sign-in codes (ADR 0013), admin verification links (ADR 0002) and the\n'
     printf 'subscriber digest (ADR 0009) work for the operator alone. Onboarding a\n'
     printf 'second shelter, or one real subscriber, requires a domain.\n'
-    printf '\nSee [ADR 0014](adr/0014-domain-free-prototype-phase.md).\n'
+    printf '\nSee [ADR 0014](adr/0014-the-domain-is-free-and-lives-outside-cloudflare.md).\n'
   fi
   printf '\n## Still to do by hand\n\n'
   if [[ -n "${SKIPPED[*]:-}" ]]; then
