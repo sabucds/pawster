@@ -27,6 +27,11 @@ animals that exist, and none covered by any rule today:
   covers unlisting but is silent on archiving and on photos. It has never had a mechanism behind it
   because it has never had a record behind it either.
 
+[ADR 0015](0015-a-shelter-can-leave-but-cannot-be-erased.md) then adds a consumer rather than a
+fifth class: a departed shelter's animals keep their photos and "drop on the ordinary twelve-month
+archive clock", so departure needs no reclamation path of its own and inherits this one. Two ADRs
+now rest on a clock that, as noted above, has no record and had no mechanism.
+
 The arithmetic on any one of these is small - on the order of 0.35 GB a year against a 10 GB
 allowance. What makes them worth code is not the volume but that R2 is the one component
 [ADR 0006](0006-cloudflare-as-the-single-platform.md) says **bills instead of failing**, and that

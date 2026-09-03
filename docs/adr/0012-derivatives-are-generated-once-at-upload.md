@@ -90,12 +90,12 @@ out near 830 animals.
   animals/month that is ~0.3 GB standing, about 3% of the allowance, and it converts an
   irreversible pipeline bug - a bad crop, a broken encoder - into a recoverable one. The rule also
   collects an abandoned session's **originals**, so those need no code. *(Amended by
-  [ADR 0015](0015-unreferenced-derivatives-are-reclaimed-by-reconciliation.md): this bullet
+  [ADR 0016](0016-unreferenced-derivatives-are-reclaimed-by-reconciliation.md): this bullet
   originally said the rule collected abandoned upload sessions outright, "so neither needs code".
   It does not. A session's derivatives are written to the media bucket, which no lifecycle rule
-  touches, and they were stranded there permanently. ADR 0015 reclaims them.)* Expiry is
-  "typically within 24 hours"
-  of the mark, so 7 days is a floor rather than a guarantee. A separate bucket buys no quota
+  touches, and they were stranded there permanently. ADR 0016 reclaims them.)* Expiry is
+  "typically within 24 hours" of the mark, so 7 days is a floor rather than a guarantee. A
+  separate bucket buys no quota
   isolation (the 10 GB is per account) and lifecycle rules can be prefix-scoped, so this is a
   preference for clean metrics, not a requirement.
 - **That bucket must never be public.** Transformations default to `metadata=copyright`, which
@@ -135,7 +135,7 @@ out near 830 animals.
   means **no cache purge exists anywhere in the publish path** - a purge would be Worker work and an
   API dependency, against ADR 0007's rule that the Worker runs as rarely as possible. The cost is
   opaque keys and an orphan sweep - specified in
-  [ADR 0015](0015-unreferenced-derivatives-are-reclaimed-by-reconciliation.md), which also adds the
+  [ADR 0016](0016-unreferenced-derivatives-are-reclaimed-by-reconciliation.md), which also adds the
   `d/` prefix these keys live under. Immutability is what makes the custom domain of
   [ADR 0011](0011-r2-custom-domain-requires-a-full-zone.md) pay off, since a derivative can be
   cached at the edge forever and never re-read from the bucket.
@@ -161,10 +161,10 @@ out near 830 animals.
   refusal waits until ~9.5 GB. The animal count is the cap's proxy for stored bytes, because the
   derivative set is fixed by us and so bytes-per-animal is bounded by construction; a byte ledger in
   D1 could drift, a count we already hold cannot. *(Amended by
-  [ADR 0015](0015-unreferenced-derivatives-are-reclaimed-by-reconciliation.md): the thresholds
+  [ADR 0016](0016-unreferenced-derivatives-are-reclaimed-by-reconciliation.md): the thresholds
   stand, the proxy does not. It is sound only if every stored byte belongs to an animal that
   exists, and unreferenced derivatives are invisible to it by construction - so the control could
-  not see the very drift it was meant to catch. ADR 0015's nightly pass measures actual bytes
+  not see the very drift it was meant to catch. ADR 0016's nightly pass measures actual bytes
   across both buckets and the upload path reads that instead. The rejection of a D1 byte ledger
   was right, and does not apply to a total recomputed from the buckets, which cannot drift.)*
 - **Crops are centre-cropped in v1**, upgrading to saliency-aware `gravity=auto` if it proves
