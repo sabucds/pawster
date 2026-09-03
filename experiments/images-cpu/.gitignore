@@ -1,0 +1,6 @@
+# Fixtures are built, not committed — several megabytes of generated image.
+fixtures/
+node_modules/
+.wrangler/
+.tmp/
+results.json

@@ -1,0 +1,27 @@
+{
+  // Throwaway probe for issue #34. Deployed, measured, deleted — see README.md.
+  //
+  // The fixtures ride as Static Assets rather than in an R2 bucket so the whole
+  // experiment is one `workers.dev` hostname with no bucket to create and no
+  // public origin to expose. That also puts the source image on the same zone as
+  // the Worker, which is the condition #19 flagged as unverified for `cf.image`.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pawster-images-cpu-probe",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-01-01",
+
+  "images": {
+    "binding": "IMAGES"
+  },
+
+  "assets": {
+    "directory": "./fixtures",
+    "binding": "ASSETS"
+  },
+
+  // CPU time and wall time are surfaced per invocation in the trace event, which
+  // is what `wrangler tail --format json` streams and what this experiment reads.
+  "observability": {
+    "enabled": true
+  }
+}
