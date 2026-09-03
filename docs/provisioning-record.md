@@ -17,8 +17,8 @@ so it never had stages for them. The wizard on this branch now does.
 
 | Fact | Value |
 | --- | --- |
-| Domain | *pending* — free subdomain, `pawster.dpdns.org` (ADR 0014) |
-| DNS authority | *pending* — deSEC, deliberately **not** Cloudflare (ADR 0014) |
+| Domain | `pawster.dpdns.org` — free DigitalPlat subdomain, registered 2026-09-03 (ADR 0014) |
+| DNS authority | deSEC (`ns1.desec.io`, `ns2.desec.org`), live and deliberately **not** Cloudflare (ADR 0014) |
 | Cloudflare account id | `88278572302567baf818bedddf5f6bf8` |
 | Cloudflare zone id | none, and none is wanted — ADR 0011 superseded |
 | R2 bucket | `pawster-media` |
@@ -30,7 +30,7 @@ so it never had stages for them. The wizard on this branch now does.
 | Queue name | `pawster-digest` |
 | Dead-letter queue | `pawster-digest-dlq` |
 | Admin inbox (ADR 0002 credential) | `Sabrinacorreia760@gmail.com` |
-| Resend sending domain | *pending* — `mail.pawster.dpdns.org`; sandbox `onboarding@resend.dev` until then |
+| Resend sending domain | `mail.pawster.dpdns.org` — records published, awaiting Resend's verification poll; sandbox `onboarding@resend.dev` until it goes green |
 | Digest cron (UTC) | `0 11 * * *` (daily, per ADR 0009's seven-way shard) |
 | Repository visibility | public |
 
