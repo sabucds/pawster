@@ -26,7 +26,7 @@ so it never had stages for them. The wizard on this branch now does.
 | D1 database id | `88f03e8d-332d-4a38-a685-53c478ec31e6` |
 | Queue name | `pawster-digest` |
 | Dead-letter queue | `pawster-digest-dlq` |
-| Admin inbox (ADR 0002 credential) | **not captured — see "Still to do"** |
+| Admin inbox (ADR 0002 credential) | `Sabrinacorreia760@gmail.com` |
 | Resend sending domain | none - sandbox `onboarding@resend.dev`, own inbox only |
 | Digest cron (UTC) | `0 11 * * *` (daily, per ADR 0009's seven-way shard) |
 | Repository visibility | public |
@@ -54,7 +54,8 @@ uploads aborted after 7 days) to the bucket, alongside `expire-originals-7d`.
   Cloudflare account is not covered by that clause.
 - **Did Images transformations enable on the Free zone?** not observed - no zone
   in this phase. Still open as #12's fact 1.
-- **R2 budget alert:** $1, to the account owner.
+- **R2 budget alert:** $1, to `Sabrinacorreia760@gmail.com` — the same address
+  as the admin inbox, which is also the Cloudflare account owner.
 
 ## Where the credentials live
 
@@ -64,9 +65,12 @@ uploads aborted after 7 days) to the bucket, alongside `expire-originals-7d`.
 - GitHub Actions secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`,
   `RESEND_API_KEY`. All three are set as of 2026-09-03 — the original run left
   `RESEND_API_KEY` unset.
-- The Do-Not-Contact pepper is additionally backed up at: **recorded only as
-  "mine" — needs a specific location, see "Still to do".**
-  It must never rotate; losing it fails open silently (ADR 0010).
+- The Do-Not-Contact pepper is additionally backed up at: the operator's PC,
+  stored securely. It must never rotate; losing it fails open silently
+  (ADR 0010) — and because the entries it produces are one-way and cannot be
+  re-derived, a single copy on a single machine is the whole backup. A second
+  copy somewhere that survives that machine (password manager, offline media)
+  would cost nothing and is worth adding.
 - The link-signing key may be rotated: doing so strands live links
   (loud, recoverable) rather than failing open (silent).
 
@@ -104,15 +108,6 @@ second shelter, or one real subscriber, requires a domain.
 See [ADR 0014](adr/0014-domain-free-prototype-phase.md).
 
 ## Still to do by hand
-
-Needing a decision:
-
-- **Capture the admin inbox.** ADR 0002 removed admin accounts, so this address
-  *is* the admin credential; ADR 0012's 6 GB storage alarm lands there too. The
-  pre-gaps wizard never asked for it, and the budget-alert stage said to "add
-  your email as a recipient" without having captured one.
-- **Record where the DNC pepper is actually backed up.** "mine" is not a
-  location, and this is the one secret that cannot be reissued.
 
 Needing a domain (ADR 0014):
 
