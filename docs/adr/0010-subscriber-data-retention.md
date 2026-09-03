@@ -76,7 +76,10 @@ purge. Confirmed subscribers carry no IP at all.
   summary. A retention policy with no job behind it is a lie, and a second schedule would be
   a second thing that can die silently. The 10 ms CPU ceiling is not a constraint on a handful
   of database-side `DELETE`s. Lag equals the run's own lag, which periods of 7 and 90 days
-  absorb without harm.
+  absorb without harm. *(Extended by
+  [ADR 0015](0015-unreferenced-derivatives-are-reclaimed-by-reconciliation.md), which hangs
+  derivative reclamation off this same preamble on this same reasoning, and writes its reclaimed
+  counts and measured bytes into the same `Digest Run` summary.)*
 - **The pepper must never rotate, and losing it fails open.** It lives as a secret outside the
   database; if it is rotated or lost, every Do-Not-Contact entry silently stops matching and
   the platform resumes mailing people who reported it as spam, with no alarm anywhere. A fixed
