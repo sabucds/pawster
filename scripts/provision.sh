@@ -222,16 +222,16 @@ for _arg in "$@"; do
 done
 
 if (( NO_DOMAIN )); then
-  TOTAL_STAGES=14
-  # Stages 2, 8, 11 and 12 never run, so the facts they would have captured are
-  # defined empty here: under `set -u` the stage 18 record would abort instead.
+  TOTAL_STAGES=17
+  # Stages 2, 10, 13 and 14 never run, so the facts they would have captured
+  # are defined empty here: under `set -u` the stage 21 record would abort.
   PAWSTER_DOMAIN=""
   CLOUDFLARE_ZONE_ID=""
   IMAGES_TRANSFORMATIONS_ON_FREE="not observed - no zone in this phase"
   RESEND_SENDING_DOMAIN=""
   RESEND_DOMAIN_STATUS="sandbox only - onboarding@resend.dev"
 else
-  TOTAL_STAGES=18
+  TOTAL_STAGES=21
 fi
 RECORD="docs/provisioning-record.md"
 
@@ -272,9 +272,9 @@ if (( NO_DOMAIN )); then
   warn "and the r2.dev hostname is substituted for the custom domain. Numbered"
   warn "as they would be in a full run, the four are:"
   note "   2  the domain, and its zone on Cloudflare"
-  note "   8  Images transformations (observation only; needs a zone)"
-  note "  11  the Resend sending subdomain"
-  note "  12  the Resend DNS records (MX, SPF, DKIM)"
+  note "  10  Images transformations (observation only; needs a zone)"
+  note "  13  the Resend sending subdomain"
+  note "  14  the Resend DNS records (MX, SPF, DKIM)"
   printf '\n'
   warn "The consequence, stated plainly: Resend can only send to this account"
   warn "own address, because domain verification needs DNS records that this"
@@ -447,6 +447,53 @@ fi
 pause "Press Enter to continue."
 
 # ── 6 ─────────────────────────────────────────────────────────────────────
+stage "The originals bucket, and its 7-day lifecycle rule"
+say "ADR 0012 keeps every uploaded original for 7 days in a bucket of its own,"
+say "then expires it. That window is what turns a pipeline bug — a bad crop, a"
+say "broken encoder — from irreversible into recoverable: the 1280px derivative"
+say "is otherwise the master, and nothing larger can ever be backfilled."
+printf '\n'
+warn "This bucket must NEVER be public and must never get a custom domain."
+warn "Derivatives are clean by default — WebP output discards metadata"
+warn "unconditionally — but a retained original is not. A volunteer"
+warn "photographing a foster animal indoors embeds that home's coordinates."
+printf '\n'
+ask R2_ORIGINALS_BUCKET "Originals bucket name [Enter for pawster-originals]:"
+[[ -z "$R2_ORIGINALS_BUCKET" ]] && R2_ORIGINALS_BUCKET="pawster-originals"
+write_env R2_ORIGINALS_BUCKET "$R2_ORIGINALS_BUCKET"
+printf '\n'
+if capture wr r2 bucket create "$R2_ORIGINALS_BUCKET"; then
+  step "bucket created."
+else
+  warn "create failed. If it says the bucket already exists, that is fine."
+fi
+printf '\n'
+say "Adding the expiry rule. Cloudflare expires marked objects 'typically"
+say "within 24 hours', so 7 days is a floor rather than a guarantee."
+R2_ORIGINALS_LIFECYCLE="not set"
+if capture wr r2 bucket lifecycle add "$R2_ORIGINALS_BUCKET" \
+     expire-originals-7d "" --expire-days 7 --force; then
+  step "lifecycle rule 'expire-originals-7d' added."
+  R2_ORIGINALS_LIFECYCLE="expire-originals-7d — 7 days, all prefixes"
+else
+  warn "the CLI could not add it. Do it in the dashboard instead:"
+  note "R2 -> $R2_ORIGINALS_BUCKET -> Settings -> Object lifecycle rules -> Add"
+  note "a rule applying to all objects that deletes them 7 days after upload."
+  open_url "https://dash.cloudflare.com/?to=/:account/r2/default/buckets/$R2_ORIGINALS_BUCKET/settings"
+  pause "Press Enter once the rule is listed."
+  R2_ORIGINALS_LIFECYCLE="added by hand in the dashboard"
+fi
+write_env R2_ORIGINALS_LIFECYCLE "$R2_ORIGINALS_LIFECYCLE"
+printf '\n'
+warn "Do NOT attach a custom domain or enable r2.dev on this bucket."
+note "ADR 0012 also leans on this rule to collect abandoned upload sessions,"
+note "'so neither needs code' in ADR 0010's daily purge. It plainly collects an"
+note "abandoned session's originals. Whether a staged derivative stranded in"
+note "$R2_BUCKET is swept by the same reasoning is not settled by the ADR —"
+note "raise it with whoever builds the upload path."
+pause "Press Enter to continue."
+
+# ── 7 ─────────────────────────────────────────────────────────────────────
 if (( NO_DOMAIN )); then
   stage "Serve the bucket from its r2.dev hostname"
   say "Without a zone there is no custom domain, so the bucket is served from"
@@ -519,7 +566,20 @@ else
   pause "Press Enter to continue."
 fi
 
-# ── 7 ─────────────────────────────────────────────────────────────────────
+# ── 8 ─────────────────────────────────────────────────────────────────────
+stage "The admin inbox"
+say "ADR 0002 gave the platform no admin accounts at all: every verification"
+say "decision arrives as a signed link in one mailbox, so this address *is* the"
+say "admin credential. It is also where ADR 0012's 6 GB storage alarm lands,"
+say "and it is the recipient the next stage's budget alert wants."
+printf '\n'
+warn "Use an address you would notice losing control of. It is published"
+warn "nowhere, but whoever holds it can verify or revoke any shelter."
+ask PAWSTER_ADMIN_EMAIL "Admin inbox address:"
+write_env PAWSTER_ADMIN_EMAIL "$PAWSTER_ADMIN_EMAIL"
+pause "Press Enter to continue."
+
+# ── 9 ─────────────────────────────────────────────────────────────────────
 stage "Budget alert on usage-based spend"
 say "ADR 0006's asymmetry: Workers, D1 and Queues fail closed when the free"
 say "tier runs out. R2 bills. So R2 is the one component that can turn a \$0"
@@ -543,7 +603,7 @@ ask R2_BUDGET_ALERT "What did you set, or why couldn't you? (e.g. '\$1 to me' / 
 write_env R2_BUDGET_ALERT "$R2_BUDGET_ALERT"
 pause "Press Enter to continue."
 
-# ── 8 ─────────────────────────────────────────────────────────────────────
+# ── 10 ────────────────────────────────────────────────────────────────────
 if (( ! NO_DOMAIN )); then
   stage "Images transformations on a Free zone (observation only)"
   say "Issue #12 established that transformations are documented as available on"
@@ -560,7 +620,7 @@ if (( ! NO_DOMAIN )); then
   pause "Press Enter to continue."
 fi
 
-# ── 9 ─────────────────────────────────────────────────────────────────────
+# ── 11 ────────────────────────────────────────────────────────────────────
 stage "Create the D1 database"
 say "D1 holds shelters, animals, subscriptions and the digest sent-set. ADR"
 say "0006 chose it because the dataset is small and structured, D1 supports"
@@ -589,7 +649,7 @@ else
 fi
 pause "Press Enter to continue."
 
-# ── 10 ────────────────────────────────────────────────────────────────────
+# ── 12 ────────────────────────────────────────────────────────────────────
 stage "Create the Queue"
 say "ADR 0006's digest path is Cron Trigger -> Queue -> consumer. Queues is on"
 say "the Workers Free plan at 10,000 operations/day, which is why QStash was"
@@ -607,11 +667,28 @@ if capture wr queues create "$QUEUE_NAME" --message-retention-period-secs 86400;
 else
   warn "create failed. If the queue already exists, that is fine."
 fi
-note "The consumer binding comes later, with the digest Worker, via"
-note "'wrangler queues consumer add' — there is no Worker to bind yet."
+printf '\n'
+say "ADR 0009 puts retry at two levels: Queues redelivers the enqueue message"
+say "and then dead-letters it, and the dead-letter queue's consumer is what"
+say "pings Healthchecks' /fail endpoint. That needs a second, real queue."
+ask QUEUE_DLQ_NAME "Dead-letter queue name [Enter for $QUEUE_NAME-dlq]:"
+[[ -z "$QUEUE_DLQ_NAME" ]] && QUEUE_DLQ_NAME="$QUEUE_NAME-dlq"
+write_env QUEUE_DLQ_NAME "$QUEUE_DLQ_NAME"
+printf '\n'
+if capture wr queues create "$QUEUE_DLQ_NAME" --message-retention-period-secs 86400; then
+  step "dead-letter queue created."
+else
+  warn "create failed. If the queue already exists, that is fine."
+fi
+printf '\n'
+note "Both consumer bindings come later, with the digest Worker, via"
+note "'wrangler queues consumer add $QUEUE_NAME <worker>"
+note "--dead-letter-queue $QUEUE_DLQ_NAME' — there is no Worker to bind yet."
+SKIPPED+=("wire $QUEUE_DLQ_NAME as $QUEUE_NAME's dead-letter queue, once the digest Worker exists")
+SKIPPED+=("point the $QUEUE_DLQ_NAME consumer at the Healthchecks /fail endpoint (ADR 0009)")
 pause "Press Enter to continue."
 
-# ── 11 ────────────────────────────────────────────────────────────────────
+# ── 13 ────────────────────────────────────────────────────────────────────
 if (( ! NO_DOMAIN )); then
   stage "Resend: the account and the sending subdomain"
   say "Resend carries everything: shelter magic links, subscriber opt-ins,"
@@ -632,7 +709,7 @@ if (( ! NO_DOMAIN )); then
   step "Add '$RESEND_SENDING_DOMAIN' as the domain in Resend."
   pause "Press Enter once Resend is showing you the DNS records."
 
-  # ── 12 ────────────────────────────────────────────────────────────────────
+  # ── 14 ────────────────────────────────────────────────────────────────────
   stage "Resend: the DNS records, in the Cloudflare zone"
   say "Resend generates the values per domain, so copy them from the page you"
   say "just opened. Three records, all on the sending subdomain:"
@@ -670,7 +747,7 @@ if (( ! NO_DOMAIN )); then
   pause "Press Enter to continue."
 fi
 
-# ── 13 ────────────────────────────────────────────────────────────────────
+# ── 15 ────────────────────────────────────────────────────────────────────
 stage "Resend: the API key"
 say "One key, used by both Workers and by CI."
 open_url "https://resend.com/api-keys"
@@ -691,7 +768,7 @@ note "Also stored as a GitHub Actions secret, because CI needs it. It is not"
 note "in the provisioning record — no secret goes on a public issue."
 pause "Press Enter to continue."
 
-# ── 14 ────────────────────────────────────────────────────────────────────
+# ── 16 ────────────────────────────────────────────────────────────────────
 stage "Healthchecks.io: the digest dead-man's switch"
 say "Nothing inside Cloudflare can tell us a Cron Trigger never fired — that is"
 say "why ADR 0009 puts an external watchdog outside the platform entirely."
@@ -723,7 +800,7 @@ note "a dead digest look alive."
 SKIPPED+=("wrangler secret put HEALTHCHECKS_PING_URL, once the digest Worker exists")
 pause "Press Enter to continue."
 
-# ── 15 ────────────────────────────────────────────────────────────────────
+# ── 17 ────────────────────────────────────────────────────────────────────
 stage "The Do-Not-Contact pepper"
 say "ADR 0010's one permanent secret. It keys the HMAC-SHA256 that fingerprints"
 say "addresses which reported us as spam, so complainants are never mailed again"
@@ -772,7 +849,34 @@ note "pepper, and the record goes on a public issue."
 SKIPPED+=("wrangler secret put PAWSTER_DNC_PEPPER, once the Worker exists")
 pause "Press Enter to continue."
 
-# ── 16 ────────────────────────────────────────────────────────────────────
+# ── 18 ────────────────────────────────────────────────────────────────────
+stage "The link-signing key"
+say "Every route into Pawster that carries no session is a signed link: a"
+say "shelter confirming its animals (ADR 0008), a subscriber managing or"
+say "unsubscribing (ADR 0010), the admin deciding a verification (ADR 0002)."
+say "They share one signing key, and #18 asked for it to be generated here."
+printf '\n'
+note "Unlike the pepper, this key MAY be rotated. Rotating it strands every"
+note "live link — a shelter's nudge, a subscriber's manage link — which is a"
+note "loud and recoverable failure. The pepper's failure is silent. Do not"
+note "store the two as though they carried the same risk."
+printf '\n'
+EXISTING_LINK_KEY=$(_existing PAWSTER_LINK_SIGNING_KEY || true)
+if [[ -n "$EXISTING_LINK_KEY" ]]; then
+  step "A key is already in $ENV_FILE. Keeping it, so live links keep working."
+  PAWSTER_LINK_SIGNING_KEY="$EXISTING_LINK_KEY"
+else
+  PAWSTER_LINK_SIGNING_KEY=$(openssl rand -base64 32)
+  step "Generated a fresh 32-byte key, locally."
+  write_env PAWSTER_LINK_SIGNING_KEY "$PAWSTER_LINK_SIGNING_KEY"
+fi
+printf '\n'
+note "Not printed and not recorded: the provisioning record is destined for a"
+note "public issue. Read it out of $ENV_FILE if you need it."
+SKIPPED+=("wrangler secret put PAWSTER_LINK_SIGNING_KEY, once the Worker exists")
+pause "Press Enter to continue."
+
+# ── 19 ────────────────────────────────────────────────────────────────────
 stage "Cloudflare API token, and the CI secrets"
 say "CI deploys the Workers and applies D1 migrations, so it needs a scoped"
 say "token — never your global API key."
@@ -794,7 +898,7 @@ note "The account id is set as a secret rather than a variable purely so the"
 note "workflow references stay uniform under secrets.*; it is not sensitive."
 pause "Press Enter to continue."
 
-# ── 17 ────────────────────────────────────────────────────────────────────
+# ── 20 ────────────────────────────────────────────────────────────────────
 stage "Make the repository public"
 say "The public repo is part of the portfolio surface ADR 0006 describes."
 printf '\n'
@@ -830,7 +934,7 @@ else
 fi
 pause "Press Enter to write the provisioning record."
 
-# ── 18 ────────────────────────────────────────────────────────────────────
+# ── 21 ────────────────────────────────────────────────────────────────────
 stage "Write the provisioning record"
 say "Everything captured, minus every secret, as a file you can paste onto"
 say "issue #18 as its resolution comment."
@@ -865,9 +969,13 @@ mkdir -p "$(dirname "$RECORD")"
   else
     printf '| R2 public hostname | `%s` |\n' "$R2_PUBLIC_HOST"
   fi
+  printf '| R2 originals bucket (never public) | `%s` |\n' "$R2_ORIGINALS_BUCKET"
+  printf '| Originals lifecycle rule | %s |\n' "$R2_ORIGINALS_LIFECYCLE"
   printf '| D1 database name | `%s` |\n' "$D1_DATABASE_NAME"
   printf '| D1 database id | `%s` |\n' "$D1_DATABASE_ID"
   printf '| Queue name | `%s` |\n' "$QUEUE_NAME"
+  printf '| Dead-letter queue | `%s` |\n' "$QUEUE_DLQ_NAME"
+  printf '| Admin inbox (ADR 0002 credential) | `%s` |\n' "$PAWSTER_ADMIN_EMAIL"
   if (( NO_DOMAIN )); then
     printf '| Resend sending domain | none - sandbox `onboarding@resend.dev`, own inbox only |\n'
   else
@@ -882,11 +990,13 @@ mkdir -p "$(dirname "$RECORD")"
   printf '\n## Where the credentials live\n\n'
   printf -- '- `.env` at the repo root, ignored by git: `RESEND_API_KEY`,\n'
   printf -- '  `CLOUDFLARE_API_TOKEN`, `HEALTHCHECKS_PING_URL`, `PAWSTER_DNC_PEPPER`,\n'
-  printf -- '  `PAWSTER_DNC_CANARY`.\n'
+  printf -- '  `PAWSTER_DNC_CANARY`, `PAWSTER_LINK_SIGNING_KEY`.\n'
   printf -- '- GitHub Actions secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`,\n'
   printf -- '  `RESEND_API_KEY`.\n'
   printf -- '- The Do-Not-Contact pepper is additionally backed up at: %s.\n' "$PAWSTER_DNC_PEPPER_BACKUP"
   printf -- '  It must never rotate; losing it fails open silently (ADR 0010).\n'
+  printf -- '- The link-signing key may be rotated: doing so strands live links\n'
+  printf -- '  (loud, recoverable) rather than failing open (silent).\n'
   printf '\n## Ceilings now live\n\n'
   printf -- '- Resend transactional: 100/day, 3,000/month. ADR 0009 budgets the digest\n'
   printf -- '  at `100 - 30`, so the $0 ceiling is ~500 weekly subscribers.\n'
@@ -896,16 +1006,21 @@ mkdir -p "$(dirname "$RECORD")"
     printf -- '  domain verification, not the quota.\n'
   fi
   printf -- '- R2: 10 GB-month, 1M Class A, 10M Class B, egress free. The only\n'
-  printf -- '  component that bills instead of failing.\n'
+  printf -- '  component that bills instead of failing. ADR 0012 puts the lifetime\n'
+  printf -- '  ceiling at ~9,500 animals, revised down from ~12,500.\n'
+  printf -- '- Images: 5,000 transformations per calendar month, recurring. The\n'
+  printf -- '  derivative set costs `2N + 2` per animal, so ~350-500 new animals\n'
+  printf -- '  per month. Fails closed at error 9422, with no `onerror` fallback\n'
+  printf -- '  for the binding (ADR 0012).\n'
   printf -- '- Queues: 10,000 operations/day; messages retained 24h on Free.\n'
   printf -- '- D1: 500 MB per database.\n'
   if (( NO_DOMAIN )); then
     printf '\n## Deferred by `--no-domain`\n\n'
     printf 'Four stages need a domain and its Cloudflare zone, and did not run:\n\n'
     printf -- '- **2** the domain, and its zone on Cloudflare\n'
-    printf -- '- **8** Images transformations (observation only; needs a zone)\n'
-    printf -- '- **11** the Resend sending subdomain\n'
-    printf -- '- **12** the Resend DNS records (MX, SPF, DKIM)\n'
+    printf -- '- **10** Images transformations (observation only; needs a zone)\n'
+    printf -- '- **13** the Resend sending subdomain\n'
+    printf -- '- **14** the Resend DNS records (MX, SPF, DKIM)\n'
     printf '\nConsequence: Resend reaches only this account own address, so shelter\n'
     printf 'sign-in codes (ADR 0013), admin verification links (ADR 0002) and the\n'
     printf 'subscriber digest (ADR 0009) work for the operator alone. Onboarding a\n'
