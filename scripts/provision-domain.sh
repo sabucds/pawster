@@ -387,6 +387,13 @@ printf '\n'
 note "  Resend shows:  send.$RESEND_SENDING_DOMAIN"
 note "  deSEC wants:   send.mail"
 printf '\n'
+warn "Strip the WHOLE domain, not just the public suffix. Observed 2026-09-03:"
+warn "stripping only '.${PAWSTER_DOMAIN#*.}' leaves the '${PAWSTER_DOMAIN%%.*}' behind, and"
+warn "deSEC appends the zone again, so the record lands at"
+note "  resend._domainkey.mail.${PAWSTER_DOMAIN%%.*}.$PAWSTER_DOMAIN"
+warn "which resolves perfectly and is not the name Resend looks up. Nothing"
+warn "errors; verification just never goes green. The check below catches it."
+printf '\n'
 warn "It is NEVER blank. Leaving it blank aims the record at the zone apex,"
 warn "and if the record is a CNAME you will get:"
 note "  'RRset with conflicting type present at same subname: (NS, TXT).'"
@@ -400,8 +407,34 @@ note "Keep the 'mail' in it. ADR 0014 sends from a subdomain, so every Resend"
 note "record sits under mail — which is also why none of them can ever collide"
 note "with the apex once the subname is right."
 printf '\n'
-warn "Copy the target values by paste, not by eye. A CNAME target that reads"
-warn "'rsend.' instead of 'resend.' fails verification with no useful error."
+warn "Copy the target values by paste, not by eye — one wrong character fails"
+warn "verification with no useful error."
+note "Do not 'correct' a target that reads 'rsend.forge.rmta.net'. It looks like"
+note "a typo for 'resend.' and is not: both hostnames are live Resend"
+note "infrastructure, carrying different SPF. Publish exactly what you are shown."
+printf '\n'
+say "Checking what actually resolves before you click Verify."
+_dns_bad=""
+for _n in "resend._domainkey.$RESEND_SENDING_DOMAIN" "send.$RESEND_SENDING_DOMAIN"; do
+  _got=$( { dig +short TXT "$_n"; dig +short CNAME "$_n"; } 2>/dev/null | head -1 )
+  if [[ -n "$_got" ]]; then
+    step "$_n resolves."
+    continue
+  fi
+  _dns_bad=1
+  _doubled="${_n%.$PAWSTER_DOMAIN}.${PAWSTER_DOMAIN%%.*}.$PAWSTER_DOMAIN"
+  if [[ -n "$( { dig +short TXT "$_doubled"; dig +short CNAME "$_doubled"; } 2>/dev/null | head -1 )" ]]; then
+    warn "$_n does not resolve — but $_doubled does."
+    warn "That is the doubled label above. Edit the subname in deSEC to drop the"
+    warn "extra '${PAWSTER_DOMAIN%%.*}', then re-run this stage."
+  else
+    warn "$_n does not resolve yet. Either it is not published, or deSEC has not"
+    warn "caught up. Re-check before clicking Verify."
+  fi
+done
+if [[ -n "$_dns_bad" ]]; then
+  SKIPPED+=("deSEC: at least one Resend record does not resolve at the name Resend looks up")
+fi
 printf '\n'
 step "Back at Resend, click Verify."
 printf '\n'
