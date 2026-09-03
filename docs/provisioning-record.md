@@ -58,10 +58,16 @@ uploads aborted after 7 days) to the bucket, alongside `expire-originals-7d`.
 - **Did Images transformations enable on the Free zone?** not observed, and now
   **unobservable**: ADR 0014 means Pawster will never hold a Cloudflare zone, so
   the zone-gated URL-transformation route is permanently out of reach. This does
-  not block ADR 0012, which generates derivatives through the account-scoped
-  Images *binding* inside a Worker rather than through zone URLs — but that is
-  the assumption to confirm, and it is what [#34](https://github.com/sabucds/pawster/issues/34)
-  measures. #12's fact 1 should be closed as moot rather than left open.
+  not block ADR 0012, which generates derivatives inside a Worker rather than
+  through zone URLs. Which in-Worker form it uses was still open when this record
+  was written; [#34](https://github.com/sabucds/pawster/issues/34) settled it on
+  2026-09-03 against a real Free-plan account, and ADR 0012 now names the
+  **`cf.image` fetch form** and rules the account-scoped Images *binding* out:
+  the binding's encode runs in our isolate at 22-56 ms of CPU at the median
+  (78 ms observed on a single invocation) against the 10 ms ceiling, where
+  `cf.image` costs 0-2 ms on every sample. The same run confirmed `gravity=auto`
+  works on Free. #12's fact 1 should be closed as moot
+  rather than left open.
 - **R2 budget alert:** $1, to `Sabrinacorreia760@gmail.com` — the same address
   as the admin inbox, which is also the Cloudflare account owner.
 
@@ -160,16 +166,24 @@ Needing the digest Worker, which does not exist yet:
 - point the `pawster-digest-dlq` consumer at the Healthchecks `/fail` endpoint
   (ADR 0009)
 
-## Still unsettled
+## Settled since
 
-ADR 0012 says the originals lifecycle rule "also collects abandoned upload
-sessions, so neither needs code" in ADR 0010's daily purge. It plainly collects
-an abandoned session's **originals**, and R2's default multipart-abort rule
-collects incomplete uploads. But ADR 0012 also stages *derivatives* before the
-animal row is committed, and those are written to `pawster-media`, which
-neither rule touches — so an abandoned session appears to strand its
-derivatives there permanently. That is either a second lifecycle rule on a
-staging prefix or a line of purge code, and it is a decision rather than a
-mechanical gap. Worth settling before the upload path is built.
+This record used to close by asking what collects an abandoned upload session's
+*derivatives*: ADR 0012's originals lifecycle rule plainly collects its
+**originals**, and R2's default multipart-abort rule collects incomplete
+uploads, but the derivatives are written to `pawster-media`, which neither rule
+touches. The record proposed either a second lifecycle rule on a staging prefix
+or a line of purge code.
+
+[ADR 0016](adr/0016-unreferenced-derivatives-are-reclaimed-by-reconciliation.md)
+answers it, and the answer is **neither**. A nightly reconciliation pass deletes
+every derivative that no animal and no live upload session references, so
+abandoned sessions are collected by reference rather than by ownership — as are
+three orphan classes the question had not noticed (a deleted photo, a promoted
+primary, and the twelve-month photo drop). No provisioning action follows from
+it: no second lifecycle rule is to be created on `pawster-media`. What it does
+add is a prefix convention — derivatives under `d/`, the filter index under
+`i/`, with the sweep scoped to `d/` only — which costs nothing today because
+nothing is stored yet, and would need a migration once objects exist.
 
 > Secrets are deliberately absent from this record.
