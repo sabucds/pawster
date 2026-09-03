@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pawster-web",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+
+  // No `main` and no `assets` here on purpose: `@astrojs/cloudflare` v14 supplies both.
+  // It points `main` at its own server entrypoint and wires `dist/` as Static Assets, so
+  // naming them here means naming a build output that does not exist yet at config time,
+  // and the build fails before it starts.
+
+  // The same D1 database `digest/` binds, and the same migrations, owned by `db/`.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "pawster",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "../db/migrations"
+    }
+  ]
+}

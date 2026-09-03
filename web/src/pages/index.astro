@@ -1,0 +1,21 @@
+---
+/**
+ * Prerendered, like almost everything an anonymous adopter browses. No `prerender` export
+ * here because static is the default — the exception is the file that opts out.
+ *
+ * This page is served from Static Assets without invoking Worker code, which is what the
+ * `web/test/routing.test.ts` assertion about `cf-worker-ran` is checking.
+ */
+---
+
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pawster</title>
+  </head>
+  <body>
+    <h1>Pawster</h1>
+    <p data-testid="prerendered">Animales en adopción en Venezuela.</p>
+  </body>
+</html>
