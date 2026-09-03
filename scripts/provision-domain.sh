@@ -353,10 +353,12 @@ open_url "https://resend.com/domains"
 step "Add Domain → $RESEND_SENDING_DOMAIN → pick the region closest to you."
 step "Resend will show you the DNS records it wants. Leave the page open."
 printf '\n'
-warn "Record shape changed recently: 'For domains created after August 2026,"
-warn "Resend may generate CNAME records instead' of MX and TXT. Either shape"
-warn "is fine at deSEC — copy whatever it actually shows you, not what an"
-warn "older doc or ADR describes."
+warn "Expect CNAMEs, not MX and TXT. Resend's docs hedge — 'for domains created"
+warn "after August 2026, Resend may generate CNAME records instead' — but this"
+warn "was observed first-hand on 2026-09-03, and CNAMEs are what it issued."
+note "That matters because a CNAME is the one record type that cannot share a"
+note "name with anything else, which is what stage 6 is about. Copy whatever it"
+note "actually shows you, not what an older doc or ADR describes."
 pause "Press Enter once Resend has shown you the records."
 
 # ── 6 ─────────────────────────────────────────────────────────────────────
@@ -367,6 +369,32 @@ printf '\n'
 note "deSEC groups records into record sets by name and type, so add each"
 note "Resend row as its own set. There is no proxying to disable here — that"
 note "was a Cloudflare hazard, and we are deliberately not on Cloudflare."
+printf '\n'
+warn "The Subname field is where this goes wrong, and it has gone wrong before."
+say "deSEC asks for a SUBNAME, but Resend shows you a FULL record name. The"
+say "subname is the full name with the domain stripped off the end:"
+printf '\n'
+note "  Resend shows:  resend._domainkey.$RESEND_SENDING_DOMAIN"
+note "  deSEC wants:   resend._domainkey.mail"
+printf '\n'
+note "  Resend shows:  send.$RESEND_SENDING_DOMAIN"
+note "  deSEC wants:   send.mail"
+printf '\n'
+warn "It is NEVER blank. Leaving it blank aims the record at the zone apex,"
+warn "and if the record is a CNAME you will get:"
+note "  'RRset with conflicting type present at same subname: (NS, TXT).'"
+note "  '(No other RRsets are allowed alongside CNAME.)'"
+printf '\n'
+note "That is DNS refusing you, not deSEC being fussy: the apex must hold SOA"
+note "and NS to be a zone at all, and a CNAME is only legal at a name holding"
+note "nothing else. There is no override. Fill in the subname and it goes away."
+printf '\n'
+note "Keep the 'mail' in it. ADR 0014 sends from a subdomain, so every Resend"
+note "record sits under mail — which is also why none of them can ever collide"
+note "with the apex once the subname is right."
+printf '\n'
+warn "Copy the target values by paste, not by eye. A CNAME target that reads"
+warn "'rsend.' instead of 'resend.' fails verification with no useful error."
 printf '\n'
 step "Back at Resend, click Verify."
 printf '\n'
