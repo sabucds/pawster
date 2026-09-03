@@ -8,6 +8,13 @@
 
 set -euo pipefail
 
+# Braces wrap the whole script so bash parses it to the closing brace before it
+# runs a single line. Without them bash reads the file lazily, by byte offset:
+# edit the wizard while a human is running it and the live process resumes at a
+# now-meaningless position, dying with a syntax error the file does not contain.
+# Observed on 2026-09-03, mid-stage-6.
+{
+
 # ──────────────────────────────────────────────────────────────────────────
 # Wizard library: delightful, consistent UX, identical across every wizard.
 # ──────────────────────────────────────────────────────────────────────────
@@ -833,9 +840,24 @@ else
 fi
 printf '\n'
 say "Put it in your password manager now, in an entry you would notice losing."
-until confirm "Is the pepper backed up somewhere that is not this repo?"; do
+# Bounded, not `until`: losing the pepper is unrecoverable, so a human should be
+# pressed rather than waved through — but `confirm` returns false on EOF, so an
+# unbounded loop spins forever the moment this is piped instead of typed. Ten
+# refusals is a human saying no; the eleventh is a closed stdin.
+_pepper_ok=""
+for _try in $(seq 1 10); do
+  if confirm "Is the pepper backed up somewhere that is not this repo?"; then
+    _pepper_ok=1
+    break
+  fi
   warn "Back it up before continuing — this is the unrecoverable one."
 done
+if [[ -z "$_pepper_ok" ]]; then
+  warn "The pepper is not backed up, so stopping here. It is already in .env and"
+  warn "nothing is lost: back it up, then re-run and press Enter through the"
+  warn "stages you have already answered."
+  exit 1
+fi
 ask PAWSTER_DNC_PEPPER_BACKUP "Where is it backed up? (e.g. '1Password, Pawster vault'):"
 write_env PAWSTER_DNC_PEPPER_BACKUP "$PAWSTER_DNC_PEPPER_BACKUP"
 printf '\n'
@@ -1056,3 +1078,5 @@ fi
 pause "Press Enter for the summary."
 
 finish
+
+}

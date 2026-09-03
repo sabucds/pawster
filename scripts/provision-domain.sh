@@ -8,6 +8,13 @@
 
 set -euo pipefail
 
+# Braces wrap the whole script so bash parses it to the closing brace before it
+# runs a single line. Without them bash reads the file lazily, by byte offset:
+# edit the wizard while a human is running it and the live process resumes at a
+# now-meaningless position, dying with a syntax error the file does not contain.
+# Observed on 2026-09-03, mid-stage-6.
+{
+
 # ──────────────────────────────────────────────────────────────────────────
 # Wizard library: delightful, consistent UX, identical across every wizard.
 # ──────────────────────────────────────────────────────────────────────────
@@ -454,3 +461,5 @@ printf '\n'
 note "Update docs/provisioning-record.md with $PAWSTER_DOMAIN and the Resend"
 note "status, then paste it onto issue #18 if it is still open."
 printf '\n'
+
+}
