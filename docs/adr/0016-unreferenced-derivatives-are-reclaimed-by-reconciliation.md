@@ -22,15 +22,19 @@ animals that exist, and none covered by any rule today:
 - **A promoted primary.** Promotion mints a digest thumbnail and a social preview for the new
   primary and strands the old primary's pair.
 - **The 12-month photo drop.** An adopted animal keeps a `noindex` archive page and loses its photos
-  twelve months after it unlists. Note this was settled while deciding how an animal stops being
-  listed and is **recorded nowhere in `docs/adr/`** - [ADR 0001](0001-no-automatic-unlisting.md)
-  covers unlisting but is silent on archiving and on photos. It has never had a mechanism behind it
-  because it has never had a record behind it either.
+  twelve months after it unlists, falling back to a placeholder. This clause went unrecorded for a
+  long time - settled while deciding how an animal stops being listed, but never written into
+  [ADR 0001](0001-no-automatic-unlisting.md), which covered unlisting and was silent on archiving
+  and photos. It was found missing twice independently and in parallel: by the departure decision,
+  which amends ADR 0001 to carry it, and here, where it turned up as an orphan class with no
+  mechanism. It now has both a record and a mechanism, having had neither.
 
 [ADR 0015](0015-a-shelter-can-leave-but-cannot-be-erased.md) then adds a consumer rather than a
 fifth class: a departed shelter's animals keep their photos and "drop on the ordinary twelve-month
-archive clock", so departure needs no reclamation path of its own and inherits this one. Two ADRs
-now rest on a clock that, as noted above, has no record and had no mechanism.
+archive clock", so departure needs no reclamation path of its own and inherits this one. That the
+two decisions independently converged on the same neglected clause - one supplying its record, the
+other its mechanism - is the clearest evidence that the twelve-month drop was load-bearing all
+along.
 
 The arithmetic on any one of these is small - on the order of 0.35 GB a year against a 10 GB
 allowance. What makes them worth code is not the volume but that R2 is the one component
