@@ -28,11 +28,31 @@ Do-Not-Contact pepper of [ADR 0010](docs/adr/0010-subscriber-data-retention.md)
 Two of each, because two ADRs ask for a pair rather than a single resource:
 
 - **A second R2 bucket for originals**, never public, under a 7-day expiry
-  lifecycle rule (ADR 0012, still on the unmerged
-  [`worktree-photo-derivatives`](../blob/worktree-photo-derivatives/docs/adr/0012-derivatives-are-generated-once-at-upload.md)).
+  lifecycle rule ([ADR 0012](docs/adr/0012-derivatives-are-generated-once-at-upload.md)).
   The derivatives bucket is served over a custom domain; this one must not be,
   because a retained original still carries the EXIF the derivatives strip.
 - **A dead-letter queue** beside the digest queue
   ([ADR 0009](docs/adr/0009-digest-delivery-and-retry.md)): its consumer is what
   pings the Healthchecks `/fail` endpoint, so it has to exist as a real queue
   before the digest Worker can name it.
+
+### Without a domain
+
+To provision everything that does not need a domain:
+
+```sh
+./scripts/provision.sh --no-domain
+```
+
+Fourteen of the eighteen stages run. The four that need a domain and its
+Cloudflare zone are skipped, and R2 is served from its auto-generated
+`pub-<hash>.r2.dev` hostname instead of a custom domain.
+
+**Email is what this costs.** Resend domain verification needs DNS records
+that a free-tier hostname cannot publish, so Pawster can send only to the
+operator's own inbox. Because every actor here is authenticated by control of
+an inbox ([ADR 0013](docs/adr/0013-shelters-sign-in-with-an-emailed-code.md)),
+that means the operator is the only shelter until a domain exists — though
+every email path is still built and testable against the Resend sandbox. The
+reasoning, and the condition that ends the phase, are in
+[ADR 0014](docs/adr/0014-domain-free-prototype-phase.md).

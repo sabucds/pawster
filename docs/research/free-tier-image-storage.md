@@ -172,7 +172,8 @@ The fix is a custom domain, which requires *"a zone in the same account as the R
 
 1. **Whether Images Free transformations work on a Free-tier Cloudflare zone.** No current doc states a zone-plan gate and the product is badged "Available on Free and Paid plans", but legacy Image Resizing historically required Pro+. This is the single fact that would invalidate the $0 plan — check it in the dashboard.
 2. **Whether a cache hit on a custom domain avoids a billable Class B op.** Strongly implied ("does not contact origin"), never stated. Budget as if it does not.
-3. **Whether activating the R2 subscription requires a card on file.** Docs say "complete the checkout flow" without mentioning payment details.
+3. ~~**Whether activating the R2 subscription requires a card on file.** Docs say "complete the checkout flow" without mentioning payment details.~~
+   **Settled (2026-09-03, while provisioning — [#18](https://github.com/sabucds/pawster/issues/18)): yes, it does.** The checkout flow requires a payment method on file before R2 activates. This is not a cost and not an ADR 0006 violation — that ADR bars *card fields on the site*, i.e. processing card data on a free-services property, which is a different thing from a payment method on the Cloudflare account. It does mean the account becomes pay-as-you-go, which is what makes Cloudflare's budget alert available at all, since alerts are *"available to Pay-as-you-go accounts only"*; one was set at $1. The alert remains informational and cannot cap usage, so the application-enforced photo and byte caps stay the control. See [#12](https://github.com/sabucds/pawster/issues/12#issuecomment-5527965188).
 4. Whether the 5,000 transformations allowance is per account or per zone. Account-level is the natural reading; unstated.
 
 ### Supabase Storage — egress binds, and it binds hard
