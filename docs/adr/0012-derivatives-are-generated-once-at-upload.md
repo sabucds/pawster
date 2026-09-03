@@ -106,23 +106,45 @@ out near 830 animals.
   closed mid-upload, the remaining budget is checked **before any bytes are accepted** and an upload
   that will not fit is refused with a message. Note the two ceilings are roughly matched: at ~400
   animals/month, ~9,500 animals is about two years away.
-- **Whether to use the `env.IMAGES` binding or the `cf.image` fetch form is deliberately left to
-  measurement**, in the spirit of ADR 0007's two unverifiable numbers. The binding is simpler -
-  bytes stream from the request through the transform into R2 with nothing publicly fetchable - but
-  whether its encode CPU counts against our 10 ms is **undocumented**: there are zero occurrences of
-  "CPU" across Cloudflare's entire Images documentation, and the Workers limits page excludes
-  `fetch()`, KV and database waits without naming bindings generically. The `cf.image` fetch form
-  avoids the question rather than betting on it, because the exclusion is documented for `fetch()`
-  verbatim, and it is the only form for which `gravity` is documented at all. **If the measurement
-  is inconclusive, use `cf.image`.** The zone requirement is already met either way:
-  [ADR 0011](0011-r2-custom-domain-requires-a-full-zone.md) put Pawster on a full Cloudflare zone,
-  and the `cf.image` form works on any zone hosting a Worker regardless.
+- **Transformations use the `cf.image` fetch form, and the `env.IMAGES` binding is ruled out.**
+  This clause used to defer the choice to measurement, in the spirit of ADR 0007's two unverifiable
+  numbers, because whether the binding's encode CPU counted against our 10 ms was undocumented -
+  zero occurrences of "CPU" across Cloudflare's entire Images documentation. The measurement was
+  taken on 2026-09-03 against a real Free-plan account
+  ([#34](https://github.com/sabucds/pawster/issues/34)), and it is not close. **The binding's encode
+  runs in our isolate and costs 22-56 ms of CPU at the median, with single invocations observed to
+  78 ms - three to eight times the 10 ms ceiling. `cf.image` costs 0-2 ms, every sample, including
+  the 1280px WebP.** The distributions do not overlap at any sample. Two controls make the
+  attribution airtight: fetching the 3 MB source and discarding it unread costs **0 ms**, so none of
+  the binding's cost is the source read; and the binding's CPU **rises with the weight of the
+  output** (a 144x144 JPEG is cheaper than a 1280px WebP from the same input) while `cf.image` stays
+  flat, which is only possible if the encode is running in our isolate. The Free plan's 10 ms is
+  soft in practice - every over-budget invocation returned `outcome: ok` and no 1102 was ever seen -
+  but Cloudflare's own wording is that a Worker "hitting the limit consistently" is terminated, and
+  a steady upload path is precisely the consistent case, so this is not a licence to spend 50 ms.
+- **The original is made fetchable to the image pipeline by a token-gated Worker route, not a public
+  bucket.** `cf.image` needs its source reachable by URL, which the "never public" rule above
+  appears to forbid. It does not: a Worker route that checks a capability token and only then serves
+  the bytes is fetchable by Cloudflare's image pipeline and by nobody else. Measured both ways - the
+  transform through the gated route succeeds at **1 ms** of CPU and returns a real JPEG, and the
+  same route with a bad token is refused **403**, surfacing to the caller as `cf-resized: err=9408`.
+  This is the same capability-not-a-session shape as [ADR 0008](0008-confirmation-is-a-capability-not-a-session.md).
+- **A Worker cannot reach its own Static Assets, or any same-host URL, with a plain `fetch()`.** It
+  loops back into the Worker and never reaches the asset router: the identical URL that serves
+  3,190,813 bytes from outside returns **404** from inside. The `ASSETS` binding is the way in.
+  `cf.image` is exempt, because the image pipeline resolves the URL outside the isolate - which is
+  also why the gated-route arrangement above works at all.
 - **Photos upload one per request, browser to Worker to R2, streamed.** The Free request-body limit
   is 100 MB (an account-plan limit, not a Workers one), HTTP duration is documented as unlimited,
   and streaming to `R2.put()` is I/O rather than CPU - so presigned S3 URLs, their CORS policy and
   their credentials in the Worker are all unnecessary complexity here. One photo per request also
   keeps the subrequest count near 5 of the Free plan's 50; doing a six-photo animal in one
-  invocation would spend 34-40.
+  invocation would spend 34-40. **An Images call spends exactly one subrequest**, measured on
+  2026-09-03 ([#34](https://github.com/sabucds/pawster/issues/34)) by standing at the edge of the
+  limit and taking one more step: with 50 subrequests already spent the transform raises "Too many
+  subrequests", with 49 spent it proceeds. Images is absent from Cloudflare's documented subrequest
+  list, so this had to be measured rather than read; the count above is unaffected, since it already
+  assumed one.
 - **Derivative keys are immutable and content-addressed**, hashed over the source bytes plus the
   derivative spec, served `Cache-Control: immutable`. This is what makes ADR 0007's
   regenerate-the-index-on-publish safe rather than racy: an adopter reading mid-write gets a
@@ -154,8 +176,18 @@ out near 830 animals.
   refusal waits until ~9.5 GB. The animal count is the cap's proxy for stored bytes, because the
   derivative set is fixed by us and so bytes-per-animal is bounded by construction; a byte ledger in
   D1 could drift, a count we already hold cannot.
-- **Crops are centre-cropped in v1**, upgrading to saliency-aware `gravity=auto` if it proves
-  available on the Images Free plan - Cloudflare documents it for exactly this case ("useful when
+- **Crops use saliency-aware `gravity=auto`, which is available on the Free plan and on both
+  forms.** Measured on 2026-09-03 ([#34](https://github.com/sabucds/pawster/issues/34)): `auto`
+  succeeds through `cf.image` *and* through the binding's `.transform()`, and it is not silently
+  ignored - the same source at 144x144 yields different bytes under `auto` than under centre-crop.
+  It is also not undocumented, only under-documented: the published
+  `@cloudflare/workers-types` declares `ImageTransform.gravity` with `"auto"` among its values, so
+  this ADR's earlier claim that `cf.image` is "the only form for which `gravity` is documented at
+  all" was true of the prose docs and false of the types. Retained for the record, since it was one
+  of the two arguments that pointed at `cf.image`: the argument was wrong, and the conclusion
+  survives anyway on CPU alone. The original wording follows.
+- **~~Crops are centre-cropped in v1~~**, ~~upgrading to saliency-aware `gravity=auto` if it proves
+  available on the Images Free plan~~ - Cloudflare documents it for exactly this case ("useful when
   you don't know the contents of the image ahead of time, such as with user-generated content") but
   attaches no plan badge either way, and does not show it for the binding's `.transform()` at all.
   Since the transform runs once at upload, a better gravity costs nothing at read time. A crop UI is

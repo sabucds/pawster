@@ -27,7 +27,9 @@ import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const fixtures = join(root, "fixtures");
+// Static Assets serve from the directory root, so the files live one level
+// down inside the assets dir and keep their /fixtures/ URL prefix.
+const fixtures = join(root, "assets", "fixtures");
 const tmp = join(root, ".tmp");
 
 const WIDTH = 4032; // an iPhone's long edge

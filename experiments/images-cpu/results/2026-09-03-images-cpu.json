@@ -1,0 +1,765 @@
+{
+  "ranAt": "2026-09-03T20:33:36.442Z",
+  "probe": "https://pawster-images-cpu-probe.pawster-images-cpu-probe.workers.dev",
+  "samplesPerScenario": 9,
+  "account": "Free plan (confirmed empirically: subrequest wall at exactly 50)",
+  "fixture": {
+    "jpeg": "4032x3024, 12.2 MP, 3,190,813 bytes",
+    "heic": "4032x3024, 2,428,822 bytes",
+    "provenance": "synthesised (pixel count faithful; not a photograph)"
+  },
+  "freePlanCpuLimitMs": 10,
+  "scenarios": {
+    "noop": {
+      "what": "empty invocation — the isolate's own floor",
+      "coldCpuMs": 1,
+      "cpu": {
+        "n": 9,
+        "min": 0,
+        "p50": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "outcomes": [
+        "ok"
+      ],
+      "statuses": [
+        200
+      ],
+      "response": {
+        "probe": "noop",
+        "ok": true
+      }
+    },
+    "control:jpg": {
+      "what": "read the 12 MP JPEG and drain every chunk through JS, no transform",
+      "coldCpuMs": 31,
+      "cpu": {
+        "n": 9,
+        "min": 27,
+        "p50": 29,
+        "max": 42,
+        "mean": 31.444
+      },
+      "outcomes": [
+        "ok"
+      ],
+      "statuses": [
+        200
+      ],
+      "response": {
+        "probe": "control/fetch",
+        "ok": true,
+        "src": "phone.jpg",
+        "status": 200,
+        "bytes": 3190813
+      }
+    },
+    "control:jpg:cancel": {
+      "what": "read the 12 MP JPEG and discard it unread — the source-read floor",
+      "coldCpuMs": 0,
+      "cpu": {
+        "n": 9,
+        "min": 0,
+        "p50": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "outcomes": [
+        "ok"
+      ],
+      "statuses": [
+        200
+      ],
+      "response": {
+        "probe": "control/cancel",
+        "ok": true,
+        "src": "phone.jpg",
+        "status": 200,
+        "bytes": 0
+      }
+    },
+    "binding:jpg:144:jpeg": {
+      "what": "BINDING — 144x144 JPEG digest thumbnail (ADR 0012's primary derivative)",
+      "subtract": "control:jpg:cancel",
+      "coldCpuMs": 41,
+      "cpu": {
+        "n": 9,
+        "min": 37,
+        "p50": 44,
+        "max": 57,
+        "mean": 45.444
+      },
+      "attributableCpuMs": {
+        "p50": 44,
+        "min": 37,
+        "mean": 45.444
+      },
+      "outcomes": [
+        "ok"
+      ],
+      "statuses": [
+        200
+      ],
+      "response": {
+        "probe": "binding",
+        "ok": true,
+        "src": "phone.jpg",
+        "fmt": "jpeg",
+        "transform": {
+          "width": 144,
+          "height": 144,
+          "fit": "cover"
+        },
+        "status": 200,
+        "contentType": "image/jpeg",
+        "bytes": 2509
+      }
+    },
+    "cfimage:jpg:144:jpeg": {
+      "what": "cf.image — the same 144x144 JPEG thumbnail",
+      "subtract": "noop",
+      "coldCpuMs": 1,
+      "cpu": {
+        "n": 9,
+        "min": 0,
+        "p50": 1,
+        "max": 1,
+        "mean": 0.778
+      },
+      "attributableCpuMs": {
+        "p50": 1,
+        "min": 0,
+        "mean": 0.778
+      },
+      "outcomes": [
+        "ok"
+      ],
+      "statuses": [
+        200
+      ],
+      "response": {
+        "probe": "cfimage",
+        "ok": true,
+        "src": "phone.jpg",
+        "fmt": "jpeg",
+        "image": {
+          "width": 144,
+          "format": "baseline-jpeg",
+          "height": 144,
+          "fit": "cover"
+        },
+        "status": 200,
+        "cfResizedHeader": "internal=ok/h q=0 n=105+1 c=69+2 v=2026.9.0 l=2877 f=true c2=8",
+        "contentType": "image/jpeg",
+        "bytes": 2877
+      }
+    },
+    "binding:jpg:1280:webp": {
+      "what": "BINDING — 1280px WebP detail image (the heaviest derivative in the set)",
+      "subtract": "control:jpg:cancel",
+      "coldCpuMs": 47,
+      "cpu": {
+        "n": 9,
+        "min": 49,
+        "p50": 56,
+        "max": 78,
+        "mean": 61.111
+      },
+      "attributableCpuMs": {
+        "p50": 56,
+        "min": 49,
+        "mean": 61.111
+      },
+      "outcomes": [
+        "ok"
+      ],
+      "statuses": [
+        200
+      ],
+      "response": {
+        "probe": "binding",
+        "ok": true,
+        "src": "phone.jpg",
+        "fmt": "webp",
+        "transform": {
+          "width": 1280
+        },
+        "status": 200,
+        "contentType": "image/webp",
+        "bytes": 962796
+      }
+    },
+    "cfimage:jpg:1280:webp": {
+      "what": "cf.image — the same 1280px WebP",
+      "subtract": "noop",
+      "coldCpuMs": 1,
+      "cpu": {
+        "n": 9,
+        "min": 1,
+        "p50": 1,
+        "max": 2,
+        "mean": 1.111
+      },
+      "attributableCpuMs": {
+        "p50": 1,
+        "min": 1,
+        "mean": 1.111
+      },
+      "outcomes": [
+        "ok"
+      ],
+      "statuses": [
+        200
+      ],
+      "response": {
+        "probe": "cfimage",
+        "ok": true,
+        "src": "phone.jpg",
+        "fmt": "webp",
+        "image": {
+          "width": 1280,
+          "format": "webp"
+        },
+        "status": 200,
+        "cfResizedHeader": "internal=ok/h q=0 n=103+1 c=169+133 v=2026.9.0 l=28138 f=true c2=8",
+        "contentType": "image/webp",
+        "bytes": 28138
+      }
+    },
+    "control:heic": {
+      "what": "fetch the HEIC and drain it, no transform",
+      "coldCpuMs": 22,
+      "cpu": {
+        "n": 9,
+        "min": 19,
+        "p50": 26,
+        "max": 33,
+        "mean": 26.889
+      },
+      "outcomes": [
+        "ok"
+      ],
+      "statuses": [
+        200
+      ],
+      "response": {
+        "probe": "control/fetch",
+        "ok": true,
+        "src": "phone.heic",
+        "status": 200,
+        "bytes": 2428822
+      }
+    },
+    "binding:heic:144:jpeg": {
+      "what": "BINDING — HEIC in, 144x144 JPEG out (what an iPhone actually uploads)",
+      "subtract": "control:heic",
+      "coldCpuMs": 51,
+      "cpu": {
+        "n": 9,
+        "min": 31,
+        "p50": 40,
+        "max": 45,
+        "mean": 39
+      },
+      "attributableCpuMs": {
+        "p50": 14,
+        "min": 12,
+        "mean": 12.111
+      },
+      "outcomes": [
+        "ok"
+      ],
+      "statuses": [
+        200
+      ],
+      "response": {
+        "probe": "binding",
+        "ok": true,
+        "src": "phone.heic",
+        "fmt": "jpeg",
+        "transform": {
+          "width": 144,
+          "height": 144,
+          "fit": "cover"
+        },
+        "status": 200,
+        "contentType": "image/jpeg",
+        "bytes": 2384
+      }
+    },
+    "cfimage:heic:144:jpeg": {
+      "what": "cf.image — HEIC in, 144x144 JPEG out",
+      "subtract": "noop",
+      "coldCpuMs": 0,
+      "cpu": {
+        "n": 9,
+        "min": 0,
+        "p50": 1,
+        "max": 2,
+        "mean": 1
+      },
+      "attributableCpuMs": {
+        "p50": 1,
+        "min": 0,
+        "mean": 1
+      },
+      "outcomes": [
+        "ok"
+      ],
+      "statuses": [
+        200
+      ],
+      "response": {
+        "probe": "cfimage",
+        "ok": true,
+        "src": "phone.heic",
+        "fmt": "jpeg",
+        "image": {
+          "width": 144,
+          "format": "baseline-jpeg",
+          "height": 144,
+          "fit": "cover"
+        },
+        "status": 200,
+        "cfResizedHeader": "internal=ok/h q=0 n=146+0 c=793+9 v=2026.9.0 l=2877 f=true c2=0",
+        "contentType": "image/jpeg",
+        "bytes": 2877
+      }
+    },
+    "binding:gravity-auto": {
+      "what": "BINDING — gravity=auto, undocumented for .transform()",
+      "subtract": "control:jpg:cancel",
+      "coldCpuMs": 58,
+      "cpu": {
+        "n": 9,
+        "min": 33,
+        "p50": 42,
+        "max": 63,
+        "mean": 45.111
+      },
+      "attributableCpuMs": {
+        "p50": 42,
+        "min": 33,
+        "mean": 45.111
+      },
+      "outcomes": [
+        "ok"
+      ],
+      "statuses": [
+        200
+      ],
+      "response": {
+        "probe": "binding",
+        "ok": true,
+        "src": "phone.jpg",
+        "fmt": "jpeg",
+        "transform": {
+          "width": 144,
+          "height": 144,
+          "fit": "cover",
+          "gravity": "auto"
+        },
+        "status": 200,
+        "contentType": "image/jpeg",
+        "bytes": 2342
+      }
+    },
+    "cfimage:gravity-auto": {
+      "what": "cf.image — gravity=auto, the only documented form",
+      "subtract": "noop",
+      "coldCpuMs": 1,
+      "cpu": {
+        "n": 9,
+        "min": 1,
+        "p50": 1,
+        "max": 1,
+        "mean": 1
+      },
+      "attributableCpuMs": {
+        "p50": 1,
+        "min": 1,
+        "mean": 1
+      },
+      "outcomes": [
+        "ok"
+      ],
+      "statuses": [
+        200
+      ],
+      "response": {
+        "probe": "cfimage",
+        "ok": true,
+        "src": "phone.jpg",
+        "fmt": "jpeg",
+        "image": {
+          "width": 144,
+          "format": "baseline-jpeg",
+          "height": 144,
+          "fit": "cover",
+          "gravity": "auto"
+        },
+        "status": 200,
+        "cfResizedHeader": "internal=ok/h q=0 n=62+0 c=36+2 v=2026.9.0 l=2730 f=true c2=1",
+        "contentType": "image/jpeg",
+        "bytes": 2730
+      }
+    },
+    "cfimage-origin:144:jpeg": {
+      "what": "cf.image whose source is a token-gated WORKER route, not a public asset",
+      "subtract": "noop",
+      "coldCpuMs": 0,
+      "cpu": {
+        "n": 9,
+        "min": 1,
+        "p50": 1,
+        "max": 1,
+        "mean": 1
+      },
+      "attributableCpuMs": {
+        "p50": 1,
+        "min": 1,
+        "mean": 1
+      },
+      "outcomes": [
+        "ok"
+      ],
+      "statuses": [
+        200
+      ],
+      "response": {
+        "probe": "cfimage-origin",
+        "ok": true,
+        "src": "phone.jpg",
+        "fmt": "jpeg",
+        "image": {
+          "width": 144,
+          "format": "baseline-jpeg",
+          "height": 144,
+          "fit": "cover"
+        },
+        "status": 200,
+        "cfResizedHeader": "internal=ok/- q=0 n=120+0 c=43+4 v=2026.9.0 l=2379 f=true c2=1",
+        "contentType": "image/jpeg",
+        "bytes": 2379
+      }
+    },
+    "cfimage-origin-unsigned": {
+      "what": "the same route with a bad token - proves the gate actually gates",
+      "coldCpuMs": 1,
+      "cpu": null,
+      "outcomes": [
+        "ok"
+      ],
+      "statuses": [
+        200
+      ],
+      "response": {
+        "probe": "cfimage-origin-unsigned",
+        "ok": false,
+        "status": 403,
+        "cfResizedHeader": "err=9408",
+        "contentType": "text/plain;charset=utf-8",
+        "bytes": 87
+      }
+    },
+    "info:jpg": {
+      "what": "binding .info() on the JPEG",
+      "coldCpuMs": 55,
+      "cpu": null,
+      "outcomes": [
+        "ok"
+      ],
+      "statuses": [
+        200
+      ],
+      "response": {
+        "probe": "info",
+        "ok": true,
+        "src": "phone.jpg",
+        "info": {
+          "fileSize": 3190813,
+          "width": 4032,
+          "height": 3024,
+          "format": "image/jpeg"
+        }
+      }
+    },
+    "info:heic": {
+      "what": "binding .info() on the HEIC — does the binding admit HEIC at all?",
+      "coldCpuMs": 36,
+      "cpu": null,
+      "outcomes": [
+        "ok"
+      ],
+      "statuses": [
+        200
+      ],
+      "response": {
+        "probe": "info",
+        "ok": true,
+        "src": "phone.heic",
+        "info": {
+          "fileSize": 2428822,
+          "width": 4032,
+          "height": 3024,
+          "format": "image/heic"
+        }
+      }
+    },
+    "subreq:49+fetch": {
+      "what": "49 fetches + 1 fetch = 50 — control, expected to pass on Free",
+      "coldCpuMs": 28,
+      "cpu": null,
+      "outcomes": [
+        "ok"
+      ],
+      "statuses": [
+        200
+      ],
+      "response": {
+        "probe": "subreq/fetch",
+        "ok": true,
+        "n": 49,
+        "completed": 49,
+        "tailSucceeded": true
+      }
+    },
+    "subreq:50+fetch": {
+      "what": "50 fetches + 1 fetch = 51 — control, expected to FAIL, proves where the wall is",
+      "coldCpuMs": 30,
+      "cpu": null,
+      "outcomes": [
+        "ok"
+      ],
+      "statuses": [
+        200
+      ],
+      "response": {
+        "probe": "subreq/fetch",
+        "ok": false,
+        "n": 50,
+        "completed": 50,
+        "tailSucceeded": false,
+        "error": "Error: Too many subrequests by single Worker invocation. To configure this limit, refer to https://developers.cloudflare.com/workers/wrangler/configuration/#limits"
+      }
+    },
+    "subreq:49+binding": {
+      "what": "49 fetches + source fetch (=50, allowed) + binding — fails if the binding spends a subrequest",
+      "coldCpuMs": 30,
+      "cpu": null,
+      "outcomes": [
+        "ok"
+      ],
+      "statuses": [
+        200
+      ],
+      "response": {
+        "probe": "subreq/binding",
+        "ok": false,
+        "n": 49,
+        "completed": 49,
+        "tailSucceeded": false,
+        "error": "Error: Too many subrequests by single Worker invocation. To configure this limit, refer to https://developers.cloudflare.com/workers/wrangler/configuration/#limits"
+      }
+    },
+    "subreq:48+binding": {
+      "what": "48 fetches + source fetch (=49) + binding — passes only if the binding costs exactly 1",
+      "coldCpuMs": 33,
+      "cpu": null,
+      "outcomes": [
+        "ok"
+      ],
+      "statuses": [
+        200
+      ],
+      "response": {
+        "probe": "subreq/binding",
+        "ok": false,
+        "n": 48,
+        "completed": 48,
+        "tailSucceeded": false,
+        "error": "Error: IMAGES_TRANSFORM_ERROR 9412: Could not resize the image: The requested file is not an image. Please make sure the server always serves an image (e.g. not an error page, or a login page)"
+      }
+    }
+  },
+  "cpuSamplesMs": {
+    "noop": [
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "control:jpg": [
+      31,
+      42,
+      27,
+      30,
+      28,
+      34,
+      29,
+      27,
+      29,
+      37
+    ],
+    "control:jpg:cancel": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "binding:jpg:144:jpeg": [
+      41,
+      37,
+      44,
+      46,
+      43,
+      38,
+      49,
+      57,
+      57,
+      38
+    ],
+    "cfimage:jpg:144:jpeg": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      1,
+      1,
+      1
+    ],
+    "binding:jpg:1280:webp": [
+      47,
+      78,
+      49,
+      67,
+      68,
+      56,
+      56,
+      72,
+      55,
+      49
+    ],
+    "cfimage:jpg:1280:webp": [
+      1,
+      1,
+      1,
+      2,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "control:heic": [
+      22,
+      20,
+      33,
+      26,
+      19,
+      30,
+      32,
+      25,
+      26,
+      31
+    ],
+    "binding:heic:144:jpeg": [
+      51,
+      39,
+      40,
+      36,
+      44,
+      40,
+      32,
+      44,
+      45,
+      31
+    ],
+    "cfimage:heic:144:jpeg": [
+      0,
+      1,
+      0,
+      1,
+      2,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "binding:gravity-auto": [
+      58,
+      51,
+      35,
+      53,
+      42,
+      63,
+      39,
+      33,
+      49,
+      41
+    ],
+    "cfimage:gravity-auto": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "cfimage-origin:144:jpeg": [
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "cfimage-origin-unsigned": [
+      1
+    ],
+    "info:jpg": [
+      55
+    ],
+    "info:heic": [
+      36
+    ],
+    "subreq:49+fetch": [
+      28
+    ],
+    "subreq:50+fetch": [
+      30
+    ],
+    "subreq:49+binding": [
+      30
+    ],
+    "subreq:48+binding": [
+      33
+    ]
+  }
+}

@@ -50,34 +50,41 @@ const SCENARIOS = [
   {
     key: "control:jpg",
     path: "/control/fetch?src=phone.jpg",
-    what: "fetch the 12 MP JPEG and drain it, no transform",
+    what: "read the 12 MP JPEG and drain every chunk through JS, no transform",
+  },
+  {
+    /* The binding's honest control: it is handed a stream and never JS-reads the
+     * source, so what it pays on top of this is encode and nothing else. */
+    key: "control:jpg:cancel",
+    path: "/control/fetch?src=phone.jpg&mode=cancel",
+    what: "read the 12 MP JPEG and discard it unread — the source-read floor",
   },
   {
     key: "binding:jpg:144:jpeg",
     path: "/binding?src=phone.jpg&w=144&h=144&fit=cover&fmt=jpeg",
     what: "BINDING — 144x144 JPEG digest thumbnail (ADR 0012's primary derivative)",
-    subtract: "control:jpg",
+    subtract: "control:jpg:cancel",
     transformations: true,
   },
   {
     key: "cfimage:jpg:144:jpeg",
     path: "/cfimage?src=phone.jpg&w=144&h=144&fit=cover&fmt=jpeg",
     what: "cf.image — the same 144x144 JPEG thumbnail",
-    subtract: "control:jpg",
+    subtract: "noop",
     transformations: true,
   },
   {
     key: "binding:jpg:1280:webp",
     path: "/binding?src=phone.jpg&w=1280&fmt=webp",
     what: "BINDING — 1280px WebP detail image (the heaviest derivative in the set)",
-    subtract: "control:jpg",
+    subtract: "control:jpg:cancel",
     transformations: true,
   },
   {
     key: "cfimage:jpg:1280:webp",
     path: "/cfimage?src=phone.jpg&w=1280&fmt=webp",
     what: "cf.image — the same 1280px WebP",
-    subtract: "control:jpg",
+    subtract: "noop",
     transformations: true,
   },
   {
@@ -96,27 +103,42 @@ const SCENARIOS = [
     key: "cfimage:heic:144:jpeg",
     path: "/cfimage?src=phone.heic&w=144&h=144&fit=cover&fmt=jpeg",
     what: "cf.image — HEIC in, 144x144 JPEG out",
-    subtract: "control:heic",
+    subtract: "noop",
     transformations: true,
   },
   {
     key: "binding:gravity-auto",
     path: "/binding?src=phone.jpg&w=144&h=144&fit=cover&gravity=auto&fmt=jpeg",
     what: "BINDING — gravity=auto, undocumented for .transform()",
-    subtract: "control:jpg",
+    subtract: "control:jpg:cancel",
     transformations: true,
   },
   {
     key: "cfimage:gravity-auto",
     path: "/cfimage?src=phone.jpg&w=144&h=144&fit=cover&gravity=auto&fmt=jpeg",
     what: "cf.image — gravity=auto, the only documented form",
-    subtract: "control:jpg",
+    subtract: "noop",
+    transformations: true,
+  },
+];
+
+const ORIGIN_SCENARIOS = [
+  {
+    key: "cfimage-origin:144:jpeg",
+    path: "/cfimage-origin?src=phone.jpg&w=144&h=144&fit=cover&fmt=jpeg",
+    what: "cf.image whose source is a token-gated WORKER route, not a public asset",
+    subtract: "noop",
     transformations: true,
   },
 ];
 
 /** One-shot probes: the answer is the response, not a distribution. */
 const ONE_SHOTS = [
+  {
+    key: "cfimage-origin-unsigned",
+    path: "/cfimage-origin-unsigned?src=phone.jpg&w=144&fmt=jpeg",
+    what: "the same route with a bad token - proves the gate actually gates",
+  },
   { key: "info:jpg", path: "/info?src=phone.jpg", what: "binding .info() on the JPEG" },
   {
     key: "info:heic",
@@ -136,7 +158,16 @@ const ONE_SHOTS = [
   {
     key: "subreq:49+binding",
     path: "/subreq?n=49&tail=binding",
-    what: "49 fetches + 1 binding transform — fails only if the binding spends a subrequest",
+    what: "49 fetches + source fetch (=50, allowed) + binding — fails if the binding spends a subrequest",
+    transformations: true,
+  },
+  {
+    /* The pair pins the cost rather than merely detecting it: at n=48 the binding
+     * is the 50th subrequest, so it must pass if the binding costs exactly one,
+     * and fail if it costs two or more. */
+    key: "subreq:48+binding",
+    path: "/subreq?n=48&tail=binding",
+    what: "48 fetches + source fetch (=49) + binding — passes only if the binding costs exactly 1",
     transformations: true,
   },
 ];
@@ -174,19 +205,55 @@ function pluckTiming(ev) {
   return { cpuMs: hit(/cpu/i), wallMs: hit(/wall/i) };
 }
 
+/**
+ * `wrangler tail --format json` is not NDJSON: it pretty-prints each trace event
+ * across many lines. A line-oriented reader silently collects nothing from it,
+ * which is a quiet enough failure to look like "the Worker emitted no events".
+ * So split the stream on brace depth instead, tracking string state so a `{`
+ * inside a header value cannot desynchronise the count.
+ */
 function startTail() {
   const child = spawn("npx", ["wrangler", "tail", WORKER, "--format", "json"], {
     cwd: root,
     stdio: ["ignore", "pipe", "pipe"],
   });
   const events = [];
-  readline.createInterface({ input: child.stdout }).on("line", (line) => {
-    const t = line.trim();
-    if (!t.startsWith("{")) return;
-    try {
-      events.push(JSON.parse(t));
-    } catch {
-      /* wrangler interleaves human-readable banners; ignore them */
+  let buf = "";
+  let depth = 0;
+  let start = -1;
+  let inString = false;
+  let escaped = false;
+
+  child.stdout.setEncoding("utf8");
+  child.stdout.on("data", (chunk) => {
+    for (const ch of chunk) {
+      if (depth > 0 || ch === "{") buf += ch;
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (ch === "\\") escaped = true;
+        else if (ch === '"') inString = false;
+        continue;
+      }
+      if (ch === '"') {
+        inString = true;
+      } else if (ch === "{") {
+        if (depth === 0) {
+          buf = "{";
+          start = 0;
+        }
+        depth++;
+      } else if (ch === "}") {
+        depth--;
+        if (depth === 0 && start === 0) {
+          try {
+            events.push(JSON.parse(buf));
+          } catch {
+            /* a banner that happened to contain braces; ignore */
+          }
+          buf = "";
+          start = -1;
+        }
+      }
     }
   });
   child.stderr.on("data", (d) => process.stderr.write(`  [tail] ${d}`));
@@ -208,6 +275,29 @@ const stats = (xs) => {
 async function main() {
   const base = arg("url") ?? deploy();
   process.stderr.write(`probe at ${base}\n`);
+
+  /* A newly registered workers.dev subdomain resolves in DNS minutes before its
+   * certificate exists, so the first run of this script fired every scenario
+   * into a TLS handshake failure and reported an empty table. Prove the probe
+   * answers before spending a single metered transformation on it. */
+  process.stderr.write("checking the probe is reachable…\n");
+  for (let i = 0; ; i++) {
+    try {
+      const r = await fetch(`${base}/noop?bust=preflight-${Date.now()}`);
+      if (r.ok) break;
+      throw new Error(`/noop returned ${r.status}`);
+    } catch (e) {
+      if (i >= 20) {
+        console.error(
+          `\nthe probe never answered: ${e}\n\n` +
+            "If this is a TLS handshake failure, the workers.dev subdomain is new and its\n" +
+            "certificate is still provisioning — wait a few minutes and re-run.\n",
+        );
+        process.exit(1);
+      }
+      await sleep(15000);
+    }
+  }
 
   const { child, events } = startTail();
   process.stderr.write("waiting for the tail session to attach…\n");
@@ -233,7 +323,7 @@ async function main() {
     samples.push({ key, bust, url, status, body, elapsedMs: Date.now() - started });
   };
 
-  for (const sc of SCENARIOS) {
+  for (const sc of [...SCENARIOS, ...ORIGIN_SCENARIOS]) {
     process.stderr.write(`  ${sc.key} …\n`);
     for (let i = 0; i < SAMPLES + 1; i++) {
       // A fresh bust per sample forces a genuine encode: an identical repeat is
@@ -267,7 +357,7 @@ async function main() {
     return { ...s, outcome: ev?.outcome, cpuMs: t.cpuMs, wallMs: t.wallMs, matched: !!ev };
   });
 
-  const all = [...SCENARIOS, ...ONE_SHOTS];
+  const all = [...SCENARIOS, ...ORIGIN_SCENARIOS, ...ONE_SHOTS];
   const summary = {};
   for (const sc of all) {
     const rows = measured.filter((m) => m.key === sc.key);

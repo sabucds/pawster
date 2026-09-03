@@ -17,6 +17,40 @@ is inconclusive is `cf.image`.
 Documentation was re-checked on 2026-09-03 and still does not answer it. So:
 measure.
 
+## Result (2026-09-03) — the binding is out
+
+Measured on a real Free-plan account, 9 warm samples per scenario, 12.2 MP / 3.19 MB JPEG source.
+Every sample, no overlap between the two families:
+
+| | CPU p50 | observed range | vs the 10 ms ceiling |
+| --- | --- | --- | --- |
+| `env.IMAGES` 144×144 JPEG | 22–44 ms | 31–57 ms | **3–5× over** |
+| `env.IMAGES` 1280px WebP | 27–56 ms | 47–78 ms | **5–8× over** |
+| `cf.image`, any of the above | **0–1 ms** | 0–2 ms | 0.1× |
+| source fetched and discarded unread | 0 ms | 0 ms | — |
+
+Two controls make it airtight. Fetching the 3 MB source and discarding it unread costs **0 ms**, so
+none of the binding's cost is the source read. And the binding's CPU **rises with the weight of the
+output** while `cf.image` stays flat — only possible if the encode runs in our isolate.
+
+Also settled:
+
+- **`gravity: "auto"` works on the Free plan through both forms**, binding included, and is not
+  silently ignored (different bytes from centre-crop). The types declare it; only the prose docs omit it.
+- **An Images call spends exactly one subrequest** — at 50 already spent it raises "Too many
+  subrequests", at 49 it proceeds.
+- **HEIC is accepted by both forms**; `.info()` reports `image/heic`, 4032×3024.
+- **`cf.image` can source from a token-gated Worker route** — 200 and a real JPEG at 1 ms, while a
+  bad token is refused 403 (`cf-resized: err=9408`). So no public bucket is needed.
+- **A Worker cannot reach its own Static Assets by `fetch()`** — same-host URLs loop back and 404.
+  Use the `ASSETS` binding. `cf.image` is exempt.
+- **R2 analytics are readable on Free**, both `r2StorageAdaptiveGroups` and `GET .../r2/metrics`.
+- The 10 ms limit is **soft**: every over-budget invocation returned `outcome: ok` and no 1102 was
+  seen. Cloudflare terminates a Worker "hitting the limit consistently", which a steady upload path
+  would be.
+
+Raw numbers: `results/2026-09-03-images-cpu.json`.
+
 ## What it measures, and why by subtraction
 
 An invocation's CPU includes the isolate's own startup and the cost of pulling a
@@ -24,9 +58,16 @@ body through, so an absolute reading for the binding means nothing on its own.
 Every transform has a control that performs the identical I/O and no transform:
 
 ```
-binding encode CPU   =  CPU(/binding)  - CPU(/control/fetch)
-cf.image encode CPU  =  CPU(/cfimage)  - CPU(/control/fetch)
+binding encode CPU   =  CPU(/binding)  - CPU(/control/fetch?mode=cancel)
+cf.image encode CPU  =  CPU(/cfimage)  - CPU(/noop)
 ```
+
+The controls are not interchangeable, and choosing the wrong one flatters the
+binding. `mode=cancel` gets the source and discards it **unread**, which is what
+the binding does — it is handed a stream and never reads the bytes in JS. The
+plain drain control reads all 3 MB through JS, which costs ~20-30 ms of our own
+CPU and has nothing to do with Images. `cf.image` never sees the source in the
+isolate at all, so its control is the empty invocation.
 
 `cf.image` is documented-safe for CPU, so **its difference is the measurement's
 own noise floor**. If the binding's difference sits on that floor, the binding is

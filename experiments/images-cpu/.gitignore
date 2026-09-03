@@ -1,5 +1,5 @@
 # Fixtures are built, not committed — several megabytes of generated image.
-fixtures/
+assets/
 node_modules/
 .wrangler/
 .tmp/
