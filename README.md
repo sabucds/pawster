@@ -8,6 +8,37 @@ Design decisions live in [`docs/adr/`](docs/adr/); the glossary is in
 [`CONTEXT.md`](CONTEXT.md). Planning is charted on
 [issue #1](https://github.com/sabucds/pawster/issues/1).
 
+## Layout
+
+An npm-workspaces monorepo of four packages, the split
+[ADR 0007](docs/adr/0007-prerender-first-and-filter-in-the-browser.md) asks for.
+
+| Package | What it is |
+|---|---|
+| [`web/`](web/) | The Astro Worker. Prerender-first: `export const prerender = false` is the exception, and every route that carries it is a decision. |
+| [`digest/`](digest/) | The digest Worker — a `scheduled` producer and a `queue` consumer, including the dead-letter queue's. |
+| [`db/`](db/) | The Drizzle schema and the migrations. Both Workers bind the same D1 database and share these migrations. |
+| [`domain/`](domain/) | Pure. No I/O, no `db/` import, no dependencies at all — which is what makes it free to test. |
+
+Two Workers rather than one so each gets its own 3 MB bundle and 10 ms CPU budget, deploys
+independently, and — the reason that matters — so the digest engine can be tested without
+booting Astro.
+
+```sh
+npm install           # wires all four workspaces
+npm test              # every workspace, plus the structural source rules
+npm run typecheck
+npm run build         # Astro build for web/
+npm run deploy:dry-run   # both Workers; neither is deployed
+```
+
+The suite runs against a real `workerd` isolate and a real local D1 with the real
+migrations applied, **with no network and no credentials**. How that works, and the two
+things it deliberately cannot catch, are in
+[`docs/testing-seams.md`](docs/testing-seams.md). The two numbers ADR 0007 says must be
+measured rather than assumed are recorded in
+[`docs/measurements.md`](docs/measurements.md).
+
 ## Provisioning
 
 The third-party accounts and the Cloudflare resources are provisioned by an

@@ -1,0 +1,45 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pawster-digest",
+  "main": "./src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+
+  // One Cron Trigger, seven bounded daily shards. Each subscriber carries a stored send
+  // day, so this is one code path at ten subscribers and at six hundred (ADR 0009).
+  "triggers": {
+    "crons": ["0 11 * * *"]
+  },
+
+  // The same D1 database `web/` binds. `migrations_dir` points into `db/`, which owns the
+  // schema and the migrations for both Workers.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "pawster",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "../db/migrations"
+    }
+  ],
+
+  "queues": {
+    "producers": [{ "binding": "DIGEST_QUEUE", "queue": "pawster-digest" }],
+    "consumers": [
+      {
+        "queue": "pawster-digest",
+        "max_batch_size": 10,
+        "max_retries": 3,
+        "dead_letter_queue": "pawster-digest-dlq"
+      },
+      // The dead-letter queue's consumer is what pings the watchdog's `/fail` endpoint,
+      // so it has to exist as a real queue. Same script, told apart by `batch.queue`.
+      { "queue": "pawster-digest-dlq", "max_batch_size": 10 }
+    ]
+  },
+
+  "vars": {
+    "HEALTHCHECK_URL": "https://hc-ping.com/00000000-0000-0000-0000-000000000000",
+    "DIGEST_FROM_ADDRESS": "digest@pawster.dpdns.org"
+  }
+}

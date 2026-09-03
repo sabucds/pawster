@@ -1,0 +1,26 @@
+{
+  "name": "pawster",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "domain",
+    "db",
+    "web",
+    "digest"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace @pawster/web",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "node scripts/check-source-rules.mjs && npm run test --workspaces --if-present",
+    "check:source-rules": "node scripts/check-source-rules.mjs",
+    "deploy:dry-run": "npm run deploy:dry-run --workspaces --if-present",
+    "check:bundle-size": "node scripts/measure-bundle-size.mjs",
+    "check:ssr-cpu": "node scripts/measure-ssr-cpu.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

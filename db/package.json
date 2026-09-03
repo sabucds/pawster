@@ -1,0 +1,26 @@
+{
+  "name": "@pawster/db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./schema": "./src/schema.ts",
+    "./migrations": "./src/migrations.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "generate": "drizzle-kit generate"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.2"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.1.4",
+    "@cloudflare/workers-types": "^5.20260903.1",
+    "drizzle-kit": "^0.31.10",
+    "vitest": "^4.1.11",
+    "wrangler": "^4.129.0"
+  }
+}

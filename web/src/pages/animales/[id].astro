@@ -1,0 +1,67 @@
+---
+import { animals, createDb, shelters } from "@pawster/db";
+import { deriveAgeBand } from "@pawster/domain";
+import { env } from "cloudflare:workers";
+import { eq } from "drizzle-orm";
+
+/**
+ * One of the few server-rendered routes: the animal detail page reads one row from D1,
+ * which ADR 0007 puts comfortably inside the 10 ms ceiling. This is the exception that
+ * `export const prerender = false` exists to mark — prerendering the detail page for every
+ * animal would be a rebuild on every publish.
+ */
+export const prerender = false;
+
+const { id } = Astro.params;
+
+/**
+ * Built here, in the frontmatter, which Astro runs once per request for a route that has
+ * opted out of prerendering — so this is per-request construction, not module scope, even
+ * though it reads like a top-level `const` (see `db/src/index.ts`).
+ *
+ * `env` comes from `cloudflare:workers`: `Astro.locals.runtime.env` was removed in
+ * Astro v6 and throws if you reach for it.
+ */
+const db = createDb(env.DB);
+
+const [row] = await db
+  .select({
+    id: animals.id,
+    name: animals.name,
+    species: animals.species,
+    region: animals.region,
+    estimatedBirthDate: animals.estimatedBirthDate,
+    lastConfirmedAt: animals.lastConfirmedAt,
+    shelterName: shelters.displayName,
+  })
+  .from(animals)
+  .innerJoin(shelters, eq(animals.shelterId, shelters.id))
+  .where(eq(animals.id, id!))
+  .limit(1);
+
+if (!row) {
+  return new Response("No encontrado", { status: 404 });
+}
+
+// Derived at read time, never stored, so the animal graduates on its own (ADR 0004).
+const ageBand = deriveAgeBand(row.species, row.estimatedBirthDate, new Date());
+---
+
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{row.name} — Pawster</title>
+  </head>
+  <body>
+    <h1 data-testid="animal-name">{row.name}</h1>
+    <dl>
+      <dt>Refugio</dt>
+      <dd data-testid="shelter-name">{row.shelterName}</dd>
+      <dt>Región</dt>
+      <dd data-testid="region">{row.region}</dd>
+      <dt>Etapa</dt>
+      <dd data-testid="age-band">{ageBand}</dd>
+    </dl>
+  </body>
+</html>
