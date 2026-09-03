@@ -1,5 +1,15 @@
 # Cloudflare is the DNS authority, because R2's custom domain leaves no alternative
 
+> **Superseded by [ADR 0014](0014-the-domain-is-free-and-lives-outside-cloudflare.md).**
+> The reasoning below is still correct — a partial (CNAME) setup really is
+> Business-plan-gated, so a full nameserver delegation really is the only route
+> to an R2 custom domain on Free. What changed is that Pawster **no longer wants
+> an R2 custom domain**: Workers Cache is zone-independent and caches on
+> `workers.dev`, so the chain this ADR builds no longer has anything hanging off
+> it. Cloudflare holds **no zone** for Pawster and is **not** its DNS authority;
+> the sending domain is delegated to deSEC instead. Read this one for why the
+> constraint exists, not for what Pawster does.
+
 ADR 0007 makes the R2 custom domain load-bearing: adopters browse a static listing whose photos and filter index are read straight from R2, so those reads must be CDN-cached and must not invoke a Worker. Cloudflare requires a custom domain for that — `r2.dev` is explicitly not cached, which would turn every image view into a billable Class B `GetObject` — and a custom domain requires *"a zone in the same account as the R2 bucket."*
 
 The image-storage research (issue #5) recorded that this could be satisfied by a **partial (CNAME) setup**, keeping the domain's nameservers at its registrar and delegating only the R2 hostname to Cloudflare. That was appealing because it keeps DNS portable. **It is not available to us.** Cloudflare's DNS documentation states that *"a CNAME setup (partial) is only available to customers on a Business or Enterprise plan"*, and tabulates Free and Pro as `No`. The cheapest plan that unlocks it costs more per month than this project's entire intended lifetime spend.
