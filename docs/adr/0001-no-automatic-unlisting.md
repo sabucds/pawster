@@ -9,3 +9,13 @@ Pawster never observes an adoption — the conversation happens off-platform on 
 - Ghost listings are an accepted, permanent cost, mitigated by an honest "last confirmed" date, a monthly per-shelter confirmation nudge, and adopter ghost reports that flag but never unlist.
 - **The band thresholds are fresh ≤ 30 days, ageing 31–90, stale > 90.** This ADR originally fixed the shape and named the bands but never the numbers. 30 days is where the confirmation nudge fires, and 90 is where a shelter is called dormant, so the bands reuse clocks the design already has rather than inventing two more. Pinned while prototyping the listing (issue #17), which could not render a band without them.
 - **Staleness is displayed as a uniform provenance line, never as a badge.** Every card carries the same line in the same position, fresh animals included — `Confirmada ayer` as readily as `Confirmado hace 4 meses` — because a label that appears only when something is wrong *is* a warning however neutrally it is worded. What makes the neutral label affordable is that the sort order already does the de-emphasising: this ADR gives staleness the ordering, so a stale animal has sunk before its label is read, and the label does not need to do that job twice. The **animal page** then states the consequence the card must not — "puede que ya no esté disponible" — because that is where an adopter is about to spend a message. Settled by the issue #17 prototype, where the badge alternative measured taller while carrying less.
+- **An archived page is `noindex`, and its photo derivatives are dropped after twelve months**,
+  falling back to a placeholder while the record itself is kept indefinitely. `noindex` because
+  thousands of un-adoptable pages would dilute the pages that matter; twelve months because the
+  research in issue #5 made storage, not bandwidth, the binding ceiling. Both were settled by
+  issue #7 alongside everything else in this ADR but were never written down here, and were found
+  missing while deciding what a departing shelter's animals are owed
+  ([ADR 0015](0015-a-shelter-can-leave-but-cannot-be-erased.md)), which turns on exactly this
+  clause. Note what issue #19 later did to it: the 1280px derivative is the master and originals
+  expire at seven days, so dropping a photo is unambiguously permanent rather than a cache
+  eviction.

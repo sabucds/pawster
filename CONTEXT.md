@@ -76,7 +76,8 @@ _Avoid_: Expiry, aged out, inactive, decay
 
 **Archive**:
 The retained record of an animal that has left the listing. Its page stays reachable
-and says what happened; an animal is never deleted.
+and says what happened - including that its shelter has left the platform, where that is
+what happened; an animal is never deleted.
 _Avoid_: Soft delete, trash, closed, removed
 
 **Bonded Group**:
@@ -246,10 +247,22 @@ _Avoid_: Approval, KYC, validation, verified flag
 **Revocation**:
 A verification entry that withdraws a shelter's standing, delisting its animals without
 archiving them. Rare, adversarial, and always deliberate: verification never lapses on
-its own.
-_Avoid_: Suspension, ban, deactivation
+its own. A judgement the platform makes and may reverse, which is what separates it from
+a Departure the shelter makes about itself.
+_Avoid_: Suspension, ban, deactivation, departure
 
 **Dormant Shelter**:
 A shelter with no activity of any kind for ninety days. Its animals stay listed and carry
 a shelter-level notice; dormancy is a statement about the shelter, not about the animals.
+Silence never becomes a Departure: only the shelter itself can leave.
 _Avoid_: Inactive, abandoned, lapsed, churned
+
+**Departure**:
+A shelter's own dated decision to leave the platform, archiving all of its animals at once
+and, after a grace period, destroying every means of reaching or authenticating it - its
+contact points and its account email. What it published survives: a departed shelter keeps
+its display name, its animals' archive pages and its verification entries, because the
+archive is a promise made to adopters rather than to the shelter, and the verification log
+records the platform's own judgements. A shelter can therefore leave without being erased,
+and one that returns registers afresh rather than reclaiming what it left.
+_Avoid_: Deletion, closure, offboarding, account deletion, cancellation, revocation
