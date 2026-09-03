@@ -115,9 +115,24 @@ _Avoid_: Variant, rendition, size, transform, resize
 **Upload Session**:
 A shelter's in-progress work assembling an animal's photos before the animal exists.
 Holds photos that have been accepted and turned into derivatives but belong to nothing
-yet; a shelter may resume one, and one it abandons expires. Nothing in a session is
-visible to an adopter.
-_Avoid_: Draft, pending animal, staging, unsaved animal
+yet; a shelter may resume one for a day, after which it is simply abandoned. Abandonment
+is a fact about elapsed time and the absence of an animal, never a state anything sets.
+Nothing in a session is visible to an adopter.
+_Avoid_: Draft, pending animal, staging, unsaved animal, abandoned state
+
+**Unreferenced Derivative**:
+A derivative the platform still stores that nothing points at: no animal carries it and no
+resumable upload session holds it. It arises from an abandoned session, a deleted photo, a
+promoted primary, or an animal whose photos have been dropped. Because a derivative's key
+is its content, two animals can point at one object, so being unreferenced is a fact about
+every reference in the platform and never a fact about the object itself.
+_Avoid_: Orphan, stale object, dangling derivative, garbage
+
+**Reclamation**:
+The nightly pass that deletes every unreferenced derivative and measures what the platform
+actually stores. It is how any storage the platform no longer owes anyone is given back,
+whatever left it behind - so no path has to remember to clean up after itself.
+_Avoid_: Garbage collection, cleanup, sweep, pruning, vacuum
 
 ### Filtering
 
