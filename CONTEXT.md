@@ -6,6 +6,14 @@ Built for Venezuelan shelters first, modelled to work anywhere.
 
 ## Language
 
+**The _Avoid_ lists below govern the English codebase vocabulary only.** They bind identifiers,
+types, ADRs, issue titles, tests and English UI copy. They do not bind es-VE UI copy, which is why
+`refugio` sits on Shelter's avoid list and is nonetheless the word every Spanish surface uses: it is
+the only natural es-VE word for the concept, and an adopter reads Spanish, not our type names. The
+same holds for `foto`, `mascota` and `adoptante`. What the Spanish surfaces actually say is settled
+in [User-facing Spanish](#user-facing-spanish) at the end of this file, and how those strings are
+built is [ADR 0017](docs/adr/0017-strings-are-typed-phrase-functions.md).
+
 ### Actors
 
 **Shelter**:
@@ -144,10 +152,15 @@ depends on species. Attributes outside this set are display-only and never filte
 _Avoid_: Tag, facet, category
 
 **Age Band**:
-The stage of life an animal is in - Puppy or Kitten, Young, Adult, Senior - derived at
-read time from its estimated date of birth and never stored, with thresholds that differ
-by species. An animal therefore graduates between bands on its own.
-_Avoid_: Age group, life stage, age range
+The stage of life an animal is in, derived at read time from its estimated date of birth
+and never stored, with thresholds that differ by species. An animal therefore graduates
+between bands on its own. Five members, not four: `Puppy`, `Kitten`, `Young`, `Adult`,
+`Senior`. The first band is named for its species because the word for it is a species
+noun in both languages - `cachorra`, `gatica`, `puppy`, `kitten` - so there is no shared
+name for it that anyone would say out loud, and a single `Baby` member would leave the
+filter panel with nothing to call the chip. A cat is never `Puppy`; the combination is
+representable in the type and produced by nothing.
+_Avoid_: Age group, life stage, age range, Baby, Juvenile
 
 **Size**:
 The adult size a dog is expected to reach - Small, Medium, Large, Giant. Asked of dogs
@@ -281,3 +294,56 @@ archive is a promise made to adopters rather than to the shelter, and the verifi
 records the platform's own judgements. A shelter can therefore leave without being erased,
 and one that returns registers afresh rather than reclaiming what it left.
 _Avoid_: Deletion, closure, offboarding, account deletion, cancellation, revocation
+
+## User-facing Spanish
+
+es-VE is the default locale and English is the translation ([ADR 0007](docs/adr/0007-prerender-first-and-filter-in-the-browser.md)),
+so for most of these terms the Spanish is what a user actually reads and the English name above is
+the one only we say. This table is the canonical rendering per concept. It exists for the failure
+the _Avoid_ lists structurally cannot catch: two surfaces picking `refugio` and `albergue` for one
+thing, with both passing review because the avoid list is in the other language.
+
+**It is deliberately short.** A term earns a row only when an adopter or a shelter actually reads it.
+Most of the glossary - `Unreferenced Derivative`, `Digest Run`, `Send Day`, `Do-Not-Contact`,
+`Capability` - never reaches a user, and giving it Spanish would be inventing language the project
+does not speak. Rows marked _unsettled_ are concepts a user will read whose wording belongs to the
+issue that builds the surface.
+
+Gendered forms are written `masculine / feminine` and are resolved from the animal's sex; an animal
+whose sex was never recorded takes the masculine and the phrase says `sexo no registrado` alongside
+it. The mechanism is [ADR 0017](docs/adr/0017-strings-are-typed-phrase-functions.md).
+
+| Term | es-VE | Note |
+|---|---|---|
+| Shelter | `refugio` | On the English _Avoid_ list, and the only natural es-VE word |
+| Contact Point | `forma de contacto` | `Otras formas de contacto` for the non-primary set |
+| Adopter | `adoptante` | On the English _Avoid_ list |
+| Animal | `animal` | Never `mascota`, which is a pet someone already has |
+| Listing | `el listado` | The screen, not the state; the state is never named to a user |
+| Confirmation | `confirmación`, `confirmado / confirmada` | `Última confirmación`, `Confirmada ayer` |
+| Staleness | *(no noun)* | Rendered as the confirmation line, never as a label |
+| Bonded Group | `se adoptan juntos` | Stated as a consequence; the concept is never named as a noun |
+| Urgency | `urgente` | The chip; the written reason is the shelter's own text |
+| Photo | `foto` | On the English _Avoid_ list |
+| Species | `especie` | `Perro / Perra`, `Gato / Gata` |
+| Age Band | `etapa` | `Cachorro / Cachorra`, `Gatico / Gatica`, `Joven`, `Adulto / Adulta`, `Senior` |
+| Size | `tamaño adulto` | `Pequeño / Pequeña`, `Mediano / Mediana`, `Grande`, `Gigante` |
+| Good-With Flag | `convivencia` | `No convive con gatos`, `Sin evaluar: perros` |
+| Region | `dónde está` | The label; values are the administrative divisions' own names |
+| Sex | `sexo` | `Macho`, `Hembra`, `No se sabe` |
+| Verification | `verificado` | `Refugio verificado`; the log itself is never shown to an adopter |
+| Digest | `resumen` | |
+| Subscription | `búsqueda` | What a subscriber calls their own: `Cambiar mis búsquedas` |
+| Unsubscribe | `darme de baja` | |
+| Opt-In | _unsettled_ | See below |
+| Archive | _unsettled_ | Belongs to the issue that builds the archive page |
+| Confirmation Nudge | _unsettled_ | Belongs to the issue that writes the nudge email |
+
+**One collision the table found, and it is the reason the table exists.** `Confirmation` (a shelter's
+write to an animal), `Verification` (an admin's judgement about a shelter) and `Opt-In` (a
+subscriber's proof of their own address) are three concepts the English glossary separates on
+purpose, with `Opt-In` explicitly avoiding both other words. Spanish collapses the first two onto
+`confirmar` and `verificar` cleanly enough, but leaves `Opt-In` with no third verb: the issue #15
+digest prototype currently writes `Recibes esto porque confirmaste tu correo en Pawster`, which
+borrows the shelter's verb for the subscriber's act. **`Opt-In` must not render as `confirmación`**;
+choosing its word is part of issue #61, and that footer line changes with it.

@@ -249,6 +249,14 @@ worth re-running against real photos before the build commits to the derivative 
 
 ## What this says about i18n
 
+> **Resolved by [ADR 0017](../../docs/adr/0017-strings-are-typed-phrase-functions.md).** All three
+> constraints below are decided there: gendered pairs and an `agree()` resolver, the first band's
+> word replacing the species word inside one shared phrase function, and `CONTEXT.md`'s _Avoid_
+> lists scoped to the English codebase with a `User-facing Spanish` table beside them. Two
+> corrections to what is written below and to the code here: the band is `Puppy` / `Kitten` and
+> never `Baby`, and the es-VE cat pair is `Gatico` / `Gatica` - this prototype's `Gatito` / `Gatica`
+> mixes two diminutive suffixes, where es-VE takes `-ico` after a `t` stem.
+
 The still-open i18n architecture item picks up three constraints from this, none of them about
 string length:
 
