@@ -106,14 +106,14 @@ however often it runs.
   [ADR 0007](0007-prerender-first-and-filter-in-the-browser.md) only regenerates it on publish - the
   listing would stay empty until the next animal was published. *(That last clause is no longer
   true of a hand-deleted index, and the allowlist stands anyway.
-  [ADR 0017](0017-the-filter-index-is-rewritten-whole-and-found-through-a-pointer.md) adds an
+  [ADR 0018](0018-the-filter-index-is-rewritten-whole-and-found-through-a-pointer.md) adds an
   unconditional nightly regeneration, so a missing index is rebuilt within a run. It keeps this
   sweep's scope exactly as written - `d/` only - and has the index's own writer delete its
   superseded objects, since that writer is the only code that ever knows a key is superseded.)*
-  The direction is the decision: a
-  denylist would delete every object type added later by default, an allowlist makes anything new
-  invisible to reclamation until it is deliberately opted in. Content-addressed keys are indifferent
-  to a prefix, so immutability and edge caching are untouched. *(This clause was drafted against
+  The direction is the decision: a denylist would delete every object type added later by default,
+  an allowlist makes anything new invisible to reclamation until it is deliberately opted in.
+  Content-addressed keys are indifferent to a prefix, so immutability and edge caching are
+  untouched. *(This clause was drafted against
   [ADR 0011](0011-r2-custom-domain-requires-a-full-zone.md)'s R2 custom domain and said that too.
   [ADR 0014](0014-the-domain-is-free-and-lives-outside-cloudflare.md) has since superseded ADR 0011:
   Pawster holds no Cloudflare zone and wants no custom domain, serving images from `r2.dev` and
@@ -152,6 +152,16 @@ however often it runs.
   invisible-by-construction because they are counted rather than inferred away. Any future orphan
   class - including one from a bug nobody has thought of - is collected by the same pass without
   new code, because reconciliation needs no path to remember anything.
+  *(Amended by [ADR 0018](0018-the-filter-index-is-rewritten-whole-and-found-through-a-pointer.md):
+  "the same pass without new code" now has one deliberate exception. Superseded filter indexes under
+  `i/` are a new orphan class, and they are collected by their own writer rather than by this sweep,
+  which is new code in a second place. The reason is scope, not principle: this sweep's reference set
+  is every animal in the platform, while `i/` has exactly one reference - the pointer - held by
+  exactly one writer at the moment it swings it, so `i/` reconciles against one small file instead of
+  a full table scan. The property this bullet actually claims is preserved: that cleanup is still a
+  `list` compared against a live reference, not a tombstone written at the moment of unreferencing,
+  so a run that dies before deleting is collected by the next one. Any orphan class **under `d/`**
+  still needs no new code.)*
 - **Reclamation lags by up to a day, and that is the design.** An orphan lives at most one run,
   roughly a megabyte's worth. The alternative - deleting in the request path - would put the
   platform's only irreversible operation on the hot path.

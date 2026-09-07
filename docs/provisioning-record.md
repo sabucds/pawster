@@ -161,7 +161,7 @@ Needing only `pawster-media`, which exists (free, ~2 minutes):
 
 - add a CORS policy allowing `GET` from the site origin, so the browser can
   fetch `i/current.json` and the filter index it names
-  ([ADR 0017](adr/0017-the-filter-index-is-rewritten-whole-and-found-through-a-pointer.md)).
+  ([ADR 0018](adr/0018-the-filter-index-is-rewritten-whole-and-found-through-a-pointer.md)).
   Derivatives load through `<img>` and need no CORS, so this is the product's
   first cross-origin `fetch`; without the header the listing is empty in a way
   that looks like a broken index rather than a missing response header.

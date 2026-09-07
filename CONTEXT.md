@@ -50,8 +50,10 @@ _Avoid_: Pet, listing, post, mascota
 
 **Listing**:
 The public, visible state of an animal. An animal is listed while it is available, its
-shelter is verified, and that shelter offers at least one contact point. Only a shelter's
-own action ends a listing; silence never does.
+shelter is verified, that shelter offers at least one contact point, and that shelter has
+not departed - four clauses, and every way an animal stops being visible runs through one
+of them rather than through a state of its own. Only a shelter's own action ends a
+listing; silence never does.
 _Avoid_: Advert, publication, post
 
 **Confirmation**:
@@ -143,28 +145,6 @@ closed vocabulary owned by the platform and never extended by a shelter. Which a
 depends on species. Attributes outside this set are display-only and never filterable.
 _Avoid_: Tag, facet, category
 
-**Filter Index**:
-The single compact file carrying every listed animal's filter axes and card fields, which
-an adopter's browser downloads once and filters over without asking the platform anything.
-Derived wholly from the platform's records and rewritten in full by any act that changes
-what is listed, never patched, so it cannot slowly come to disagree with them. It is named
-after its own contents, so a new one is a new file rather than a new version of an old one.
-_Avoid_: Search index, manifest, listing feed, data dump
-
-**Index Pointer**:
-The small, always-current file naming the filter index a reader should fetch. It exists
-because the index never changes underneath anyone: the pointer is the only thing that
-moves, which is what leaves nothing anywhere needing to be invalidated.
-_Avoid_: Manifest, latest, HEAD, version file, index key
-
-**Index Drift**:
-The filter index disagreeing with the platform's records, because a write to the index was
-lost after the records had already changed - an animal that exists and is invisible, or an
-unlisted animal still on a card. Never repaired, always regenerated: the index is derived
-wholly from the records, so rebuilding it is the only fix there is and it fixes every drift
-at once, whatever caused them.
-_Avoid_: Index staleness, desync, index corruption, cache miss
-
 **Age Band**:
 The stage of life an animal is in - Puppy or Kitten, Young, Adult, Senior - derived at
 read time from its estimated date of birth and never stored, with thresholds that differ
@@ -189,6 +169,35 @@ own region and inherits its country from its shelter, because a shelter may fost
 animal far from its own base. Regions follow a country's administrative divisions, and
 an adopter may filter on several at once.
 _Avoid_: Location, city, state, area
+
+**Filter Index**:
+The single compact file carrying, for every listed animal, the axes an adopter filters on
+and the fields its card shows. It carries the two dates - an animal's estimated date of
+birth and when it was last confirmed - and never the bands derived from them, which would
+freeze at the moment the file was written. An adopter's browser downloads it once and
+filters over it without asking the platform anything. Derived wholly from the platform's
+records and rewritten in full by any act that touches what a listing shows - a publish, a
+departure, a verification, a confirmation, a changed primary photo - never patched, so it
+cannot slowly come to disagree with them. It is named after its own contents, so a new one
+is a new file rather than a new version of an old one.
+_Avoid_: Search index, manifest, listing feed, data dump
+
+**Index Pointer**:
+The small file naming the filter index a reader should fetch. It exists because the index
+never changes underneath anyone: the pointer is the only thing that moves, which is what
+leaves nothing anywhere needing to be invalidated. It is the one object in the read path
+that can be read out of date, for as long as it takes the next regeneration to land, and
+the only one whose request count grows with traffic.
+_Avoid_: Manifest, latest, HEAD, version file, index key
+
+**Index Drift**:
+The filter index disagreeing with the platform's records - an animal that exists and is
+invisible, or an unlisted animal still on a card. It arises whenever an index in use does
+not reflect the records as they now stand: a write to the index lost after the records had
+already changed, or an index built from a read taken before another act committed. Never
+repaired, always regenerated: the index is derived wholly from the records, so rebuilding
+it is the only fix there is and it fixes every drift at once, whatever caused them.
+_Avoid_: Index staleness, desync, index corruption, cache miss
 
 ### Subscription
 

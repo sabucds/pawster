@@ -17,11 +17,14 @@ one through a small stable pointer at `i/current.json`. No cache purge is introd
 Patching looks cheaper: touch one animal, pay for one animal. It costs more in every dimension that
 matters here.
 
-- **A patch is not cheaper in CPU, it is strictly more expensive.** It must fetch ~33 KB, gunzip it,
-  `JSON.parse` ~352 KB of text, mutate, re-serialize and re-compress. A rewrite skips the fetch, the
-  gunzip and the parse and does only the serialize. The fetch a patch adds is I/O, which ADR 0016
-  established Cloudflare excludes from CPU time - but the parse is not, and the 10 ms ceiling of
-  ADR 0007 is the constraint the whole platform is shaped around.
+- **A patch is not the CPU saving it looks like, and the case does not rest on CPU.** A patch must
+  fetch ~33 KB, gunzip it, `JSON.parse` ~352 KB of text, mutate, re-serialize and re-compress. A
+  rewrite skips the fetch, the gunzip and the parse - but it marshals 2,500 D1 rows into JS values
+  where a patch marshals one. So the real trade is ~2,499 rows of marshalling against a gunzip plus
+  a ~352 KB parse. The fetch a patch adds is I/O, which ADR 0016 established Cloudflare excludes
+  from CPU time, but neither the parse nor the row marshalling is excluded, and **both sides are
+  unmeasured** (measurement 1 below). The 10 ms ceiling of ADR 0007 binds whichever is chosen, so
+  it does not discriminate between them: the three grounds that follow are what decide this.
 - **A patch derives the index from the previous index, so a lost write is permanent.** Miss one
   delta and nothing ever notices: the animal is absent from every index built after it, forever. A
   rewrite derives the index from D1, which is the truth, so it is self-correcting by construction
@@ -45,22 +48,30 @@ Measured by the issue [#17](https://github.com/sabucds/pawster/issues/17) protot
 `CompressionStream('gzip')`: the index the card and the filters need is **141 B/animal raw and
 33.4 KB gzipped at 2,500 animals** - about 352 KB of JSON text in, 33.4 KB of object out. The raw
 figure is the per-animal one carried out linearly, and gzip compresses a larger index better rather
-than worse, so every compressed number in this ADR is a ceiling. A regeneration is then:
+than worse, so every compressed number in this ADR is a ceiling. **`KB` here and throughout this
+ADR is 1,000 bytes**, which is the convention every derived figure below uses. A regeneration is
+then:
 
 | Step | Cost | Meter |
 |---|---|---|
-| Read the listable set from D1 | 2,500 rows, I/O not CPU | subrequests |
+| `get` the pointer | ~100 B | Class B, 10M/month free |
+| Read the listable set from D1 | 2,500 rows; the wait is I/O, the marshalling is CPU | subrequests |
 | Serialize and hash | **unmeasured** - see below | the 10 ms CPU ceiling |
 | `put` the index object | ~33.4 KB | Class A, 1M/month free |
 | `put` the pointer | ~100 B | Class A |
 | `list i/` and delete what is superseded | a handful of keys | `list` Class A, `delete` free |
 
-So **five subrequests** - one D1 read, two `put`s, one `list`, and one `delete` that takes an array
-of keys, which is the batching ADR 0016's sweep already relies on - and **three Class A
-operations**, because ADR 0016 establishes `DeleteObject` is neither Class A nor Class B. That is
-against a publish path
-[ADR 0012](0012-derivatives-are-generated-once-at-upload.md) keeps near 5 of the Free plan's 50, and
-against a monthly allowance three orders of magnitude above the traffic. Bytes and operations are
+The pointer `get` comes first and earns its place twice: it yields the key the previous regeneration
+published, which is both the drift signal below and the live reference the `i/` cleanup rule
+compares against.
+
+So **six subrequests** - one pointer `get`, one D1 read, two `put`s, one `list`, and one `delete`
+that takes an array of keys, which is the batching ADR 0016's sweep already relies on - and **three
+Class A operations plus one Class B**, because ADR 0016 establishes `DeleteObject` is neither Class A
+nor Class B. That sits on top of a publish path
+[ADR 0012](0012-derivatives-are-generated-once-at-upload.md) keeps near 5 of the Free plan's 50 -
+**about 11 together**, still comfortably inside the limit - and against a monthly allowance three
+orders of magnitude above the traffic. Bytes and operations are
 not the risk.
 
 **Three things are unverified and must be measured, in the spirit of ADR 0007's last bullet.**
@@ -98,16 +109,21 @@ Worked through against a departing shelter's roster:
 
 1. The ceremony commits one D1 transaction: `departedAt` is set and all 40 animals are archived.
    Until it commits nothing has changed; there is no state in which 12 of the 40 are archived.
-2. One regeneration reads the listable set - the archive alone excludes all 40 under the listing
-   rule ADR 0015 writes out as `listed = available AND shelter verified AND shelter has at least
-   one contact point`, and thirty days later the destruction of the contact points would exclude
-   them a second time, by a different clause - serializes, hashes, puts, and swings the pointer.
-   *(Issue [#45](https://github.com/sabucds/pawster/issues/45)'s spec and
-   [#56](https://github.com/sabucds/pawster/issues/56) both call this "the four-clause listing
-   rule", where ADR 0015 and `CONTEXT.md`'s **Listing** entry each enumerate three. Nothing here
-   depends on the count - a regeneration reads whatever the rule is - but a build session should
-   expect the spec and the ADRs to disagree by one clause, and ADR 0015 wins per #45's own
-   preamble.)*
+2. One regeneration reads the listable set - and a departing shelter's 40 animals fall out of it
+   twice over, by the archive (`animal.state` is no longer `Available`) and by the departure clause
+   (`shelter.departedAt is null` is now false) - serializes, hashes, puts, and swings the pointer.
+   Either exclusion alone is sufficient and both land in the same transaction, so there is no
+   ordering subtlety here. *(**The listing rule is four clauses, and this ADR settles that rather
+   than noting it.** Issue [#45](https://github.com/sabucds/pawster/issues/45) - the issue that
+   fixes the domain model - writes it out as `listed = animal.state == Available AND shelter has a
+   Verified latest verification entry AND shelter has >=1 contact point AND shelter.departedAt is
+   null`, and [#56](https://github.com/sabucds/pawster/issues/56) calls it four-clause too, while
+   ADR 0015 and `CONTEXT.md`'s **Listing** entry each quoted only the first three. The spec is the
+   one that is right, and ADR 0015's own reasoning needs it: departure must delist *through the
+   rule*, which is exactly why that ADR adds no fourth animal state. Quoting three clauses left
+   departure resting on the archive alone, and made the thirty-day contact-point erasure look like
+   the clause that delists a departed shelter when it is not. **ADR 0015 and `CONTEXT.md` are both
+   amended to four clauses here.**)*
 3. An adopter mid-session still holds the old index and still sees 40 cards. That window closes at
    their next page load, and it is not a lie the platform tells twice: the animal page is
    server-rendered from one D1 row, so an adopter who clicks a card reads the archive page saying
@@ -148,10 +164,9 @@ because nothing is ever overwritten.
 
 The listing page is a static asset with the bucket's public base URL baked in at build time. The
 island fetches `<base>/i/current.json`, then fetches the key it names. Both objects need a CORS
-policy on the bucket allowing the site origin - **a new provisioning step**, and the first one the
-platform needs: derivatives load through `<img>`, which needs no CORS, so this read path is the
-product's first cross-origin `fetch`. Moving to ADR 0014's cached Worker later changes the base URL
-and nothing else.
+policy on the bucket allowing the site origin - **a new provisioning step**, recorded with its
+rationale in `docs/provisioning-record.md`. Moving to ADR 0014's cached Worker later changes the
+base URL and nothing else.
 
 The pointer costs one extra round trip on a first load and repays it on every load after that. With
 the catalogue unchanged, a returning adopter's index fetch is a browser cache hit on an `immutable`
@@ -192,10 +207,13 @@ regenerated away. Three things regenerate:
 3. **An unconditional regeneration in the daily digest run's preamble**, which bounds any drift at
    one run.
 
-The backstop is free, and content-addressing is why: **when nothing listed has changed, the nightly
-regeneration produces identical bytes, hence an identical key, hence a `put` over the object that is
-already there and a pointer that goes on naming it.** It is a no-op by construction, with nothing to
-compare and no way to be wrong about whether it was needed.
+The backstop costs no storage and no new object, and content-addressing is why: **when nothing
+listed has changed, the nightly regeneration produces identical bytes, hence an identical key, hence
+a `put` over the object that is already there and a pointer that goes on naming it.** It is a no-op
+in the only dimension that accumulates, with nothing to compare and no way to be wrong about whether
+it was needed. It is not literally free - it still spends the six subrequests above, once a day,
+against allowances three orders of magnitude larger - and that is the whole price of never needing
+to decide whether a regeneration was necessary.
 
 **That idempotence is a property of the bytes, so the bytes have to be deterministic, and one line
 of SQL is what buys it.** The read carries an explicit `ORDER BY` on the animal id. Without it the
@@ -204,11 +222,12 @@ run mints a new key, and the free no-op quietly becomes a nightly write plus an 
 for *display* is not this decision's business: issue #56 sorts freshest-confirmed-first in the
 browser, over the index it downloaded.
 
-It also reports for free, and the signal is the key rather than the pointer: **if the nightly run
-lands on a key that differs from the one the pointer already named, a publish-path write had been
-lost.** The pointer's own bytes carry `generatedAt` and therefore change every run, so the pointer
-changing means nothing; the key changing is the whole signal, and it is the only drift detection the
-platform needs.
+It also reports drift at no extra cost, and the signal is the key rather than the pointer: **if the
+nightly run lands on a key that differs from the one the pointer already named, a publish-path write
+had been lost.** That comparison is why the regeneration opens with a `get` of the pointer, costed in
+the table above. The pointer's own bytes carry `generatedAt` and therefore change every run, so the
+pointer changing means nothing; the key changing is the whole signal, and it is the only drift
+detection the platform needs.
 
 ## The decision
 
@@ -238,19 +257,24 @@ platform needs.
   D1 taken before the other act committed - which is Index Drift, healed by the next act and
   bounded by the nightly run. A Durable Object to serialize a race that heals itself would be a new
   component for nothing.
-- **A regeneration aborts on an incomplete read, and only on that.** If the D1 read errors or a page
-  of it is missing, the pointer is not swung and the previous index stands - the same
-  never-act-on-a-partial-read rail as ADR 0016. **It carries no count or percentage guard**, and the
-  difference from ADR 0016 is the point: that guard exists because deletion is irreversible, while a
-  regeneration is idempotent and the next one fixes it. A count guard here would buy nothing and
-  would eventually refuse a lawful bulk unlist - blocking a departure from taking effect, which is
-  the platform lying to adopters in the one direction it least tolerates.
+- **A regeneration aborts on an incomplete read, and only on that.** If the D1 read errors, or a
+  paged read does not run to a clean end of its cursor, the pointer is not swung and the previous
+  index stands - the same never-act-on-a-partial-read rail as ADR 0016. **Incompleteness is detected
+  from the read's own contract** - an error, or a cursor that never reports itself exhausted - and
+  never by comparing the row count against what was there last time, which is the distinction from
+  ADR 0016's guard rather than a contradiction of it. **So it carries no count or percentage
+  guard**: that guard exists because deletion is irreversible, while a regeneration is idempotent
+  and the next one fixes it. A count guard here would buy nothing detection does not already give,
+  and would eventually refuse a lawful bulk unlist - blocking a departure from taking effect, which
+  is the platform lying to adopters in the one direction it least tolerates.
 - **The regenerator owns its own prefix, and reclamation's scope is unchanged.** After swinging the
   pointer it lists `i/` and deletes every object there that **is not `i/current.json`**, is not the
   key the pointer names, and whose `uploaded` is more than an hour old. All three conditions are
   load-bearing: the pointer lives in the same prefix and a rule phrased only as "what the pointer
   does not name" would delete the pointer itself on the first run; and the hour is the grace for a
-  reader that holds the pointer and has not yet fetched the index it names. R2 returns `uploaded` on
+  reader that holds the pointer and has not yet fetched the index it names. That gap is the two
+  fetches of one page load - seconds at worst on a bad connection - so an hour is three orders of
+  magnitude of headroom, chosen to be obviously enough rather than tuned. R2 returns `uploaded` on
   every listed object, so the age test needs no join - the same idiom as ADR 0016's third condition.
   **ADR 0016's sweep still lists `d/` only**, and the index is not opted into it.
 - **That prefix-keeping is reconciliation too, which is why it does not contradict Reclamation.**
@@ -267,8 +291,13 @@ platform needs.
 - **The nightly regeneration is a preamble step on the daily digest run, before reclamation.**
   ADR 0010 settled that a second schedule is a second thing that can die silently, so this inherits
   the Healthchecks.io watchdog and reports into the `Digest Run` summary beside reclamation's counts.
-  Running before reclamation means the sweep never observes an index naming a key it is about to
-  consider.
+  **Running before reclamation is about what the index names, not about what the sweep sees.** The
+  sweep never reads the index in either order - its reference set is every animal in D1, per
+  ADR 0016. But the index carries thumbnail keys under `d/`, so a drifted index can name a
+  derivative that D1 no longer references and the sweep is about to delete. Regenerating first
+  collapses that drift before the sweep computes its reference set, so the index the pointer names
+  references only keys D1 still does, and no adopter is handed an index pointing at bytes that were
+  reclaimed the same night.
 - **No cache purge is introduced anywhere in the publish path.** ADR 0012's rule survives intact, and
   now covers the index it was originally reasoning about.
 
@@ -278,13 +307,18 @@ platform needs.
   Not "two objects": a busy hour is a busy hour, and ten acts in one leave ten objects of ~33 KB
   until the next regeneration clears the ones that have aged out. What matters is that the bound is
   an hour of acts rather than all of history - `i/` cannot grow monotonically, which is the failure
-  ADR 0016 exists to close, and a quiet platform sits at about 67 KB.
-- **The index's read budget and the storage cap expire at almost the same moment.** At 13.7 B/animal
-  gzipped, ADR 0016's ~9,500-animal endgame is a **~130 KB** index against ADR 0007's ~150 KB
-  metered-connection budget. So ADR 0007's stated trigger - "when the index stops being cheap to
-  download on a metered connection, filtering has to move server-side" - arrives when R2's 10 GB
-  does, not before it. The index never becomes the binding constraint ahead of storage, and no
-  intermediate scaling work is needed.
+  ADR 0016 exists to close. A quiet platform settles at **about 33.5 KB** - the pointer and one
+  index - once the last superseded object has aged past the hour and a regeneration has collected
+  it. Between a lone act and the next regeneration it is double that, which is the honest worst case
+  for a quiet platform rather than its resting state.
+- **The index's read budget and the storage cap expire at almost the same moment.** At 13.4 B/animal
+  gzipped, a ~9,500-animal endgame is a **~127 KB** index against ADR 0007's ~150 KB
+  metered-connection budget. That animal figure is ADR 0012's, and ADR 0016 calls it optimistic by
+  about a gigabyte's worth - which only strengthens this conclusion, since a lower real ceiling is a
+  smaller index. So ADR 0007's stated trigger - "when the index stops being cheap to download on a
+  metered connection, filtering has to move server-side" - arrives when R2's 10 GB does, not before
+  it. The index never becomes the binding constraint ahead of storage, and no intermediate scaling
+  work is needed.
 - **Regeneration frequency is act-shaped, not animal-shaped.** Confirmations are the platform's most
   frequent write, so they dominate: each is a full rewrite, and a nudge answered for a shelterful is
   one. Even ten thousand acts a month is ~30,000 Class A operations against 1M free.
