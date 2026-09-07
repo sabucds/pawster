@@ -5,7 +5,7 @@
  * every animal at once.
  */
 
-export type Species = "dog" | "cat";
+import type { Species } from "./axes.ts";
 
 export type AgeBand = "Puppy" | "Kitten" | "Young" | "Adult" | "Senior";
 
