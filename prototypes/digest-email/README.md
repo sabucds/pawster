@@ -74,3 +74,25 @@ unknown, bonded groups rendered as one unit, urgency carrying its written reason
 [#10](https://github.com/sabucds/pawster/issues/10): one email per subscriber, a section per
 subscription (max 3), 12 per section and 24 per email, "and N more matches", manage plus one-click
 unsubscribe in the footer, and the line explaining that silence means no new matches.
+
+## What this prototype's copy predates
+
+[ADR 0017](../../docs/adr/0017-strings-are-typed-phrase-functions.md) settles the string
+architecture, and this prototype's `T` table predates all of it. Three gaps for whoever builds
+[#64](https://github.com/sabucds/pawster/issues/64), none of which affect the layout decisions above:
+
+- **No gender agreement anywhere.** `band` and `size` are flat strings, so every animal renders
+  masculine - `Adulto`, `Pequeño` (`index.html:341-342`) - regardless of sex, and the section
+  header's filter chips are hardcoded masculine plurals too (`["Perros", "Pequeños", ...]`,
+  `index.html:306`). The listing prototype carries `{m, f}` pairs for exactly these words, and the
+  digest renders the same meta line the card does, so it needs the same treatment.
+- **`kitten: "Gatito"` is the wrong es-VE diminutive**, as in the listing prototype: `-ico` follows a
+  `t` stem, so the pair is `Gatico` / `Gatica`.
+- **The band keys are lowercase and speciesless** (`puppy`, `kitten`), which happens to match the
+  five-member `AgeBand` the ADR settles on, but by accident rather than by sharing a type. The real
+  template imports `AgeBand` from `domain/` and its words from `strings/`.
+
+One line of shipped copy is a domain collision rather than a translation gap:
+`Recibes esto porque confirmaste tu correo en Pawster` uses the shelter's verb for a subscriber's
+`Opt-In`, which `CONTEXT.md` keeps deliberately separate. See `User-facing Spanish` there; #61 owns
+the wording.

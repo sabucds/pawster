@@ -26,18 +26,40 @@ that works:
 
 ```ts
 type Gendered = { readonly m: string; readonly f: string };
-const agree = (word: Gendered, sex: Sex): string => (sex === "Female" ? word.f : word.m);
+
+/** A resolved word, carrying whether its gender was known or assumed. */
+type Resolved = { readonly word: string; readonly assumed: boolean };
+
+const agree = (word: Gendered, sex: Sex): Resolved =>
+  sex === "Female"
+    ? { word: word.f, assumed: false }
+    : { word: word.m, assumed: sex === "Unknown" };
+
+/** The one place the disclaimer is appended, so no phrase function can forget it. */
+const sentence = (t: Strings, parts: readonly Resolved[]): string =>
+  parts.map((p) => p.word).join(" · ") +
+  (parts.some((p) => p.assumed) ? ` · ${t.sexUnknown}` : "");
 ```
 
 Named members rather than the prototype's positional `["Perro", "Perra"]`, because a two-element
 array of strings type-checks in either order and the wrong order is invisible in review.
 
-**`Sex.Unknown` resolves to the masculine, and any phrase that resolves it must also say so.**
-Spanish's unmarked form is masculine, so there is no third form to reach for; but a bare `Perro
-adulto` for an animal whose sex was never recorded reads as a claim about the animal. The rule is
-therefore paired: `agree()` falls back to `m`, and every phrase function that can receive
-`Sex.Unknown` appends `sexo no registrado`. A `{m, f}` pair makes that fallback silently; writing it
-down is the point of this paragraph.
+**`Sex.Unknown` resolves to the masculine, and the phrase that resolves it says so — structurally,
+not by convention.** Spanish's unmarked form is masculine, so there is no third form to reach for;
+but a bare `Perro adulto` for an animal whose sex was never recorded reads as a claim about the
+animal, so the resolution has to be disclosed wherever it happens.
+
+The obvious way to write that rule is "every phrase function that can receive `Sex.Unknown` appends
+`sexo no registrado`" — and it is wrong, for exactly the reason this ADR rejects ICU below. A rule
+restated at n call sites is a rule one of them will forget, and the failure is invisible: the phrase
+still renders, it just quietly asserts a sex nobody recorded. **So `agree()` returns the fact
+rather than discarding it**, and `sentence()` is the single combinator that appends the disclaimer,
+once, if any part of the phrase was assumed. A phrase function cannot opt out of it without going
+around `sentence()` entirely, which is a visible thing to do in review rather than an omission.
+
+That is the whole reason `agree()` returns `Resolved` instead of `string`. A bare `string` throws
+away the one bit that the caller then has to remember to re-derive, and "remember to" is what this
+ADR is trying to design out.
 
 **Counting the es-VE half of the prototype's table: 15 distinct gendered pairs, of which 6 have
 identical members** (`Joven`, `Senior`, `Grande`, `Gigante`, `Sin esterilizar`, `No se sabe`). So a
@@ -57,7 +79,7 @@ posture `domain/` takes with `now`: the thing that varies the answer is an argum
 
 ### The first band's word is a species noun, so it replaces the species word
 
-`Cachorra`, `Gatica`, `Puppy`, `Kitten` all name a species as well as a life stage. Composing species
+`Cachorra`, `Gatica`, `Puppy`, `Kitten` all name a species as well as a stage of life. Composing species
 and band the way every other band composes double-names the animal, which is how the first prototype
 render produced `Gata gatica`. **For the first band only, the band word replaces the species word.**
 
@@ -78,15 +100,20 @@ canonical pair is `Gatico` / `Gatica`, and the prototype is wrong here rather th
 
 ### `AgeBand` has no `Baby` member; the first band is `Puppy` or `Kitten`
 
-Issue #50's interface sketch writes `type AgeBand = "Baby" | "Young" | "Adult" | "Senior"` while its
-prose in the same paragraph names the bands `Puppy` and `Kitten`. `CONTEXT.md`, ADR 0004, ADR 0007
-and `domain/src/age-band.ts` all say `Puppy` / `Kitten`. **`Baby` is retired**; the type is
+Issue #50's interface sketch writes `type AgeBand = "Baby" | "Young" | "Adult" | "Senior"`, while
+two paragraphs further down the same issue names the bands `Puppy` and `Kitten` when it gives their
+thresholds. `Baby` appears nowhere else: `CONTEXT.md` names both species' first bands,
+[ADR 0004](0004-age-bands-are-derived.md) and [ADR 0007](0007-prerender-first-and-filter-in-the-browser.md)
+each use `Puppy` and neither has ever said `Baby`, and `domain/src/age-band.ts` on issue #47's branch
+already ships `"Puppy" | "Kitten" | "Young" | "Adult" | "Senior"`. **`Baby` is retired**; the type is
 
 ```ts
 type AgeBand = "Puppy" | "Kitten" | "Young" | "Adult" | "Senior";
 ```
 
-and #50's sketch is superseded on this point.
+**Two sentences of #50 are superseded, not one.** The sketch is the obvious one. The other is its
+claim that "age bands share names across species and not thresholds" — they share neither. Both
+species' first bands have their own name, and only `Young`, `Adult` and `Senior` are shared.
 
 The argument is the one this ADR is about. **A single `Baby` member forces the filter panel to label
 a band before a species has been chosen, and there is no es-VE word for it.** `Bebé` is not what
@@ -113,10 +140,11 @@ joins the same line and multiplies it again.
 two counts.
 
 The first is measured. Bundled with esbuild, minified, carrying **one** gender-select message:
-`intl-messageformat` is **32.4 KB minified, 9.6 KB gzipped** — the runtime alone, before a single
-string of ours. The prototype's complete copy, *both locales*, is **2,665 B gzipped**. The machinery
-would cost **3.6× the entire content it exists to carry**, on a page whose whole filter index is
-33.4 KB and whose budget on a metered Venezuelan connection is ~150 KB.
+`intl-messageformat` 11.2.14 is **33,192 B minified and 9,631 B gzipped** — the runtime alone,
+before a single string of ours. The prototype's complete copy, *both locales*, is **2,444 B
+gzipped**. The machinery would cost **3.94× the entire content it exists to carry**, on a page whose
+whole filter index is 33.4 KB and whose budget on a metered Venezuelan connection is ~150 KB.
+Reproduce with `node scripts/measure-i18n.mjs --icu`.
 
 The second is the one that would have mattered even if it were free. **The band-replacement rule is
 not a selection over a variable; it is a rule about how two words combine.** ICU can encode it —
@@ -136,13 +164,14 @@ buys ergonomics for the easy half of the problem (atoms) and cannot express the 
 system in a repo whose posture is that the Worker should run as rarely as possible and the toolchain
 should be as small as possible.
 
-**How much copy that is, measured rather than feared: 128 leaf phrases in the es-VE half of the
-prototype's table, 127 in English.** That covers the listing and the animal page only — the shelter
-publishing area, the admin surfaces and the digest add more. But it sets the order of magnitude at
-hundreds, not thousands, which is the range where hand-written modules stay legible and a catalogue
-plus compiler is machinery bought for a problem we do not have. **The trigger to revisit is the
-arrival of a translator who is not also an engineer**, since a `.ts` module is a worse handoff
-format than a catalogue; string count alone is not the trigger.
+**How much copy that is, measured rather than feared: 121 leaf phrases per locale** — 108 strings
+and 13 phrase-building functions, counting each form of a gendered pair separately. That covers the
+listing and the animal page only; the shelter publishing area, the admin surfaces and the digest add
+more. But it sets the order of magnitude at hundreds, not thousands, which is the range where
+hand-written modules stay legible and a catalogue plus compiler is machinery bought for a problem we
+do not have. **The trigger to revisit is the arrival of a translator who is not also an engineer**,
+since a `.ts` module is a worse handoff format than a catalogue; string count alone is not the
+trigger.
 
 **Strings in `domain/`.** Rejected, and the reason is directional rather than aesthetic. `strings/`
 depends on `domain/` for `Species`, `Sex` and `AgeBand`; `domain/` must never depend on `strings/`,
@@ -150,7 +179,7 @@ because a rule is true regardless of what language states it. As one package tha
 unenforceable — nothing stops `isListed()` from reaching for a label. As two, the dependency graph
 is the enforcement. It also keeps the digest Worker's bundle free of the filter panel's copy.
 
-**Serialising strings from the page into the island.** Rejected on the 873-byte measurement in the
+**Serialising strings from the page into the island.** Rejected on the 853-byte measurement in the
 consequences below, and worth naming because it is the reflex: prerender per locale, hand the island a `<script type="application/json">`
 blob, ship one locale. It cannot carry a phrase function, only atoms, so the composition rules would
 have to be duplicated on both sides of the serialisation boundary — which is precisely the seam this
@@ -181,9 +210,10 @@ ADR exists to close.
   the subscription.
 
 - **The island ships both locales, and this was settled by a number rather than by argument.**
-  Measured on the prototype's table with real gzip: **es alone 1,792 B, en alone 1,524 B, both
-  2,665 B.** Shipping both costs **873 B** over shipping one — against ADR 0007's 33.4 KB filter
-  index and the ~150 KB metered-connection budget. So no page-to-island serialisation channel is
+  Measured on the prototype's table, serialised as a bundle would carry it and gzipped at level 9:
+  **es alone 1,591 B, en alone 1,470 B, both 2,444 B.** Shipping both costs **853 B** over shipping
+  one — against ADR 0007's 33.4 KB filter index and the ~150 KB metered-connection budget, that is
+  noise. So no page-to-island serialisation channel is
   built, no per-locale island bundle is configured, and the whole class of "which locale did the
   island get" bugs does not exist. This is the same inversion issue #17 found with the filter index:
   the thing that looks like the payload problem is three orders of magnitude away from the thing that
@@ -210,11 +240,14 @@ ADR exists to close.
   as is `Gatico` against `Gatito`, as is the `Sex.Unknown` masculine fallback carrying
   `sexo no registrado`.
 
-- **`CONTEXT.md`'s _Avoid_ lists govern the English codebase vocabulary only**, and now say so. They
-  bind identifiers, types, ADRs, tests and English UI copy; they do not bind es-VE UI copy, which is
-  why `refugio` is both on Shelter's avoid list and the word every Spanish surface uses. The glossary
-  gains a bounded es-VE rendering table covering the terms an adopter or a shelter actually reads —
-  bounded because most of the glossary (`Unreferenced Derivative`, `Digest Run`, `Do-Not-Contact`)
-  never reaches a user and inventing Spanish for it would be inventing language the project does not
-  speak. The table exists for the failure the _Avoid_ lists cannot catch: two surfaces choosing
-  `refugio` and `albergue` for one concept.
+- **`CONTEXT.md`'s _Avoid_ lists govern the English codebase vocabulary only**, and now say so, with
+  a bounded `User-facing Spanish` table beside them holding the canonical rendering per concept. The
+  scoping rule and the table's own reasoning live there rather than being restated here; what
+  matters to this ADR is only that the words a phrase function reaches for have one agreed source.
+
+- **Every number above has one command: `node scripts/measure-i18n.mjs`** (add `--icu` for the
+  rejected runtime, which needs a network). ADR 0007's figures got `measure-bundle-size.mjs` and
+  `measure-ssr-cpu.mjs` for the same reason. This was not academic here: a first pass counted leaf
+  phrases with a regex over the prototype's source, which counted strings inside comments and
+  counted a string nested in a template literal twice, and reported an es/en asymmetry that cannot
+  exist — the two locales have identical key structures, which the script now asserts on every run.

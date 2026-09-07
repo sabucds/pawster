@@ -311,7 +311,12 @@ issue that builds the surface.
 
 Gendered forms are written `masculine / feminine` and are resolved from the animal's sex; an animal
 whose sex was never recorded takes the masculine and the phrase says `sexo no registrado` alongside
-it. The mechanism is [ADR 0017](docs/adr/0017-strings-are-typed-phrase-functions.md).
+it. The mechanism is [ADR 0017](docs/adr/0017-strings-are-typed-phrase-functions.md), which also
+holds the rule for composing a species word with a band word.
+
+**These renderings are taken from the shipped prototypes, not invented here.** Every row below is a
+word the issue #17 listing prototype or the issue #15 digest prototype already put on screen and a
+human read; rows marked _unsettled_ are the ones neither prototype had to name.
 
 | Term | es-VE | Note |
 |---|---|---|
@@ -345,5 +350,7 @@ subscriber's proof of their own address) are three concepts the English glossary
 purpose, with `Opt-In` explicitly avoiding both other words. Spanish collapses the first two onto
 `confirmar` and `verificar` cleanly enough, but leaves `Opt-In` with no third verb: the issue #15
 digest prototype currently writes `Recibes esto porque confirmaste tu correo en Pawster`, which
-borrows the shelter's verb for the subscriber's act. **`Opt-In` must not render as `confirmación`**;
-choosing its word is part of issue #61, and that footer line changes with it.
+borrows the shelter's verb for the subscriber's act. Recorded here as a finding rather than settled:
+issue #61 owns `Opt-In`'s wording, and the constraint it inherits is that a subscriber's act and a
+shelter's act should not read as the same word. That digest footer line is the one place the
+collision has already shipped.
