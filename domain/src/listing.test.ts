@@ -72,10 +72,9 @@ describe("isListed", () => {
     };
     expect(isListed(LISTED_ANIMAL, departing)).toBe(false);
   });
-
-  it("reads no clock — a listing does not change on its own", () => {
-    // Deliberately no `now` parameter, unlike every other derivation in this package.
-    // Silence never ends a listing (ADR 0001), so there is no clock for one to read.
-    expect(isListed.length).toBe(2);
-  });
 });
+
+// `isListed` deliberately takes no `now`, unlike every other derivation in this package:
+// silence never ends a listing (ADR 0001), so there is no clock for one to read. There is
+// no test for that here on purpose — the parameter list is the compiler's business, and
+// issue #50 asks for tests that "assert behaviour, not call shapes".

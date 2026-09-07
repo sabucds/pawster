@@ -24,32 +24,38 @@
 
 import { type AgeBand, deriveAgeBand } from "./age-band.ts";
 import type {
-  GoodWith,
   GoodWithAxis,
+  GoodWithFlag,
+  GoodWithFlags,
   Region,
   Sex,
   Size,
   Species,
-  Tri,
 } from "./axes.ts";
 
 /**
- * One animal's filter-axis attributes. Exactly the axes `CONTEXT.md` calls filterable and
- * nothing else — free text and photos are display-only and never reach a rule.
+ * One animal's filter-axis values: exactly the axes `CONTEXT.md` calls filterable and
+ * nothing else.
+ *
+ * Deliberately **not** named `Animal`. `CONTEXT.md`'s Animal carries "the structured
+ * attributes a digest can filter on, plus free-text description and photos", and those
+ * last two are display-only and must never reach a rule. This is the filter-axis
+ * projection of one — near enough the set ADR 0007 puts in the filter index, which is what
+ * lets the browser island hand its parsed index entries straight to `matches`.
  *
  * There is no age band field and there will not be one: the animal carries
  * `estimatedBirthDate` and the band is derived at the moment it is asked for
  * ([ADR 0004](../../docs/adr/0004-age-bands-are-derived.md)). ADR 0007 makes the same
- * point about the filter index, which carries the two dates and never the bands.
+ * point about the index, which carries the two dates and never the bands.
  */
-export interface Animal {
+export interface AnimalAxes {
   readonly species: Species;
   readonly region: Region;
   readonly sex: Sex;
   /** `null` for a cat: size is asked of dogs only. */
   readonly size: Size | null;
   readonly estimatedBirthDate: Date;
-  readonly goodWith: GoodWith;
+  readonly goodWith: GoodWithFlags;
 }
 
 /**
@@ -58,11 +64,11 @@ export interface Animal {
  * not a thing this package can be handed.
  */
 export interface BondedGroup {
-  readonly members: readonly [Animal, Animal, ...Animal[]];
+  readonly members: readonly [AnimalAxes, AnimalAxes, ...AnimalAxes[]];
 }
 
 /** What a digest sends and a listing card shows: one animal, or one bonded group. */
-export type AdoptionUnit = Animal | BondedGroup;
+export type AdoptionUnit = AnimalAxes | BondedGroup;
 
 /**
  * One standing set of criteria. Every axis is a **set**, which ADR 0005 required for
@@ -76,9 +82,13 @@ export interface SubscriptionCriteria {
   readonly regions?: readonly Region[];
   readonly sizes?: readonly Size[];
   /**
-   * Bands, not dates. A subscriber chose "puppies", and what they chose does not age —
-   * the animals do, which is the asymmetry that makes graduation compose with the digest
-   * for free.
+   * Bands, and this is the one place a band is legitimate input. Issue #50 asks that "no
+   * band is ever stored or accepted as input; the functions take dates", which is a rule
+   * about *animals*: a band stored on an animal stops it ageing, which is what ADR 0004
+   * forbids. A band in a subscription is the opposite — it is what the subscriber chose,
+   * and what they chose does not age while the animals do. That asymmetry is exactly what
+   * makes graduation compose with the digest for free (ADR 0004): a dog crossing into
+   * `Young` reaches subscribers of the new band who have never been sent it.
    */
   readonly ageBands?: readonly AgeBand[];
   readonly sexes?: readonly Sex[];
@@ -90,7 +100,7 @@ export interface SubscriptionCriteria {
 }
 
 /** Every animal in the unit, in order. A lone animal is a unit of one. */
-function membersOf(unit: AdoptionUnit): readonly Animal[] {
+function membersOf(unit: AdoptionUnit): readonly AnimalAxes[] {
   return "members" in unit ? unit.members : [unit];
 }
 
@@ -102,11 +112,76 @@ function constrains<T>(
 }
 
 /**
+ * The union rule, once: the unit satisfies a descriptive axis when *some* member carries a
+ * value the subscriber asked for. `valuesOf` returns a list rather than a value so that an
+ * axis an animal simply does not have — a cat's size — is an empty list and fails the
+ * axis, instead of a `null` that has to be special-cased at each axis in turn.
+ */
+function someMemberHas<T>(
+  wanted: readonly T[] | undefined,
+  unit: AdoptionUnit,
+  valuesOf: (animal: AnimalAxes) => readonly T[],
+): boolean {
+  if (!constrains(wanted)) return true;
+  const required = wanted;
+  return membersOf(unit).some((animal) =>
+    valuesOf(animal).some((value) => required.includes(value)),
+  );
+}
+
+type AxisMatcher = (
+  criteria: SubscriptionCriteria,
+  unit: AdoptionUnit,
+  asOf: Date,
+) => boolean;
+
+/**
+ * One entry per descriptive axis, and the key type is the load-bearing part: it is
+ * `keyof SubscriptionCriteria` minus the one safety axis, so **adding an axis to the
+ * criteria without adding it here does not compile**. That is the same guarantee
+ * `GOOD_WITH_AXES` gives the safety rule, and it is worth having for the same reason — an
+ * axis silently missing from this rule is not a cosmetic bug, it is a subscriber receiving
+ * animals they explicitly filtered out, in an email they cannot re-filter.
+ */
+const DESCRIPTIVE_AXES: Readonly<
+  Record<Exclude<keyof SubscriptionCriteria, "goodWith">, AxisMatcher>
+> = {
+  species: (criteria, unit) =>
+    someMemberHas(criteria.species, unit, (animal) => [animal.species]),
+
+  regions: (criteria, unit) =>
+    someMemberHas(criteria.regions, unit, (animal) => [animal.region]),
+
+  // A `null` size is not "any size": a subscriber filtering on size is asking about dogs,
+  // so a cat fails the axis rather than passing it vacuously. Issue #50 does not state
+  // this — it follows from `CONTEXT.md`'s "which axes apply depends on species", and the
+  // alternative would smuggle cats into a dog subscription.
+  sizes: (criteria, unit) =>
+    someMemberHas(criteria.sizes, unit, (animal) =>
+      animal.size === null ? [] : [animal.size],
+    ),
+
+  sexes: (criteria, unit) =>
+    someMemberHas(criteria.sexes, unit, (animal) => [animal.sex]),
+
+  // Spelled out rather than routed through `someMemberHas`, so the union a group's card
+  // renders and the union its matching uses are the same call.
+  ageBands: (criteria, unit, asOf) => {
+    const { ageBands } = criteria;
+    if (!constrains(ageBands)) return true;
+    return ageBandsFor(unit, asOf).some((band) => ageBands.includes(band));
+  },
+};
+
+/**
  * The unit's own answer on one good-with axis: the worst of its members'. Exported because
  * a bonded group's card and digest row have to *display* this, and a card computing it
  * separately is how the two answers start to disagree.
  */
-export function goodWithFor(unit: AdoptionUnit, axis: GoodWithAxis): Tri {
+export function goodWithFor(
+  unit: AdoptionUnit,
+  axis: GoodWithAxis,
+): GoodWithFlag {
   const answers = membersOf(unit).map((animal) => animal.goodWith[axis]);
   if (answers.includes("No")) return "No";
   if (answers.includes("Unknown")) return "Unknown";
@@ -133,11 +208,12 @@ export function ageBandsFor(
  *
  * `now` is an argument rather than a call to `Date.now()` because the age-band axis is
  * derived from a date, and a rule that reads the clock itself is a rule no test can pin.
- * It is also what lets the digest ask the question as of the run's own instant rather than
- * whenever a row happened to be processed.
+ * Issue #50's sketch writes `matches(criteria, unit)` with two parameters; its own
+ * requirement that "every clock-dependent rule takes `now` as an argument" is why this
+ * takes three.
  *
  * This is *matching*, not visibility: `isListed` is the other question, and a caller asks
- * both. Staleness is neither — it is a filter axis nowhere and changes only how an animal
+ * both. Staleness is neither — it is a filter axis nowhere, and changes only how an animal
  * is labelled and ordered (ADR 0001).
  */
 export function matches(
@@ -145,51 +221,13 @@ export function matches(
   unit: AdoptionUnit,
   now: Date,
 ): boolean {
-  const members = membersOf(unit);
-  const { species, regions, sizes, sexes, ageBands, goodWith } = criteria;
-
-  // Descriptive axes: the unit is everything any member is.
-  const someMember = (predicate: (animal: Animal) => boolean) =>
-    members.some(predicate);
-
-  if (
-    constrains(species) &&
-    !someMember((animal) => species.includes(animal.species))
-  ) {
-    return false;
+  for (const satisfiesAxis of Object.values(DESCRIPTIVE_AXES)) {
+    if (!satisfiesAxis(criteria, unit, now)) return false;
   }
 
-  if (
-    constrains(regions) &&
-    !someMember((animal) => regions.includes(animal.region))
-  ) {
-    return false;
-  }
-
-  if (
-    constrains(sizes) &&
-    // A `null` size is not "any size": a subscriber filtering on size is asking about
-    // dogs, so a cat fails the axis rather than passing it vacuously.
-    !someMember((animal) => animal.size !== null && sizes.includes(animal.size))
-  ) {
-    return false;
-  }
-
-  if (
-    constrains(sexes) &&
-    !someMember((animal) => sexes.includes(animal.sex))
-  ) {
-    return false;
-  }
-
-  if (constrains(ageBands)) {
-    const bands = ageBandsFor(unit, now);
-    if (!bands.some((band) => ageBands.includes(band))) return false;
-  }
-
-  // Safety axes: the unit is only as tolerant as its least tolerant member, and a filter
-  // excludes only an explicit `No` — `Unknown` is shown and labelled, never hidden.
-  for (const axis of goodWith ?? []) {
+  // The safety axes, where the unit is only as tolerant as its least tolerant member and a
+  // filter excludes only an explicit `No` — `Unknown` is shown and labelled, never hidden.
+  for (const axis of criteria.goodWith ?? []) {
     if (goodWithFor(unit, axis) === "No") return false;
   }
 

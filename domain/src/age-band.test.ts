@@ -71,7 +71,8 @@ describe("deriveAgeBand", () => {
 
   it("never derives the other species' first band", () => {
     // The type admits ("cat", "Puppy") and the derivation never produces it — the cost
-    // ADR 0017 accepted knowingly, asserted rather than trusted.
+    // issue #48 accepted knowingly when it retired the `Baby` band, asserted here rather
+    // than trusted.
     for (let months = 0; months <= 300; months++) {
       const asOf = monthsAfter(BORN, months);
       expect(deriveAgeBand("cat", BORN, asOf)).not.toBe("Puppy");

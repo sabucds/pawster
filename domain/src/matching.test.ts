@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { GOOD_WITH_AXES, type GoodWithAxis, type Tri } from "./axes.ts";
 import {
-  type Animal,
+  GOOD_WITH_AXES,
+  type GoodWithAxis,
+  type GoodWithFlag,
+} from "./axes.ts";
+import {
+  type AnimalAxes,
   type BondedGroup,
   type SubscriptionCriteria,
   ageBandsFor,
@@ -12,14 +16,14 @@ import {
 const at = (iso: string) => new Date(`${iso}T00:00:00Z`);
 const NOW = at("2026-09-07");
 
-const goodWithAll = (value: Tri) => ({
+const goodWithAll = (value: GoodWithFlag) => ({
   children: value,
   dogs: value,
   cats: value,
 });
 
 /** A two-year-old female small dog in Caracas, tolerant of everything. */
-const DOG: Animal = {
+const DOG: AnimalAxes = {
   species: "dog",
   region: "distrito-capital",
   sex: "Female",
@@ -28,7 +32,7 @@ const DOG: Animal = {
   goodWith: goodWithAll("Yes"),
 };
 
-const CAT: Animal = {
+const CAT: AnimalAxes = {
   species: "cat",
   region: "miranda",
   sex: "Male",
@@ -80,7 +84,7 @@ describe("matches — a single animal", () => {
 
   it("filters on age band derived from the date, at the moment it is asked", () => {
     const born = at("2026-03-07"); // six months old at NOW
-    const puppy: Animal = { ...DOG, estimatedBirthDate: born };
+    const puppy: AnimalAxes = { ...DOG, estimatedBirthDate: born };
     expect(matches({ ageBands: ["Puppy"] }, puppy, NOW)).toBe(true);
     expect(matches({ ageBands: ["Young"] }, puppy, NOW)).toBe(false);
 
@@ -92,7 +96,7 @@ describe("matches — a single animal", () => {
   });
 
   describe("a good-with filter excludes only an explicit No", () => {
-    const cases: ReadonlyArray<readonly [Tri, boolean]> = [
+    const cases: ReadonlyArray<readonly [GoodWithFlag, boolean]> = [
       ["Yes", true],
       ["Unknown", true],
       ["No", false],
@@ -100,13 +104,13 @@ describe("matches — a single animal", () => {
 
     for (const [known, expected] of cases) {
       it(`${known} ${expected ? "matches" : "does not match"}`, () => {
-        const animal: Animal = { ...DOG, goodWith: goodWithAll(known) };
+        const animal: AnimalAxes = { ...DOG, goodWith: goodWithAll(known) };
         expect(matches({ goodWith: ["children"] }, animal, NOW)).toBe(expected);
       });
     }
 
     it("ignores an axis the subscriber did not ask about", () => {
-      const wary: Animal = {
+      const wary: AnimalAxes = {
         ...DOG,
         goodWith: { children: "Yes", dogs: "No", cats: "No" },
       };
@@ -120,7 +124,7 @@ describe("matches — a single animal", () => {
       // Reads GOOD_WITH_AXES so that a fourth axis added to the vocabulary is covered by
       // this rule the moment it exists, rather than being silently exempt from it.
       for (const axis of GOOD_WITH_AXES) {
-        const animal: Animal = {
+        const animal: AnimalAxes = {
           ...DOG,
           goodWith: { ...goodWithAll("Yes"), [axis]: "No" },
         };
@@ -132,8 +136,8 @@ describe("matches — a single animal", () => {
 
 describe("matches — a bonded group", () => {
   /** Mother plus two pups: one Adult and two Puppies, adopted together or not at all. */
-  const mother: Animal = { ...DOG, estimatedBirthDate: at("2021-09-07") };
-  const pup = (name: string): Animal => ({
+  const mother: AnimalAxes = { ...DOG, estimatedBirthDate: at("2021-09-07") };
+  const pup = (name: string): AnimalAxes => ({
     ...DOG,
     estimatedBirthDate: at("2026-03-07"),
     sex: name === "a" ? "Male" : "Female",
@@ -156,7 +160,7 @@ describe("matches — a bonded group", () => {
   });
 
   it("is a No pair when one member is a No — intersection on a safety axis", () => {
-    const waryOfCats: Animal = {
+    const waryOfCats: AnimalAxes = {
       ...DOG,
       goodWith: { children: "Yes", dogs: "Yes", cats: "No" },
     };
@@ -168,7 +172,7 @@ describe("matches — a bonded group", () => {
   });
 
   it("is Unknown where no member is a No and one is unrecorded, and still matches", () => {
-    const unrecorded: Animal = {
+    const unrecorded: AnimalAxes = {
       ...DOG,
       goodWith: { children: "Unknown", dogs: "Yes", cats: "Yes" },
     };
@@ -178,7 +182,7 @@ describe("matches — a bonded group", () => {
   });
 
   it("combines both rules in one criteria set", () => {
-    const waryPup: Animal = {
+    const waryPup: AnimalAxes = {
       ...pup("a"),
       goodWith: { children: "No", dogs: "Yes", cats: "Yes" },
     };
@@ -194,7 +198,9 @@ describe("matches — a bonded group", () => {
 
 describe("goodWithFor", () => {
   it("takes the worst answer across the unit", () => {
-    const cases: ReadonlyArray<readonly [readonly Tri[], Tri]> = [
+    const cases: ReadonlyArray<
+      readonly [readonly GoodWithFlag[], GoodWithFlag]
+    > = [
       [["Yes", "Yes"], "Yes"],
       [["Yes", "Unknown"], "Unknown"],
       [["Unknown", "Unknown"], "Unknown"],
@@ -203,7 +209,7 @@ describe("goodWithFor", () => {
       [["No", "No"], "No"],
     ];
     for (const [values, expected] of cases) {
-      const [first, second] = values as readonly [Tri, Tri];
+      const [first, second] = values as readonly [GoodWithFlag, GoodWithFlag];
       const group: BondedGroup = {
         members: [
           { ...DOG, goodWith: goodWithAll(first) },
@@ -234,9 +240,28 @@ describe("ageBandsFor", () => {
   });
 });
 
+describe("every axis is actually enforced", () => {
+  it("rejects DOG on each of the five descriptive axes in turn", () => {
+    // The compiler already refuses a `DESCRIPTIVE_AXES` table missing a key of
+    // `SubscriptionCriteria`. This is the behavioural half: an axis present in the table
+    // but wired to the wrong field would still typecheck, and would let a subscriber
+    // receive animals they filtered out.
+    const missesDog: readonly SubscriptionCriteria[] = [
+      { species: ["cat"] },
+      { regions: ["carabobo"] },
+      { sizes: ["Giant"] },
+      { sexes: ["Male"] },
+      { ageBands: ["Senior"] },
+    ];
+    for (const criteria of missesDog) {
+      expect(matches(criteria, DOG, NOW)).toBe(false);
+    }
+  });
+});
+
 describe("no band is ever accepted as input", () => {
-  it("an Animal carries a date and has no band field", () => {
-    const animal: Animal = {
+  it("an AnimalAxes carries a date and has no band field", () => {
+    const animal: AnimalAxes = {
       ...DOG,
       // @ts-expect-error — a stored band is exactly what ADR 0004 forbids. If this line
       // ever compiles, an animal has stopped graduating on its own.

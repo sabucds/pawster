@@ -4,22 +4,20 @@
  * No I/O, no `db/` import, no clock of its own. Every rule that depends on the time takes
  * `now` as an argument, so nothing here has to be waited for.
  *
- * The browser is the consumer that earns this package its seam: no Worker test exercises
- * the island, so testing the module the island imports is the only way to test that code
- * at all. `scripts/check-source-rules.mjs` keeps the purity honest, because a `db/` import
- * here would be just an import and no test would fail.
+ * Why this package is a seam, and how its purity and browser-importability are enforced:
+ * [`docs/testing-seams.md`](../../docs/testing-seams.md).
  */
 
 export type { AgeBand } from "./age-band.ts";
 export { deriveAgeBand, monthsBetween } from "./age-band.ts";
 export type {
-  GoodWith,
   GoodWithAxis,
+  GoodWithFlag,
+  GoodWithFlags,
   Region,
   Sex,
   Size,
   Species,
-  Tri,
 } from "./axes.ts";
 export { GOOD_WITH_AXES } from "./axes.ts";
 export type { DerivativeName, DerivativeSpec } from "./derivative.ts";
@@ -35,7 +33,7 @@ export type {
 export { isListed } from "./listing.ts";
 export type {
   AdoptionUnit,
-  Animal,
+  AnimalAxes,
   BondedGroup,
   SubscriptionCriteria,
 } from "./matching.ts";

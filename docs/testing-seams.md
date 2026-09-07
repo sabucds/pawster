@@ -81,18 +81,18 @@ so a global mock installed by a test applies to the Worker too.
 Adding a fourth vendor means adding it to `Vendor` and `HOSTS` in `test/outbound.ts`. There
 is nowhere else to add it, which is the point.
 
-## The package with no seam at all: `domain/`
+## Neither seam: `domain/`
 
-`domain/` is the one workspace whose tests need neither of the seams above. It is pure, so
-its tests run on plain Node with no isolate, no bindings and no migrations — and they still
-install the outbound interceptor, because `domain/` reaching `fetch` indirectly is exactly
-the violation `check-source-rules.mjs` cannot see.
+`domain/` is the one workspace whose tests need neither of the two seams above. It is pure,
+so its tests run on plain Node with no isolate, no bindings and no migrations — and they
+still install the outbound interceptor, because `domain/` reaching `fetch` indirectly is
+exactly the violation `check-source-rules.mjs` cannot see.
 
-Its three consumers are the prerender, the digest matcher and **the browser island that
-filters the listing** (ADR 0007), and the third is the one that earns the package its
-seam: no Worker test exercises the island, so testing the module the island imports is the
-only way to test that code at all. Which makes browser-importability a property the suite
-has to assert rather than assume:
+Needing neither seam is what makes the package worth having, because its three consumers
+are the prerender, the digest matcher and **the browser island that filters the listing**
+(ADR 0007) — and the third is reachable no other way. No Worker test exercises the island,
+so testing the module the island imports is the only way to test that code at all. Which
+makes browser-importability a property the suite has to assert rather than assume:
 
 ```ts
 // domain/src/browser-bundle.test.ts

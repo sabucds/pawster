@@ -33,7 +33,16 @@ export type Availability = "Available" | "Adopted" | "NoLongerAvailable";
  */
 export type VerificationOutcome = "Verified" | "Revoked";
 
-/** What the listing rule needs to know about an animal. */
+/**
+ * What the listing rule needs to know about an animal, which is one field.
+ *
+ * Kept separate from `matching.ts`'s `AnimalAxes` rather than merged into one animal type,
+ * because the two rules are asked by different callers from different data. The browser
+ * island builds `AnimalAxes` from the filter index, and the index holds only animals that
+ * are already listed — so an island forced to supply an `availability` it does not have
+ * would have to invent one. A required field a caller must fabricate is worse than two
+ * honest types.
+ */
 export interface AnimalFacts {
   readonly availability: Availability;
 }
