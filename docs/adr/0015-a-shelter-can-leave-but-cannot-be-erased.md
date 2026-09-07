@@ -36,6 +36,16 @@ personal WhatsApp number or Instagram handle, and the account email is a credent
 contact points is in any case *already required* — the listing rule is
 `listed = available AND shelter verified AND shelter has at least one contact point`, so a shelter
 with no contact points is delisted by machinery that already exists.
+*(Amended by [ADR 0018](0018-the-filter-index-is-rewritten-whole-and-found-through-a-pointer.md):
+the rule quoted here is missing its fourth clause. Issue
+[#45](https://github.com/sabucds/pawster/issues/45), which fixes the domain model, writes
+it as `listed = animal.state == Available AND shelter has a Verified latest verification entry AND
+shelter has >=1 contact point AND shelter.departedAt is null`, and this ADR needs that last clause
+more than any other: it is what lets departure delist **through the rule**, which is the stated
+reason the next paragraph adds no fourth animal state. As quoted, a departure delisted only via the
+archive, and the thirty-day contact-point erasure below looked like the clause doing the work when
+it is not - it lands a month later, on animals already excluded twice over. `CONTEXT.md`'s
+**Listing** entry is amended to four clauses too.)*
 
 **The animals are archived, and no fourth animal state is added.** Revocation delists without
 archiving so that re-verification restores everything (ADR 0003); departure must not behave that
