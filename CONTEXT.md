@@ -98,6 +98,14 @@ are confirmed, and appear in a digest as a single unit; a group that falls below
 members dissolves.
 _Avoid_: Pair, litter, bundle, package
 
+**Adoption Unit**:
+What an adopter takes home: one animal, or one bonded group. The thing a filter is applied
+to, a digest sends and a card shows - never an animal row where a group is in play, because
+a group's answer differs from its members'. On the safety axes it is the least tolerant
+member, since the adopter takes all of them; on the descriptive axes it is everything any
+member is, so a mother-plus-pups litter is both a puppy and an adult.
+_Avoid_: Item, entry, result, match, row
+
 **Urgency**:
 A shelter's mark on an animal whose situation cannot wait, always carrying a written
 reason. A flag rather than a scale, and capped per shelter, because an uncapped scale
