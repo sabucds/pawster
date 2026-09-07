@@ -249,6 +249,18 @@ worth re-running against real photos before the build commits to the derivative 
 
 ## What this says about i18n
 
+> **Resolved by [ADR 0017](../../docs/adr/0017-strings-are-typed-phrase-functions.md).** All three
+> constraints below are decided there: gendered pairs and an `agree()` resolver, the first band's
+> word replacing the species word inside one shared phrase function, and `CONTEXT.md`'s _Avoid_
+> lists scoped to the English codebase with a `User-facing Spanish` table beside them.
+>
+> **Two things this prototype got wrong, corrected in the ADR and deliberately left standing here.**
+> The band is `Puppy` / `Kitten` and never `Baby`; and the es-VE cat pair is `Gatico` / `Gatica`,
+> where `index.html` has `Gatito` / `Gatica` - mixing two diminutive suffixes, when es-VE takes
+> `-ico` after a `t` stem. The code below is not edited: this file is the record of what the
+> prototype found, and the ADR is the source of truth. `scripts/measure-i18n.mjs` reads the copy
+> table out of `index.html`, so the numbers in the ADR stay reproducible from it as it stands.
+
 The still-open i18n architecture item picks up three constraints from this, none of them about
 string length:
 
