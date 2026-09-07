@@ -77,7 +77,7 @@ unsubscribe in the footer, and the line explaining that silence means no new mat
 
 ## What this prototype's copy predates
 
-[ADR 0017](../../docs/adr/0017-strings-are-typed-phrase-functions.md) settles the string
+[ADR 0018](../../docs/adr/0018-strings-are-typed-phrase-functions.md) settles the string
 architecture, and this prototype's `T` table predates all of it. Three gaps for whoever builds
 [#64](https://github.com/sabucds/pawster/issues/64), none of which affect the layout decisions above:
 

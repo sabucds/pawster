@@ -10,9 +10,11 @@ Built for Venezuelan shelters first, modelled to work anywhere.
 types, ADRs, issue titles, tests and English UI copy. They do not bind es-VE UI copy, which is why
 `refugio` sits on Shelter's avoid list and is nonetheless the word every Spanish surface uses: it is
 the only natural es-VE word for the concept, and an adopter reads Spanish, not our type names. The
-same holds for `foto`, `mascota` and `adoptante`. What the Spanish surfaces actually say is settled
-in [User-facing Spanish](#user-facing-spanish) at the end of this file, and how those strings are
-built is [ADR 0017](docs/adr/0017-strings-are-typed-phrase-functions.md).
+same holds for `foto` and `adoptante`. It does **not** hold for `mascota`, which is avoided in both
+languages because it means a pet someone already has, and so is wrong about every animal on the
+site rather than merely off-vocabulary. What the Spanish surfaces actually say is settled in
+[User-facing Spanish](#user-facing-spanish) at the end of this file, and how those strings are
+built is [ADR 0018](docs/adr/0018-strings-are-typed-phrase-functions.md).
 
 ### Actors
 
@@ -311,18 +313,30 @@ issue that builds the surface.
 
 Gendered forms are written `masculine / feminine` and are resolved from the animal's sex; an animal
 whose sex was never recorded takes the masculine and the phrase says `sexo no registrado` alongside
-it. The mechanism is [ADR 0017](docs/adr/0017-strings-are-typed-phrase-functions.md), which also
+it. The mechanism is [ADR 0018](docs/adr/0018-strings-are-typed-phrase-functions.md), which also
 holds the rule for composing a species word with a band word.
 
-**These renderings are taken from the shipped prototypes, not invented here.** Every row below is a
-word the issue #17 listing prototype or the issue #15 digest prototype already put on screen and a
-human read; rows marked _unsettled_ are the ones neither prototype had to name.
+**Most of these renderings are read off the shipped prototypes rather than coined here**, which is
+the point: they are words a human already saw on screen. Three rows are not, and are marked so in
+the table, because a rendering nobody has read is a weaker thing than one that has shipped:
+
+- `Gatico / Gatica` **corrects** the prototypes, which render `Gatito / Gatica`. The reasoning is in
+  [ADR 0018](docs/adr/0018-strings-are-typed-phrase-functions.md); this table carries the correction,
+  not the shipped error.
+- `adoptante` appears in no prototype at all — no surface has yet had to name the adopter to their
+  face. It is here because the concept has an obvious es-VE word and the English _Avoid_ list already
+  names it.
+- `forma de contacto` is the singular of the prototype's `Otras formas de contacto`; the singular
+  itself has not been rendered.
+
+Rows marked _unsettled_ are concepts neither prototype had to name and whose wording belongs to the
+issue that builds the surface.
 
 | Term | es-VE | Note |
 |---|---|---|
 | Shelter | `refugio` | On the English _Avoid_ list, and the only natural es-VE word |
-| Contact Point | `forma de contacto` | `Otras formas de contacto` for the non-primary set |
-| Adopter | `adoptante` | On the English _Avoid_ list |
+| Contact Point | `forma de contacto` | Singular _not yet rendered_; the prototype ships `Otras formas de contacto` |
+| Adopter | `adoptante` | _Not yet rendered_; on the English _Avoid_ list |
 | Animal | `animal` | Never `mascota`, which is a pet someone already has |
 | Listing | `el listado` | The screen, not the state; the state is never named to a user |
 | Confirmation | `confirmación`, `confirmado / confirmada` | `Última confirmación`, `Confirmada ayer` |
@@ -331,11 +345,12 @@ human read; rows marked _unsettled_ are the ones neither prototype had to name.
 | Urgency | `urgente` | The chip; the written reason is the shelter's own text |
 | Photo | `foto` | On the English _Avoid_ list |
 | Species | `especie` | `Perro / Perra`, `Gato / Gata` |
-| Age Band | `etapa` | `Cachorro / Cachorra`, `Gatico / Gatica`, `Joven`, `Adulto / Adulta`, `Senior` |
+| Age Band | `etapa` | `Cachorro / Cachorra`, `Gatico / Gatica`, `Joven`, `Adulto / Adulta`, `Senior`. `Gatico` _corrects_ the prototypes' `Gatito` |
 | Size | `tamaño adulto` | `Pequeño / Pequeña`, `Mediano / Mediana`, `Grande`, `Gigante` |
 | Good-With Flag | `convivencia` | `No convive con gatos`, `Sin evaluar: perros` |
 | Region | `dónde está` | The label; values are the administrative divisions' own names |
 | Sex | `sexo` | `Macho`, `Hembra`, `No se sabe` |
+| Sterilisation | `esterilización` | `Esterilizado / Esterilizada`, `Sin esterilizar`, `No se sabe`. A display-only attribute (not a Filter Axis) with no glossary entry of its own, and the only concept English also genders: `Neutered / Spayed` |
 | Verification | `verificado` | `Refugio verificado`; the log itself is never shown to an adopter |
 | Digest | `resumen` | |
 | Subscription | `búsqueda` | What a subscriber calls their own: `Cambiar mis búsquedas` |

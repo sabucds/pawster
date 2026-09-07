@@ -249,7 +249,7 @@ worth re-running against real photos before the build commits to the derivative 
 
 ## What this says about i18n
 
-> **Resolved by [ADR 0017](../../docs/adr/0017-strings-are-typed-phrase-functions.md).** All three
+> **Resolved by [ADR 0018](../../docs/adr/0018-strings-are-typed-phrase-functions.md).** All three
 > constraints below are decided there: gendered pairs and an `agree()` resolver, the first band's
 > word replacing the species word inside one shared phrase function, and `CONTEXT.md`'s _Avoid_
 > lists scoped to the English codebase with a `User-facing Spanish` table beside them.
