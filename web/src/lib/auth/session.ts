@@ -27,13 +27,41 @@ import { SESSION_TTL_MS } from "./policy.ts";
 export const SESSION_COOKIE = "pawster_session";
 
 /**
- * The name of the short-lived cookie that carries a code request's opaque token between the
- * request form and the code form. Not a session and never treated as one.
+ * The name of the short-lived cookie that carries a code request's opaque token from the
+ * endpoint that mints it to the endpoint that spends it. Not a session and never treated as
+ * one.
  */
 export const SIGN_IN_COOKIE = "pawster_sign_in";
 
-/** Everything under `/refugios` and the endpoints that serve it. */
-const SESSION_PATH = "/";
+/**
+ * The whole site, because the Session is read from `/refugios/panel`, from
+ * `/api/refugios/salir`, and from every publishing route still to come — which do not share
+ * a common prefix narrower than this.
+ */
+export const SESSION_PATH = "/";
+
+/**
+ * `/api/refugios`, and getting this wrong is a bug no test in this repo can see.
+ *
+ * A cookie is sent only where RFC 6265 §5.1.4's path-match holds: the cookie's path must be
+ * a **prefix of the request path**. This cookie was first scoped to `/refugios`, on the
+ * reasoning that it belonged to the code form — and `/refugios` is not a prefix of
+ * `/api/refugios/sesion`, which is the *only* thing that ever reads it. A browser would
+ * therefore never have sent it, and every sign-in on the platform would have collapsed to
+ * "ese código no sirvió" with nothing in any log to explain why.
+ *
+ * The suite could not catch it, and that is worth stating rather than treating as bad luck:
+ * `web/test/shelter-access.test.ts` sets the `cookie` header by hand, so it exercises the
+ * server's parsing and never the browser's scoping rule. `docs/testing-seams.md` already
+ * says the seam cannot see this class of thing. `session-cookie.test.ts` asserts the
+ * relationship directly instead — that the path is a prefix of the endpoint's path — which
+ * is the only form of the check available without a real browser.
+ *
+ * `/api/refugios` rather than the exact endpoint path: the minting endpoint
+ * (`/api/refugios/codigo`) has to be able to clear it too, and both live under this prefix.
+ * It stays off `/refugios/*`, so the prerendered pages never carry it.
+ */
+export const SIGN_IN_PATH = "/api/refugios";
 
 /**
  * The wire form: `base64url(JSON) "." base64url(HMAC)`.
@@ -150,70 +178,72 @@ export function readCookie(request: Request, name: string): string | null {
 }
 
 /**
- * The `Set-Cookie` for a live session.
+ * The one place a `Set-Cookie` is built, for both cookies and for both setting and clearing.
+ *
+ * Written once rather than four times because a browser matches a replacement cookie on
+ * name, path and the security attributes: get one of them wrong in the clearing header and
+ * the original is left in place while the response looks like it worked. Four hand-written
+ * copies of the same list is four chances at that, and the two that have to agree exactly
+ * are the two furthest apart.
  *
  * `SameSite=Lax` rather than `Strict`, because ADR 0008's confirmation nudges are links in
  * an inbox: under `Strict` a shelter arriving from its own email would land signed out,
  * having done nothing wrong. `Lax` withholds the cookie from cross-site POSTs, which is the
- * half that matters — every mutating endpoint here is a POST.
+ * half that matters — every mutating endpoint here is a POST, and Astro's own
+ * `security.checkOrigin` backstops the one that takes no cookie at all.
+ */
+function cookieHeader(
+  name: string,
+  value: string,
+  path: string,
+  maxAgeSeconds: number,
+): string {
+  return [
+    `${name}=${value}`,
+    `Path=${path}`,
+    `Max-Age=${maxAgeSeconds}`,
+    "HttpOnly",
+    "Secure",
+    "SameSite=Lax",
+  ].join("; ");
+}
+
+/**
+ * The `Set-Cookie` for a live session.
  *
  * `Max-Age` matches {@link SESSION_TTL_MS} so the browser and the server agree on when the
  * ninety days are up. The server's check is the authority; this only saves the round trip.
  */
 export function sessionCookieHeader(value: string): string {
-  return [
-    `${SESSION_COOKIE}=${value}`,
-    `Path=${SESSION_PATH}`,
-    `Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`,
-    "HttpOnly",
-    "Secure",
-    "SameSite=Lax",
-  ].join("; ");
+  return cookieHeader(
+    SESSION_COOKIE,
+    value,
+    SESSION_PATH,
+    Math.floor(SESSION_TTL_MS / 1000),
+  );
 }
 
-/**
- * The `Set-Cookie` that ends a session in the browser.
- *
- * Every attribute except `Max-Age` has to match the cookie being replaced or the browser
- * treats it as a different cookie and leaves the original in place — which is why this is
- * built from the same list rather than written out shorter.
- */
+/** The `Set-Cookie` that ends a session in the browser. */
 export function clearSessionCookieHeader(): string {
-  return [
-    `${SESSION_COOKIE}=`,
-    `Path=${SESSION_PATH}`,
-    "Max-Age=0",
-    "HttpOnly",
-    "Secure",
-    "SameSite=Lax",
-  ].join("; ");
+  return cookieHeader(SESSION_COOKIE, "", SESSION_PATH, 0);
 }
 
 /**
  * The `Set-Cookie` carrying a code request's opaque token.
  *
- * Scoped to `/refugios` because only the code form and its endpoint ever read it, and its
- * lifetime is the code's: a token that outlived the code it names would be a handle to
- * nothing. It holds no address — see `oneTimeCodes.requestToken` in `db/src/schema.ts`.
+ * Its lifetime is the code's: a token that outlived the code it names would be a handle to
+ * nothing. It holds no address — see `oneTimeCodes.requestToken` in `db/src/schema.ts` — and
+ * its path is {@link SIGN_IN_PATH}, which is where the endpoint that reads it actually lives.
  */
 export function signInCookieHeader(token: string, ttlMs: number): string {
-  return [
-    `${SIGN_IN_COOKIE}=${token}`,
-    "Path=/refugios",
-    `Max-Age=${Math.floor(ttlMs / 1000)}`,
-    "HttpOnly",
-    "Secure",
-    "SameSite=Lax",
-  ].join("; ");
+  return cookieHeader(
+    SIGN_IN_COOKIE,
+    token,
+    SIGN_IN_PATH,
+    Math.floor(ttlMs / 1000),
+  );
 }
 
 export function clearSignInCookieHeader(): string {
-  return [
-    `${SIGN_IN_COOKIE}=`,
-    "Path=/refugios",
-    "Max-Age=0",
-    "HttpOnly",
-    "Secure",
-    "SameSite=Lax",
-  ].join("; ");
+  return cookieHeader(SIGN_IN_COOKIE, "", SIGN_IN_PATH, 0);
 }

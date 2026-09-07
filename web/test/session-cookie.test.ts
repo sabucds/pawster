@@ -3,10 +3,12 @@ import { digestsEqual, generateOneTimeCode } from "../src/lib/auth/crypto.ts";
 import { ONE_TIME_CODE_DIGITS } from "../src/lib/auth/policy.ts";
 import {
   clearSessionCookieHeader,
+  clearSignInCookieHeader,
   decodeSession,
   encodeSession,
   readCookie,
   sessionCookieHeader,
+  signInCookieHeader,
 } from "../src/lib/auth/session.ts";
 
 /**
@@ -102,6 +104,49 @@ describe("the Set-Cookie attributes", () => {
     // 90 days in seconds. A session cookie with no Max-Age would end when the browser did,
     // which on a shared shelter phone is often the same day.
     expect(sessionCookieHeader("value")).toContain(`Max-Age=${90 * 24 * 60 * 60}`);
+  });
+
+  it("scopes each cookie to a path that actually covers the code reading it", () => {
+    /**
+     * The regression test for the one bug in this change that no route test could see.
+     *
+     * The sign-in cookie was first scoped to `Path=/refugios`, on the reasoning that it
+     * belonged to the code form. RFC 6265 §5.1.4 sends a cookie only where its path is a
+     * **prefix of the request path**, and `/refugios` is not a prefix of
+     * `/api/refugios/sesion` — the only thing that ever reads it. A browser would never have
+     * sent it and every sign-in would have collapsed to "ese código no sirvió".
+     *
+     * `shelter-access.test.ts` passes either way, because it sets the `cookie` header by
+     * hand: it exercises the server's parsing and never the browser's scoping rule. So the
+     * relationship is asserted here directly, which is the only form of the check available
+     * without a real browser — and it is stated as the rule rather than as the string, so
+     * moving a route breaks it.
+     */
+    const pathMatches = (cookiePath: string, requestPath: string) =>
+      cookiePath === "/" ||
+      requestPath === cookiePath ||
+      requestPath.startsWith(cookiePath.endsWith("/") ? cookiePath : `${cookiePath}/`);
+
+    const pathOf = (header: string) =>
+      header.split("; ").find((part) => part.startsWith("Path="))!.slice("Path=".length);
+
+    // Every route that reads the sign-in handle.
+    const signInPath = pathOf(signInCookieHeader("token", 600_000));
+    expect(pathMatches(signInPath, "/api/refugios/sesion")).toBe(true);
+    expect(pathMatches(signInPath, "/api/refugios/codigo")).toBe(true);
+    // And it stays off the prerendered pages, which have no business carrying a credential.
+    expect(pathMatches(signInPath, "/refugios/entrar")).toBe(false);
+    expect(pathMatches(signInPath, "/")).toBe(false);
+
+    // Every route that reads the Session.
+    const sessionPath = pathOf(sessionCookieHeader("value"));
+    for (const route of ["/refugios/panel", "/api/refugios/salir"]) {
+      expect(pathMatches(sessionPath, route), `${route} needs the session`).toBe(true);
+    }
+
+    // The clearing headers have to match the cookies they replace, path included.
+    expect(pathOf(clearSignInCookieHeader())).toBe(signInPath);
+    expect(pathOf(clearSessionCookieHeader())).toBe(sessionPath);
   });
 
   it("clears with every attribute intact except the lifetime", () => {

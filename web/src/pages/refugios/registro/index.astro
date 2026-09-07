@@ -24,6 +24,25 @@ import { findShelterByEmail, registerShelter } from "../../../lib/auth/store.ts"
  *
  * Sign-in is the opposite case and stays static, because ADR 0013 requires its response to
  * carry nothing — see `entrar/index.astro`.
+ *
+ * ## This endpoint is unauthenticated and its writes are not bounded
+ *
+ * Recorded here because it is a real gap and the neighbouring file used to claim otherwise.
+ * `/api/refugios/codigo` grew a per-IP limit specifically so an unauthenticated caller could
+ * not make the platform write to D1 without limit — and this route, which inserts a shelter
+ * row plus up to three contact-point rows, has no equivalent. A script posting valid
+ * registrations can spend D1's free-tier daily writes.
+ *
+ * It is left for the ticket that owns abuse limits rather than solved here, for two reasons.
+ * The limit that belongs on this route is not the sign-in mail ledger — `sign_in_requests`
+ * counts mail, and writing registration attempts into it would make every figure in
+ * `policy.ts` mean something else — and the cheap real answer is a Cloudflare WAF rate rule
+ * at the edge, which is configuration rather than code and belongs with the ops ticket
+ * (#68). What this route emphatically must not do is grow a second, subtly different ledger
+ * on its own.
+ *
+ * The exposure is bounded in the meantime by what the rows are worth: an unverified shelter
+ * publishes nothing visible (ADR 0003), so the attack costs storage and nothing else.
  */
 export const prerender = false;
 

@@ -409,6 +409,36 @@ describe("requesting a code", () => {
     expect(outbound.calls).toHaveLength(0);
   });
 
+  it("answers identically when Resend refuses the send", async () => {
+    /**
+     * The oracle that was live until review found it.
+     *
+     * `sendOneTimeCodeEmail` throws on a non-2xx, and nothing caught it — so a registered
+     * address got a 500 while an unregistered one, which never reaches the send, still got
+     * its 303. During any Resend outage the status code told you which addresses were
+     * registered: ADR 0008's exact prohibition, arriving through the one path nobody thinks
+     * of as a branch.
+     *
+     * The interceptor makes this a two-line test, which is the argument for having one
+     * dispatcher rather than three mocks.
+     */
+    await register();
+    outbound.on("resend", () => new Response("nope", { status: 500 }));
+
+    const known = await post("/api/refugios/codigo", {
+      accountEmail: REGISTRATION.accountEmail,
+    });
+    const unknown = await post("/api/refugios/codigo", {
+      accountEmail: "nobody@example.org",
+    });
+
+    expect(known.status).toBe(303);
+    expect(known.status).toBe(unknown.status);
+    expect(known.headers.get("location")).toBe(unknown.headers.get("location"));
+    // It was really attempted, so this is testing the catch and not a skipped send.
+    expect(outbound.callsTo("resend")).toHaveLength(1);
+  });
+
   it("hands the unregistered address a token that opens nothing", async () => {
     // The token exists so the address never travels with the request. For a stranger it
     // names no row, so the code form's answer is the same "did not work" a wrong guess gets.
@@ -970,8 +1000,53 @@ describe("the mail budget", () => {
       { accountEmail: "nobody@example.org" },
       { ip: attacker },
     );
-    expect(refused.headers.get("location")).toBe("/refugios/entrar/espera");
+    /**
+     * Its own page, not the global-ceiling one. This first reused `espera.astro`, whose copy
+     * says "hoy ya se llegó al tope" and "no es nada que hayas hecho tú" — both false of a
+     * rate-limited caller, whose own request rate is exactly what happened and whose refusal
+     * has not touched the platform's mail budget at all.
+     */
+    expect(refused.headers.get("location")).toBe("/refugios/entrar/demasiados");
     expect(outbound.calls).toHaveLength(0);
+  });
+
+  it("counts every wrong guess even when they arrive together", async () => {
+    /**
+     * The five-attempt ceiling used to be a lost update: `recordFailedAttempt` read
+     * `attemptsUsed`, added one in the Worker, and wrote the result back, so guesses that
+     * overlapped all read the same number and all wrote the same number. That matters more
+     * than an ordinary race, because guessing costs no mail — the mail caps do not bound it —
+     * so an attacker holding one handle could post as fast as it liked and the code would
+     * never die.
+     *
+     * The increment is now `attempts_used = attempts_used + 1` in SQL, which SQLite
+     * serialises. Five overlapping wrong guesses therefore retire the code exactly as five
+     * sequential ones do.
+     */
+    await register();
+    const { token, code } = await requestCode(REGISTRATION.accountEmail);
+    const wrong = code === "000000" ? "111111" : "000000";
+
+    await Promise.all(
+      Array.from({ length: ONE_TIME_CODE_MAX_ATTEMPTS }, () =>
+        post("/api/refugios/sesion", { code: wrong }, { cookie: token! }),
+      ),
+    );
+
+    // Retired, so the correct digits are now worthless.
+    const withRightCode = await post(
+      "/api/refugios/sesion",
+      { code },
+      { cookie: token! },
+    );
+    expect(withRightCode.headers.get("location")).toBe(
+      "/refugios/entrar/codigo-invalido",
+    );
+
+    const row = await env.DB.prepare("SELECT COUNT(*) AS n FROM one_time_codes").first<{
+      n: number;
+    }>();
+    expect(row!.n).toBe(0);
   });
 });
 
@@ -985,6 +1060,7 @@ describe("the sign-in form", () => {
       "/refugios/entrar/codigo",
       "/refugios/entrar/codigo-invalido",
       "/refugios/entrar/espera",
+      "/refugios/entrar/demasiados",
       "/refugios/registro/listo",
     ]) {
       const asset = await env.ASSETS.fetch(`${ORIGIN}${path}`);

@@ -91,11 +91,7 @@ export const POST: APIRoute = async ({ request }) => {
     submitted,
   );
   if (!digestsEqual(expected, row.codeHash)) {
-    const attemptsUsed = await recordFailedAttempt(
-      db,
-      row.shelterId,
-      row.attemptsUsed,
-    );
+    const attemptsUsed = await recordFailedAttempt(db, row.shelterId);
     /**
      * The fifth wrong guess retires the code here rather than leaving it to be refused on
      * the sixth. Both behave the same from outside, and deleting it means a stolen token

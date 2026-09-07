@@ -1,0 +1,46 @@
+---
+import Refugios from "../../../layouts/Refugios.astro";
+
+/**
+ * Too many code requests from one place.
+ *
+ * A page of its own rather than a reuse of `espera.astro`, which is where this refusal first
+ * landed — and that was wrong in a way worth recording. The ceiling page says "hoy ya se
+ * llegó al tope" and "no es nada que hayas hecho tú", and **both sentences are false here**:
+ * the platform's mail budget is untouched, and the caller's own request rate is precisely
+ * what happened. Telling a shelter that the platform is out of mail when it is not is the
+ * kind of lie that turns a five-minute wait into a support conversation.
+ *
+ * It reveals nothing about any address. The per-IP limit counts requests from one caller,
+ * whatever they were for, so a registered and an unregistered address reach this page under
+ * exactly the same conditions — the same property that lets `espera.astro` exist alongside
+ * ADR 0008's identical-response rule.
+ *
+ * Being told you are rate-limited is not a leak either: the caller already knows how many
+ * requests it made. What it must not learn is which *addresses* exist, and this says nothing
+ * about that.
+ */
+---
+
+<Refugios title="Demasiados intentos" heading="Demasiados intentos desde aquí">
+  <p data-testid="ip-limit">
+    Se pidieron muchos códigos desde esta conexión en poco tiempo, así que hay que esperar un
+    rato antes del próximo.
+  </p>
+
+  <p data-testid="try-later">
+    Vuelve a intentarlo <strong>en una hora</strong>. Si no fuiste tú, puede ser que estén
+    compartiendo la conexión — pasa en un cibercafé o con el internet de un edificio.
+  </p>
+
+  <p>
+    <!--
+      Said because the shelter's natural fear on reading this is that it has been blocked.
+      The limit is on requests from one connection in one hour, and it forgets: nothing about
+      the refugio changes, and no code it already received stops working.
+    -->
+    Esto no bloquea tu refugio ni anula un código que ya te haya llegado.
+  </p>
+
+  <p><a href="/refugios/entrar">Volver</a></p>
+</Refugios>

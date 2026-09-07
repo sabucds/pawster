@@ -20,11 +20,12 @@ import {
 } from "@pawster/db";
 import type { ContactPointKind, OneTimeCode } from "@pawster/db";
 import type { ShelterFacts } from "@pawster/domain";
-import { and, count, desc, eq, gte, like, or } from "drizzle-orm";
+import { and, count, desc, eq, gte, like, or, sql } from "drizzle-orm";
 import { slugCandidates } from "../slug.ts";
 import { generateOneTimeCode, generateRequestToken, hashOneTimeCode } from "./crypto.ts";
 import type { MailBudgetUsage } from "./policy.ts";
 import {
+  ONE_TIME_CODE_MAX_ATTEMPTS,
   ONE_TIME_CODE_TTL_MS,
   ipWindowStart,
   mailBudgetWindowStart,
@@ -251,18 +252,37 @@ export async function findCodeByRequestToken(
   return row ?? null;
 }
 
-/** Count a wrong guess. Returns the new total, so the caller can see the fifth one land. */
+/**
+ * Count a wrong guess. Returns the new total, so the caller can see the fifth one land.
+ *
+ * **Incremented in SQL and read back with `RETURNING`, not computed in the Worker.** The
+ * obvious form — take the `attemptsUsed` the caller already read, add one, write it — is a
+ * lost update, and it is a lost update on the counter that is the entire protection around a
+ * six-digit secret. Five requests arriving together all read 0, all write 1, and the code
+ * survives to be guessed at again; `policy.ts`'s "five tries against a million codes" stops
+ * being true, and nothing else on this path is rate-limited to notice. Sign-in mail is
+ * capped, but *guessing* costs no mail at all — an attacker holding one handle can post to
+ * the code endpoint as fast as it likes.
+ *
+ * `attempts_used = attempts_used + 1` is evaluated by SQLite, which serialises writes to the
+ * row, so N concurrent guesses produce N increments however they interleave.
+ */
 export async function recordFailedAttempt(
   db: Database,
   shelterId: string,
-  attemptsUsed: number,
 ): Promise<number> {
-  const next = attemptsUsed + 1;
-  await db
+  const [row] = await db
     .update(oneTimeCodes)
-    .set({ attemptsUsed: next })
-    .where(eq(oneTimeCodes.shelterId, shelterId));
-  return next;
+    .set({ attemptsUsed: sql`${oneTimeCodes.attemptsUsed} + 1` })
+    .where(eq(oneTimeCodes.shelterId, shelterId))
+    .returning({ attemptsUsed: oneTimeCodes.attemptsUsed });
+
+  /**
+   * A missing row means a concurrent request consumed or retired the code between the read
+   * and this write. Reporting the ceiling is the safe direction: the caller's next move is to
+   * treat the code as finished, which it is.
+   */
+  return row?.attemptsUsed ?? ONE_TIME_CODE_MAX_ATTEMPTS;
 }
 
 /**

@@ -63,7 +63,15 @@ const MAX_FIELD = 200;
  */
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-function field(form: FormData, name: string): string {
+/**
+ * One text field, trimmed, with a missing or non-string value reported as `""`.
+ *
+ * Collapsing absent and empty is deliberate: a browser submits an empty control rather than
+ * omitting it, so the two are the same event, and every caller below treats `""` as "not
+ * given". A `File` value — which `FormData.get` can also return — is not a text field and is
+ * refused the same way.
+ */
+function trimmedField(form: FormData, name: string): string {
   const value = form.get(name);
   return typeof value === "string" ? value.trim() : "";
 }
@@ -137,7 +145,7 @@ function isContactPointKind(value: string): value is ContactPointKind {
 export function parseRegistration(form: FormData): RegistrationParse {
   const errors: RegistrationError[] = [];
 
-  const displayName = field(form, "displayName");
+  const displayName = trimmedField(form, "displayName");
   if (displayName.length === 0) {
     errors.push({ field: "displayName", reason: "Escribe el nombre del refugio." });
   } else if (displayName.length > MAX_DISPLAY_NAME) {
@@ -153,7 +161,7 @@ export function parseRegistration(form: FormData): RegistrationParse {
    * a shelter that registered `Hola@Refugio.example` and later typed
    * `hola@refugio.example` has to find its own row.
    */
-  const accountEmail = field(form, "accountEmail").toLowerCase();
+  const accountEmail = trimmedField(form, "accountEmail").toLowerCase();
   if (accountEmail.length === 0) {
     errors.push({
       field: "accountEmail",
@@ -166,7 +174,7 @@ export function parseRegistration(form: FormData): RegistrationParse {
     });
   }
 
-  const baseRegion = field(form, "baseRegion");
+  const baseRegion = trimmedField(form, "baseRegion");
   if (baseRegion.length === 0) {
     errors.push({ field: "baseRegion", reason: "Escoge dónde está el refugio." });
   } else if (baseRegion.length > MAX_FIELD) {
@@ -178,7 +186,7 @@ export function parseRegistration(form: FormData): RegistrationParse {
    * an animal inherit its country from its shelter, so this is the root of that inheritance
    * and an ISO 3166-1 alpha-2 code is the least the reference data can be keyed by.
    */
-  const countryCode = field(form, "countryCode").toUpperCase();
+  const countryCode = trimmedField(form, "countryCode").toUpperCase();
   if (!/^[A-Z]{2}$/.test(countryCode)) {
     errors.push({ field: "countryCode", reason: "Escoge el país." });
   }
@@ -209,7 +217,7 @@ export function parseRegistration(form: FormData): RegistrationParse {
  * well-formed stranger either.
  */
 export function parseCodeRequest(form: FormData): string | null {
-  const accountEmail = field(form, "accountEmail").toLowerCase();
+  const accountEmail = trimmedField(form, "accountEmail").toLowerCase();
   if (accountEmail.length === 0 || accountEmail.length > MAX_FIELD) return null;
   if (!EMAIL_SHAPE.test(accountEmail)) return null;
   return accountEmail;
@@ -223,7 +231,7 @@ export function parseCodeRequest(form: FormData): string | null {
  * shelter would read as a wrong code.
  */
 export function parseSubmittedCode(form: FormData, digits: number): string | null {
-  const raw = field(form, "code").replace(/[\s-]/g, "");
+  const raw = trimmedField(form, "code").replace(/[\s-]/g, "");
   if (raw.length !== digits) return null;
   if (!/^\d+$/.test(raw)) return null;
   return raw;
