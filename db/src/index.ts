@@ -9,15 +9,24 @@ export type Database = ReturnType<typeof createDb>;
  * Build a Drizzle client for this request.
  *
  * **Call this inside the request handler, never at module scope, and never cache the
- * result across requests.** Two separate failures punish a module-scope client: the
- * 1-second startup limit is a deploy-time rejection, and a binding captured in one
- * request's I/O context throws "Cannot perform I/O on behalf of a different request" when
- * the next request touches it. The second is the nastier one, because it survives every
- * single-request test and only appears once an isolate serves a second request.
+ * result across requests** (ADR 0007).
  *
- * `db/src/module-scope-is-wrong.test.ts` demonstrates both halves against a real Worker
- * rather than asserting them, and `db/src/no-module-scope-client.test.ts` keeps the
- * codebase from drifting back.
+ * The reason is narrower than it looks, and the ADR originally gave a wrong one. Two
+ * failures were predicted: the 1-second startup limit, which is a real deploy-time
+ * rejection but says nothing about a client that is merely *built* early; and "Cannot
+ * perform I/O on behalf of a different request" on the next request to touch a captured
+ * binding. **The second was measured and does not happen.** On
+ * `@cloudflare/vitest-plugin@1.1.4` a client built at module scope and one cached across
+ * requests both return 200, every time — `db/test/module-scope-is-wrong.test.ts` asserts
+ * that error's *absence* so the claim cannot quietly come back.
+ *
+ * What is actually wrong with module scope is simpler: it runs before there is a request,
+ * and so before anything a request depends on exists. The fixture's third form shows it —
+ * a query issued during module evaluation ran against a database whose migrations had not
+ * been applied yet and failed with `no such table`.
+ *
+ * So nothing at runtime will catch you. Enforcement is structural instead:
+ * `scripts/check-source-rules.mjs`, the first step of `npm test`.
  */
 export function createDb(d1: D1Database) {
   return drizzle(d1, { schema });

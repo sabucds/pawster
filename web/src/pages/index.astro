@@ -3,8 +3,10 @@
  * Prerendered, like almost everything an anonymous adopter browses. No `prerender` export
  * here because static is the default — the exception is the file that opts out.
  *
- * This page is served from Static Assets without invoking Worker code, which is what the
- * `web/test/routing.test.ts` assertion about `cf-worker-ran` is checking.
+ * This page is served from Static Assets without invoking Worker code. What holds that
+ * true is `web/test/routing.test.ts` — "exists as a static asset, which is what lets the
+ * asset router answer it" — which asks the `ASSETS` binding for `/` directly. Adding
+ * `prerender = false` here makes that binding return 404 and the test fail.
  */
 ---
 

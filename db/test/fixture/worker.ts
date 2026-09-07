@@ -5,8 +5,9 @@ import * as schema from "../../src/schema.ts";
 
 /**
  * A deliberately wrong Worker, kept so the module-scope rule has a demonstration rather
- * than an assertion. Nothing outside this directory may look like the first two routes,
- * and `db/test/no-module-scope-client.test.ts` is what keeps it that way.
+ * than an assertion. `db/test/module-scope-is-wrong.test.ts` records what the runtime does
+ * with each form; `scripts/check-source-rules.mjs` is what keeps anything outside this
+ * directory from looking like the first two routes, since the runtime will not.
  */
 
 /**

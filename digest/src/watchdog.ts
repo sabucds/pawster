@@ -5,7 +5,13 @@
  * Cloudflare or it shares the failure it exists to detect (ADR 0006).
  */
 
-export type PingKind = "start" | "success" | "fail";
+/**
+ * ADR 0009 asks for exactly two pings: one per daily run at completion, and `/fail` from
+ * the dead-letter consumer. There is deliberately no `start` — Healthchecks.io's grace
+ * period is what covers a run that never finishes, so a start ping would add a second
+ * outbound call per run and tell us nothing the grace period does not.
+ */
+export type PingKind = "success" | "fail";
 
 /**
  * Healthchecks.io addresses its endpoints by suffix on the check URL, and the bare URL is

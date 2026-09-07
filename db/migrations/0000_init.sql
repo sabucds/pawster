@@ -6,7 +6,6 @@ CREATE TABLE `animals` (
 	`estimated_birth_date` integer NOT NULL,
 	`region` text NOT NULL,
 	`last_confirmed_at` integer NOT NULL,
-	`listed` integer DEFAULT true NOT NULL,
 	FOREIGN KEY (`shelter_id`) REFERENCES `shelters`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
@@ -24,7 +23,8 @@ CREATE TABLE `subscribers` (
 	`id` text PRIMARY KEY NOT NULL,
 	`email` text NOT NULL,
 	`send_day` integer NOT NULL,
-	`opted_in_at` integer NOT NULL
+	`opted_in_at` integer NOT NULL,
+	`last_digest_at` integer
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `subscribers_email_unique` ON `subscribers` (`email`);--> statement-breakpoint

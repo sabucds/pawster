@@ -15,6 +15,8 @@ export interface DigestSend {
    * one-shard-per-day design keeps us inside. */
   idempotencyKey: string;
   period: string;
+  /** Built and signed by `unsubscribe.ts`; this module only posts what it is handed. */
+  unsubscribeUrl: string;
 }
 
 export async function sendDigestEmail(
@@ -36,7 +38,7 @@ export async function sendDigestEmail(
       headers: {
         // We host the entire unsubscribe flow: these are automatic for Broadcasts only,
         // and Broadcasts cannot carry a Pawster digest at all (ADR 0009).
-        "List-Unsubscribe": `<https://pawster.dpdns.org/unsubscribe/${send.idempotencyKey}>`,
+        "List-Unsubscribe": `<${send.unsubscribeUrl}>`,
         "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
       },
     }),

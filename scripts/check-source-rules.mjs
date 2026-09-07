@@ -20,7 +20,21 @@ const ROOT = fileURLToPath(new URL("..", import.meta.url));
 /** Deliberately-wrong code, kept as a demonstration. Exempt by design. */
 const EXEMPT = ["db/test/fixture/"];
 
-const SOURCE_DIRS = ["domain/src", "db/src", "digest/src", "web/src"];
+/**
+ * Source *and* tests. The tests are scanned because `db/test/fixture/` is the one place
+ * allowed to hold a module-scope client, and an exemption over a directory nobody scans
+ * exempts nothing — it just reads as though the rule were enforced there.
+ */
+const SOURCE_DIRS = [
+  "domain/src",
+  "db/src",
+  "db/test",
+  "digest/src",
+  "digest/test",
+  "web/src",
+  "web/test",
+  "test",
+];
 
 function walk(dir) {
   let files = [];
@@ -53,30 +67,69 @@ for (const file of files) {
   const lines = readFileSync(file, "utf8").split("\n");
   const inDomain = relPath.startsWith("domain/");
 
+  /**
+   * Every name declared at column 0 — the file's module scope. A client assigned to one of
+   * these outlives the request that built it, however deep inside a function the
+   * assignment is written.
+   */
+  const moduleScopeNames = new Set(
+    lines
+      .map((line) => line.match(/^(?:export\s+)?(?:const|let|var)\s+([\w$]+)/))
+      .filter((match) => match !== null)
+      .map((match) => match[1]),
+  );
+
   lines.forEach((line, index) => {
     const lineNumber = index + 1;
 
     /**
      * Rule 1: no Drizzle client at module scope (ADR 0007).
      *
-     * A heuristic, and an honest one: a top-level binding in this codebase starts at
-     * column 0, because everything here is Prettier-formatted and every binding inside a
-     * function body is indented. It catches the shape people actually write — a `const`
-     * at the top of the file — which is the shape that ships the bug.
+     * Two shapes, because the fixture demonstrates two and calls the second the more
+     * common one:
+     *
+     *   const db = createDb(env.DB);            // built during module evaluation
+     *   let cached; cached ??= drizzle(env.DB); // built in one request and kept
+     *
+     * The first is a column-0 declaration, which is a sound heuristic here: everything in
+     * this repo is Prettier-formatted, so a binding inside a function body is indented.
+     * The second is an assignment *to a module-scope name*, at any indentation — that is
+     * what `moduleScopeNames` below is collected for. Only bare assignments count, never
+     * declarations, so a `const db = createDb(...)` inside a handler that happens to shadow
+     * a module-scope name is not flagged.
      *
      * `.astro` files are exempt, and not as a concession: a page's frontmatter *is* the
      * request handler, run once per request for any route that has opted out of
      * prerendering, so a column-0 `const` there is per-request by construction. An Astro
      * page has no module scope to get this wrong in.
      */
-    if (!relPath.endsWith(".astro") && /^(?:export\s+)?(?:const|let|var)\s+[\w$]+\s*(?::[^=]+)?=\s*(?:await\s+)?(?:createDb|drizzle)\s*\(/.test(line)) {
+    const buildsClient = /(?:createDb|drizzle)\s*\(/.test(line);
+    const declaresAtModuleScope =
+      /^(?:export\s+)?(?:const|let|var)\s+[\w$]+\s*(?::[^=]+)?=\s*(?:await\s+)?(?:createDb|drizzle)\s*\(/.test(
+        line,
+      );
+    const assignsToModuleScopeName = (() => {
+      const match = line.match(
+        /^\s*([\w$]+)\s*(?:\?\?=|\|\|=|=)\s*(?:await\s+)?(?:createDb|drizzle)\s*\(/,
+      );
+      if (!match) return false;
+      if (/^\s*(?:export\s+)?(?:const|let|var)\s/.test(line)) return false;
+      return moduleScopeNames.has(match[1]);
+    })();
+
+    if (
+      !relPath.endsWith(".astro") &&
+      buildsClient &&
+      (declaresAtModuleScope || assignsToModuleScopeName)
+    ) {
       fail(
         file,
         lineNumber,
         "module-scope Drizzle client",
-        "Construct the client inside the request handler. ADR 0007; see db/src/index.ts " +
-          "for why, and db/test/module-scope-is-wrong.test.ts for what the runtime does " +
-          "(which is: not complain).",
+        "Construct the client inside the request handler, every time, and keep no " +
+          "reference to it. ADR 0007; see db/src/index.ts for why, and " +
+          "db/test/module-scope-is-wrong.test.ts for what the runtime does about it " +
+          "(which is: nothing).",
       );
     }
 

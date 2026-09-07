@@ -25,19 +25,23 @@ describe("fetchDerivative", () => {
     });
   });
 
-  it("asks for the detail image at 1280px WebP with no crop", async () => {
+  it("asks for the detail image at a 1280px long edge in WebP, with no crop", async () => {
     await fetchDerivative(ORIGINAL, "detailImage");
 
     const [call] = outbound.callsTo("cf.image");
+    // `height` matches `width` deliberately: ADR 0012 specifies 1280 as the *long edge*,
+    // and `scale-down` fits the image inside the box without changing its aspect ratio, so
+    // a square box bounds the longer side whichever side that is. Sending `width` alone
+    // would let a portrait photo come back 1707px tall.
     expect(call!.imageTransform).toEqual({
       width: 1280,
+      height: 1280,
       fit: "scale-down",
       format: "webp",
     });
     // `gravity` is meaningless without a crop, and sending it anyway would be noise in
     // the one place the transformation budget is spent.
     expect(call!.imageTransform).not.toHaveProperty("gravity");
-    expect(call!.imageTransform).not.toHaveProperty("height");
   });
 
   it("goes through the same dispatcher as Resend and the watchdog", async () => {

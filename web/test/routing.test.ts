@@ -28,7 +28,6 @@ async function seedAnimal() {
     estimatedBirthDate: new Date("2025-01-01"),
     region: "Miranda",
     lastConfirmedAt: new Date("2026-08-30"),
-    listed: true,
   });
 }
 
@@ -38,24 +37,35 @@ beforeEach(async () => {
 });
 
 describe("the prerendered listing page", () => {
-  it("is served without invoking Worker code", async () => {
-    const response = await get("/");
+  it("exists as a static asset, which is what lets the asset router answer it", async () => {
+    // The load-bearing assertion, and the one that actually fails if someone adds
+    // `export const prerender = false` to `index.astro`: a prerendered page is written to
+    // `dist/client/` at build time and lives in the Static Assets store, so the asset
+    // router serves it *ahead of* the Worker and no invocation is billed (ADR 0007).
+    //
+    // Asking the `ASSETS` binding directly is what distinguishes the two worlds. Measured
+    // both ways: prerendered, this returns 200 and the page; with `prerender = false` there
+    // is no `dist/client/index.html` at all and it returns **404** — while `SELF.fetch("/")`
+    // returns 200 either way, because the Worker renders it. That is precisely why a
+    // `SELF` status check cannot see the regression and this can.
+    const asset = await env.ASSETS.fetch("https://pawster.test/");
 
-    expect(response.status).toBe(200);
-    expect(await response.text()).toContain(
+    expect(asset.status).toBe(200);
+    expect(await asset.text()).toContain(
       'data-testid="prerendered">Animales en adopción',
     );
-
-    // How we know Worker code did not run: `/` is prerendered, so Astro's server bundle
-    // carries no route for it, and `@astrojs/cloudflare`'s entrypoint never touches the
-    // `ASSETS` binding — grep it. If the request had reached the Worker there would be
-    // nothing there to answer it. The asset router answered ahead of the Worker, which is
-    // what ADR 0007 is buying: no invocation, no CPU, no count against the daily cap.
   });
 
-  it("costs no D1 query, so an empty database changes nothing", async () => {
-    await env.DB.exec("DELETE FROM animals");
-    expect((await get("/")).status).toBe(200);
+  it("is served from that asset rather than rendered per request", async () => {
+    const [served, asset] = await Promise.all([
+      get("/"),
+      env.ASSETS.fetch("https://pawster.test/"),
+    ]);
+
+    expect(served.status).toBe(200);
+    // Byte-identical to the file on disk: nothing was rendered, interpolated or read from
+    // D1 between the build and this response.
+    expect(await served.text()).toBe(await asset.text());
   });
 });
 

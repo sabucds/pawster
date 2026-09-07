@@ -19,12 +19,12 @@ names — and reads the size out of Wrangler's own report rather than measuring 
 directory, because what counts against the limit is what Wrangler would upload and only
 Wrangler knows exactly what that is. It exits non-zero if either Worker is over.
 
-### Recorded 2026-09-03
+### Recorded 2026-09-07
 
 | Worker | Raw | Gzipped | Of the 3 MB limit |
 |---|---|---|---|
-| `web` | 714.85 KiB | **173.40 KiB** | 5.6% |
-| `digest` | 179.07 KiB | **35.58 KiB** | 1.2% |
+| `web` | 715.84 KiB | **173.89 KiB** | 5.7% |
+| `digest` | 181.40 KiB | **36.44 KiB** | 1.2% |
 
 Two Workers, so two separate 3 MB budgets — which is one of the reasons ADR 0007 splits
 them. For scale, the OpenNext/Next.js bundle that ruled Next out of the running was
@@ -47,19 +47,25 @@ asset router without invoking Worker code, so it pays every cost the SSR request
 except the render. The difference is the Worker's own CPU, reached by subtraction rather
 than by trusting an absolute number from a machine that is not Cloudflare's.
 
-### Recorded 2026-09-03
+### Recorded 2026-09-07
 
-Two runs, 500 samples each, local `workerd` on an Apple-silicon laptop.
+Three runs, 500 samples each, local `workerd` on an Apple-silicon laptop, against a local
+D1 created fresh from `db/migrations` each time.
 
-| | Run 1 | Run 2 |
-|---|---|---|
-| Prerendered `/` (control) | 1.200 ms | 1.180 ms |
-| SSR `/animales/:id` | 1.980 ms | 1.860 ms |
-| **Attributable to the render** | **0.780 ms** | **0.680 ms** |
+| | Run 1 | Run 2 | Run 3 |
+|---|---|---|---|
+| Prerendered `/` (control) | 1.080 ms | 1.320 ms | 1.220 ms |
+| SSR `/animales/:id` | 1.940 ms | 2.540 ms | 2.100 ms |
+| **Attributable to the render** | **0.860 ms** | **1.220 ms** | **0.880 ms** |
 
-Roughly **7% of the 10 ms ceiling** for a route that does one indexed D1 join and renders
-a page — which is the shape ADR 0007 predicted when it called the detail page "one row
-from D1, comfortably inside 10 ms".
+Roughly **9% of the 10 ms ceiling**, with one run at 12%, for a route that does one indexed
+D1 join and renders a page — the shape ADR 0007 predicted when it called the detail page
+"one row from D1, comfortably inside 10 ms".
+
+Three runs rather than two because two disagreed by 40%. The spread is the point: a
+subtraction of two noisy process-tree totals is not a precise instrument, and reading any
+single run as *the* figure would be over-reading it. Treat the ceiling as ~10× away, not
+as a number known to two decimal places.
 
 ### What this number is not
 
@@ -70,5 +76,5 @@ contrast with [issue #34](https://github.com/sabucds/pawster/issues/34), where t
 `env.IMAGES` binding cost 22–56 ms against `cf.image`'s 0–2 ms, is the reminder of what a
 real measurement can overturn.
 
-The honest reading: 0.7 ms leaves room, and nothing automated will tell us when it stops
-doing so.
+The honest reading: about a millisecond leaves room, and nothing automated will tell us
+when it stops doing so.

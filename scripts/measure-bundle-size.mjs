@@ -15,9 +15,6 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
-
-const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
 /** The Free plan's per-Worker limit. Each Worker gets its own — that is why there are two. */
 const LIMIT_MB = 3;
@@ -41,7 +38,7 @@ const WORKERS = [
   },
 ];
 
-/** Wrangler prints `Total Upload: 714.82 KiB / gzip: 173.38 KiB`. */
+/** Wrangler prints `Total Upload: <raw> KiB / gzip: <gzipped> KiB`. */
 const TOTAL_UPLOAD = /Total Upload:\s*([\d.]+)\s*(\w+)\s*\/\s*gzip:\s*([\d.]+)\s*(\w+)/;
 
 function toKiB(value, unit) {

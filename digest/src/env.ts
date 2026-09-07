@@ -17,4 +17,11 @@ export interface Env {
   HEALTHCHECK_URL: string;
   RESEND_API_KEY: string;
   DIGEST_FROM_ADDRESS: string;
+  /**
+   * Where Pawster answers. Configuration rather than a literal because the apex is
+   * registered outside Cloudflare and can move without a code change (ADR 0014).
+   */
+  SITE_ORIGIN: string;
+  /** Signs unsubscribe links. A secret, never a `var` — see `digest/wrangler.jsonc`. */
+  UNSUBSCRIBE_SECRET: string;
 }

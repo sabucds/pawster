@@ -25,7 +25,7 @@ export async function fetchDerivative(
     cf: {
       image: {
         width: spec.width,
-        ...(spec.height === undefined ? {} : { height: spec.height }),
+        height: spec.height,
         fit: spec.fit,
         format: spec.format,
         ...(spec.gravity === undefined ? {} : { gravity: spec.gravity }),

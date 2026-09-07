@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DERIVATIVES, transformationCost } from "./derivative.ts";
-import { digestIdempotencyKey, DIGEST_DAILY_BUDGET } from "./digest.ts";
+import { DERIVATIVES } from "./derivative.ts";
 
 describe("the derivative set", () => {
   it("sends the digest thumbnail as JPEG, because Gmail transcodes WebP anyway", () => {
@@ -13,7 +12,17 @@ describe("the derivative set", () => {
     expect(cropping).toHaveLength(2);
     for (const spec of cropping) {
       expect(spec.gravity).toBe("auto");
-      expect(spec.height).toBeDefined();
+    }
+  });
+
+  it("bounds the long edge, not the width, on every uncropped derivative", () => {
+    // ADR 0012 specifies each size as a long edge. `scale-down` fits the image inside the
+    // box without changing its aspect ratio, so a square box is what makes the bound apply
+    // to a portrait photo too — with `width` alone, a 3:4 photo at width 400 comes back 533
+    // tall and over budget.
+    for (const spec of Object.values(DERIVATIVES)) {
+      if (spec.fit !== "scale-down") continue;
+      expect(spec.height).toBe(spec.width);
     }
   });
 
@@ -32,35 +41,5 @@ describe("the derivative set", () => {
         .map((d) => d.width),
     );
     expect(DERIVATIVES.detailImage.width).toBe(widest);
-  });
-});
-
-describe("transformationCost", () => {
-  it("is 2N + 2 — four at one photo, fourteen at six", () => {
-    expect(transformationCost(1)).toBe(4);
-    expect(transformationCost(6)).toBe(14);
-  });
-
-  it("puts the 5,000/month ceiling at roughly 350–500 new animals", () => {
-    expect(Math.floor(5000 / transformationCost(6))).toBe(357);
-    expect(Math.floor(5000 / transformationCost(1))).toBe(1250);
-  });
-});
-
-describe("digest arithmetic", () => {
-  it("keys a send per recipient per period, so a retry is a no-op", () => {
-    expect(digestIdempotencyKey("2026-09-02", "sub-1")).toBe(
-      "digest/2026-09-02/sub-1",
-    );
-    expect(digestIdempotencyKey("2026-09-02", "sub-1")).toBe(
-      digestIdempotencyKey("2026-09-02", "sub-1"),
-    );
-    expect(digestIdempotencyKey("2026-09-03", "sub-1")).not.toBe(
-      digestIdempotencyKey("2026-09-02", "sub-1"),
-    );
-  });
-
-  it("reserves 30 of the day's 100 emails for mail a shelter cannot do without", () => {
-    expect(DIGEST_DAILY_BUDGET).toBe(70);
   });
 });

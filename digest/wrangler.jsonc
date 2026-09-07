@@ -38,8 +38,13 @@
     ]
   },
 
+  // `UNSUBSCRIBE_SECRET` is deliberately absent: it signs unsubscribe links, so it is a
+  // secret (`wrangler secret put UNSUBSCRIBE_SECRET`) and never a plaintext `var` in a
+  // committed file. The test seam supplies a fixed one, so the suite still needs no
+  // credentials.
   "vars": {
     "HEALTHCHECK_URL": "https://hc-ping.com/00000000-0000-0000-0000-000000000000",
-    "DIGEST_FROM_ADDRESS": "digest@pawster.dpdns.org"
+    "DIGEST_FROM_ADDRESS": "digest@pawster.dpdns.org",
+    "SITE_ORIGIN": "https://pawster.dpdns.org"
   }
 }

@@ -46,7 +46,15 @@ export const animals = sqliteTable(
     lastConfirmedAt: integer("last_confirmed_at", {
       mode: "timestamp_ms",
     }).notNull(),
-    listed: integer("listed", { mode: "boolean" }).notNull().default(true),
+    /**
+     * No `listed` column, and this is a deliberate omission rather than a gap. CONTEXT.md
+     * defines a Listing as *derived*: "an animal is listed while it is available, its
+     * shelter is verified, and that shelter offers at least one contact point." Storing a
+     * boolean alongside those three inputs creates a second answer that can disagree with
+     * them — which is exactly the drift ADR 0004 avoids for age bands. The three inputs
+     * (availability, verification standing, contact points) land with the tickets that own
+     * them, and `listed` is computed from them at read time.
+     */
   },
   (table) => [index("animals_shelter_idx").on(table.shelterId)],
 );
@@ -64,6 +72,15 @@ export const subscribers = sqliteTable(
     sendDay: integer("send_day").notNull(),
     /** Nothing is ever sent to an address that has not opted in. */
     optedInAt: integer("opted_in_at", { mode: "timestamp_ms" }).notNull(),
+    /**
+     * When this subscriber last received a digest, or `null` if never. ADR 0009's
+     * reporting field, and what makes "a shard that exceeds its budget sends its
+     * longest-waiting subscribers" expressible: `ORDER BY last_digest_at ASC` puts NULLs
+     * first in SQLite, so whoever has waited longest goes first and the tail rotates
+     * instead of starving. It is *not* the source of truth for "new" — that is the
+     * per-subscription sent-set, which lands with the matching ticket.
+     */
+    lastDigestAt: integer("last_digest_at", { mode: "timestamp_ms" }),
   },
   (table) => [index("subscribers_send_day_idx").on(table.sendDay)],
 );

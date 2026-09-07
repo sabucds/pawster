@@ -20,6 +20,7 @@ export default defineConfig({
           // A secret in production; a fixed string here. The suite runs with no
           // Cloudflare account and no credentials, so nothing real may be required.
           RESEND_API_KEY: "re_test_key",
+          UNSUBSCRIBE_SECRET: "test-unsubscribe-secret",
         },
       },
     }),

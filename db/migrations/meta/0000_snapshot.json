@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "c382fa6b-c1b5-4d92-b9f9-2a489efa9d23",
+  "id": "38493fe1-a405-4c72-a8db-46fc85117de7",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "animals": {
@@ -55,14 +55,6 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
-        },
-        "listed": {
-          "name": "listed",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": true
         }
       },
       "indexes": {
@@ -175,6 +167,13 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "last_digest_at": {
+          "name": "last_digest_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         }
       },

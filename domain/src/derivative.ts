@@ -16,9 +16,16 @@ export type DerivativeName =
   | "socialPreview";
 
 export interface DerivativeSpec {
-  /** Passed through to `cf.image` as-is. */
+  /**
+   * Passed through to `cf.image` as-is. Both are always set, and for a `scale-down`
+   * derivative they are set to the *same* number on purpose: ADR 0012 specifies each size
+   * as a **long edge**, and `scale-down` fits the image inside the box it is given without
+   * changing the aspect ratio. Giving it a square box is what turns "1280" into "1280px on
+   * the longer side" for a portrait photo as well as a landscape one — a `width` alone
+   * bounds only the width, and a portrait photo would come back taller than its budget.
+   */
   readonly width: number;
-  readonly height?: number;
+  readonly height: number;
   readonly fit: "cover" | "scale-down";
   readonly format: "jpeg" | "webp";
   /**
@@ -47,6 +54,7 @@ export const DERIVATIVES: Readonly<Record<DerivativeName, DerivativeSpec>> = {
   /** Generated for every photo, so a six-photo gallery strip has something small to show. */
   cardThumbnail: {
     width: 400,
+    height: 400,
     fit: "scale-down",
     format: "webp",
     appliesTo: "everyPhoto",
@@ -57,6 +65,7 @@ export const DERIVATIVES: Readonly<Record<DerivativeName, DerivativeSpec>> = {
    */
   detailImage: {
     width: 1280,
+    height: 1280,
     fit: "scale-down",
     format: "webp",
     appliesTo: "everyPhoto",
@@ -71,12 +80,3 @@ export const DERIVATIVES: Readonly<Record<DerivativeName, DerivativeSpec>> = {
   },
 };
 
-/**
- * Transformations an animal with `photoCount` photos costs, against the 5,000/month
- * account-wide ceiling: `2N + 2`, so 4 at one photo and 14 at six. The upload path checks
- * the remaining budget *before accepting any bytes*, because exhaustion (error 9422) fails
- * closed mid-upload and the `onerror` fallback does not apply.
- */
-export function transformationCost(photoCount: number): number {
-  return 2 * photoCount + 2;
-}

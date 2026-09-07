@@ -21,9 +21,10 @@ picture.
 
 | What | How |
 |---|---|
-| A prerendered page | `SELF.fetch("/")` — answered by Static Assets, no Worker invocation |
+| A prerendered page | `env.ASSETS.fetch("/")` — the asset store holds it, so the asset router answers ahead of the Worker |
 | An SSR route reading D1 | `SELF.fetch("/animales/:id")` — Drizzle client built in the handler |
 | A `scheduled()` run | `exports.default.scheduled({ scheduledTime })` |
+| The order a shard enqueued in | `worker.scheduled(controller, { ...env, DIGEST_QUEUE }, ctx)` with a capturing queue |
 | A queue batch | `worker.queue(batch, env, ctx)`, then `getQueueResult(batch, ctx)` |
 
 Migrations come from `db/migrations` — the same files `wrangler d1 migrations apply` runs
@@ -33,11 +34,30 @@ is no file system.
 
 ### How we know the prerendered page costs no Worker invocation
 
-`/` is prerendered, so Astro's server bundle carries no route for it, and
-`@astrojs/cloudflare`'s server entrypoint never references the `ASSETS` binding — grep it.
-If the request had reached the Worker there would be nothing there to answer it. It
-returns the page, so the asset router answered ahead of the Worker. That is what ADR 0007
-is buying: no invocation, no CPU, and no count against the 100,000 requests/day cap.
+This was originally argued in a comment rather than asserted, and the argument was wrong.
+It claimed `@astrojs/cloudflare`'s entrypoint "never references the `ASSETS` binding — grep
+it", so a request reaching the Worker would find nothing to answer it. Grepping it says
+otherwise: the built server bundle *does* reference `ASSETS` and falls back to it, and
+calling the Worker's entrypoint directly with `/` returns 200 whether or not `/` is
+prerendered. A `SELF.fetch("/")` status check therefore proves nothing at all.
+
+What distinguishes the two worlds is the **asset store**, and the test asks it directly:
+
+```ts
+const asset = await env.ASSETS.fetch("https://pawster.test/");
+expect(asset.status).toBe(200);
+```
+
+A prerendered page is written to `dist/client/` at build time, so the store holds it and
+Cloudflare's asset router serves it ahead of the Worker — no invocation, no CPU, no count
+against the 100,000 requests/day cap, which is what ADR 0007 is buying. Measured both
+ways: prerendered, that binding returns 200 and the page; add `export const prerender =
+false` to `index.astro` and there is no `dist/client/index.html` at all, so it returns
+**404** and the test fails — while `SELF.fetch("/")` returns 200 either way, because the
+Worker renders it.
+
+A second assertion pins the served bytes to the stored ones, so `/` cannot start being
+rendered per request while still passing.
 
 ## Seam two: the outbound interceptor
 
@@ -133,6 +153,13 @@ npm run check:source-rules
 
 `scripts/check-source-rules.mjs` fails the build on a module-scope Drizzle client, and on
 `domain/` importing the database layer, a Node builtin, any package, or calling `fetch`.
+It catches **both** wrong forms, which matters because the second is the common one: a
+column-0 `const db = createDb(...)`, and an assignment to a module-scope name at any
+indentation (`cachedDb ??= drizzle(env.DB)` inside a handler). Declarations are never
+confused for assignments, so a `const db = createDb(...)` *inside* a handler that shadows a
+module-scope name stays legal. It scans `*/src` **and** `*/test`, because
+`db/test/fixture/` is the one directory exempt from the rule and an exemption over
+unscanned files exempts nothing.
 It runs as the first step of `npm test`. `db/test/module-scope-is-wrong.test.ts` keeps the
 gap versioned: if a future runtime starts enforcing the rule, those tests fail, and that
 failure is the good news that the guard can be retired.

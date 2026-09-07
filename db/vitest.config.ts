@@ -13,6 +13,9 @@ export default defineConfig({
     }),
   ],
   test: {
-    setupFiles: ["./test/apply-migrations.ts"],
+    // The interceptor goes into *every* project, this one included. `db/` makes no
+    // outbound calls, which is the point: if it ever starts, the dispatcher records the
+    // escape and `assertNoViolations` fails the run rather than letting it out.
+    setupFiles: ["../test/setup.ts", "./test/apply-migrations.ts"],
   },
 });

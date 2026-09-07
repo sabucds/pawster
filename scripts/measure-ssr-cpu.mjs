@@ -132,8 +132,8 @@ npx([
   `DELETE FROM animals; DELETE FROM shelters;
    INSERT INTO shelters (id, display_name, account_email, country_code, created_at)
      VALUES ('measure-s', 'Refugio de Medición', 'medicion@example.org', 'VE', 0);
-   INSERT INTO animals (id, shelter_id, name, species, estimated_birth_date, region, last_confirmed_at, listed)
-     VALUES ('measure-1', 'measure-s', 'Canela', 'dog', 1735689600000, 'Miranda', 1756512000000, 1);`,
+   INSERT INTO animals (id, shelter_id, name, species, estimated_birth_date, region, last_confirmed_at)
+     VALUES ('measure-1', 'measure-s', 'Canela', 'dog', 1735689600000, 'Miranda', 1756512000000);`,
 ]);
 
 process.stderr.write(`starting wrangler dev on :${PORT}…\n`);

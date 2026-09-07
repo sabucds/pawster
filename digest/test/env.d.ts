@@ -11,6 +11,11 @@ declare global {
       /** A secret in production; a fixed string in `vitest.config.ts`. */
       RESEND_API_KEY: string;
       /**
+       * Signs unsubscribe links. A secret for the same reason `RESEND_API_KEY` is, so it
+       * is absent from `wrangler.jsonc` and supplied as a fixed string under test.
+       */
+      UNSUBSCRIBE_SECRET: string;
+      /**
        * The real `db/migrations` files, read on the Node side at config time and handed
        * in as a binding because `applyD1Migrations` runs inside the Worker, where there
        * is no file system.
