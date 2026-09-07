@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * Every number in ADR 0017, with one command.
+ * Every number in ADR 0018, with one command.
  *
- *   node scripts/measure-i18n.mjs          repo-derived numbers only
+ *   npm run check:i18n                     repo-derived numbers only
  *   node scripts/measure-i18n.mjs --icu    also bundles intl-messageformat (needs network)
  *
  * The repo-derived figures come from the issue #17 prototype's own copy table, which is
@@ -12,7 +12,9 @@
  *
  * ADR 0007's measurements have `scripts/measure-bundle-size.mjs` and
  * `scripts/measure-ssr-cpu.mjs` for the same reason: a number in an ADR that no command
- * reproduces is a number nobody can check when it drifts.
+ * reproduces is a number nobody can check when it drifts. Like `measure-bundle-size.mjs`,
+ * this script exits non-zero when the invariant it checks is broken, so it can be run in
+ * CI rather than only read.
  */
 
 import { execFileSync } from "node:child_process";
@@ -24,6 +26,13 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const PROTOTYPE = join(ROOT, "prototypes/public-listing/index.html");
+
+/**
+ * Pinned, because ADR 0018 quotes this package's bundled size to the byte. Unpinned, the
+ * three ICU figures in the ADR would silently drift on the next run - the exact failure
+ * the ADR's "every number has one command" consequence exists to prevent.
+ */
+const ICU_VERSION = "11.2.14";
 
 /* ------------------------------------------------------------------ *
  * Pull the COPY object out of the prototype and evaluate it, rather than
@@ -47,53 +56,61 @@ function extractCopy() {
       if (depth === 0) break;
     }
   }
-  const literal = src.slice(open, i + 1);
   const G = (pair, sex) => (sex === "Female" ? pair[1] : pair[0]);
-  return { copy: new Function("G", "return " + literal)(G), literal };
+  return new Function("G", "return " + src.slice(open, i + 1))(G);
 }
+
+/** A gendered pair is `[masculine, feminine]`: one key, two words somebody had to choose. */
+const isGenderedPair = (node) =>
+  Array.isArray(node) && node.length === 2 && node.every((s) => typeof s === "string");
 
 /**
- * A leaf phrase is one translatable value: a plain string, or a function that builds one.
- * A gendered pair is an array of two strings and contributes two, because each form is a
- * word somebody had to choose. Keys are structure and are not counted.
+ * The one traversal. Every figure below is derived from it, so what counts as a leaf is
+ * defined in a single place. An earlier version had three walks carrying three slightly
+ * different leaf predicates, and two of them disagreed with each other about whether a
+ * gendered pair is one leaf or two.
+ *
+ * `visit` is called once per leaf with `{ kind, value, path }`, where `kind` is one of:
+ *   pair      a gendered pair - one key in the structure, two translatable words
+ *   string    a plain string
+ *   function  a phrase-building function
  */
-function countLeaves(node) {
-  if (typeof node === "string") return { strings: 1, functions: 0 };
-  if (typeof node === "function") return { strings: 0, functions: 1 };
+function walkLeaves(node, visit, path = "") {
+  if (isGenderedPair(node)) return visit({ kind: "pair", value: node, path });
+  if (typeof node === "string") return visit({ kind: "string", value: node, path });
+  if (typeof node === "function") return visit({ kind: "function", value: node, path });
   if (node && typeof node === "object") {
-    let strings = 0;
-    let functions = 0;
-    for (const v of Object.values(node)) {
-      const c = countLeaves(v);
-      strings += c.strings;
-      functions += c.functions;
+    for (const [k, v] of Object.entries(node)) {
+      walkLeaves(v, visit, path ? path + "." + k : k);
     }
-    return { strings, functions };
   }
-  return { strings: 0, functions: 0 };
 }
 
-function keypaths(node, prefix = "", out = []) {
-  if (node && typeof node === "object" && !Array.isArray(node)) {
-    for (const [k, v] of Object.entries(node)) keypaths(v, prefix ? prefix + "." + k : k, out);
-  } else {
-    out.push(prefix);
-  }
-  return out;
-}
-
-function genderedPairs(node, out = []) {
-  if (Array.isArray(node) && node.length === 2 && node.every((s) => typeof s === "string")) {
-    out.push(node);
-  } else if (node && typeof node === "object") {
-    for (const v of Object.values(node)) genderedPairs(v, out);
-  }
-  return out;
+/** Everything one locale contributes, from a single pass. */
+function summarise(locale) {
+  let strings = 0;
+  let functions = 0;
+  const pairs = [];
+  const paths = [];
+  walkLeaves(locale, ({ kind, value, path }) => {
+    paths.push(path);
+    if (kind === "pair") {
+      strings += 2;
+      pairs.push(value);
+    } else if (kind === "string") {
+      strings += 1;
+    } else {
+      functions += 1;
+    }
+  });
+  return { strings, functions, pairs, paths };
 }
 
 /**
  * Serialise one locale back to source so gzip measures the payload a bundle would carry,
- * not the prototype's indentation. Functions are emitted as their source text.
+ * not the prototype's indentation. Functions are emitted as their source text. This is a
+ * renderer rather than a fourth traversal: it reproduces the structure it walks, so it
+ * cannot share `walkLeaves`, which discards it.
  */
 function serialise(node) {
   if (typeof node === "function") return node.toString();
@@ -106,8 +123,9 @@ const gz = (s) => gzipSync(Buffer.from(s), { level: 9 }).length;
 
 /* ------------------------------------------------------------------ */
 
-const { copy } = extractCopy();
+const copy = extractCopy();
 const locales = Object.keys(copy);
+const summaries = Object.fromEntries(locales.map((l) => [l, summarise(copy[l])]));
 
 console.log("Source: prototypes/public-listing/index.html (issue #17)\n");
 
@@ -115,25 +133,28 @@ console.log("Leaf phrases per locale");
 console.log("  a leaf phrase = one string or one phrase-building function;");
 console.log("  a gendered pair contributes two, one per form.\n");
 for (const loc of locales) {
-  const c = countLeaves(copy[loc]);
+  const { strings, functions } = summaries[loc];
   console.log(
     "  " + loc.padEnd(4),
-    String(c.strings + c.functions).padStart(4),
-    `(strings ${c.strings}, functions ${c.functions})`,
+    String(strings + functions).padStart(4),
+    `(strings ${strings}, functions ${functions})`,
   );
 }
 
-const paths = locales.map((l) => keypaths(copy[l]).sort().join("\n"));
-const sameShape = paths.every((p) => p === paths[0]);
-console.log(
-  "\n  key structures identical across locales:",
-  sameShape ? "yes" : "NO - the locales have drifted",
-);
+/**
+ * The locales must have identical key structures - a drift here means one locale has a
+ * phrase the other does not, which is the asymmetry ADR 0018 says cannot exist. Treated
+ * as a failure, not a note, so the claim stays true rather than merely printed.
+ */
+const shapes = locales.map((l) => summaries[l].paths.slice().sort().join("\n"));
+const drifted = shapes.some((s) => s !== shapes[0]);
+console.log("\n  key structures identical across locales:", drifted ? "NO" : "yes");
 
 console.log("\nGendered pairs");
 for (const loc of locales) {
-  const pairs = genderedPairs(copy[loc]);
-  const distinct = [...new Set(pairs.map((p) => JSON.stringify(p)))].map((s) => JSON.parse(s));
+  const distinct = [...new Set(summaries[loc].pairs.map((p) => JSON.stringify(p)))].map((s) =>
+    JSON.parse(s),
+  );
   const identical = distinct.filter(([m, f]) => m === f);
   console.log(
     "  " + loc.padEnd(4),
@@ -176,7 +197,7 @@ if (process.argv.includes("--icu")) {
   const dir = mkdtempSync(join(tmpdir(), "pawster-icu-"));
   try {
     writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "icu-probe", private: true, type: "module" }));
-    execFileSync("npm", ["i", "--no-audit", "--no-fund", "--silent", "intl-messageformat", "esbuild"], {
+    execFileSync("npm", ["i", "--no-audit", "--no-fund", "--silent", `intl-messageformat@${ICU_VERSION}`, "esbuild"], {
       cwd: dir,
       stdio: "ignore",
     });
@@ -211,4 +232,9 @@ if (process.argv.includes("--icu")) {
   }
 } else {
   console.log("\n(re-run with --icu to measure the rejected ICU runtime; needs a network)");
+}
+
+if (drifted) {
+  console.error("\nFAIL: the locales have drifted - one has a phrase the other does not.");
+  process.exit(1);
 }
