@@ -15,8 +15,10 @@ async function seedAnimal() {
   const db = createDb(env.DB);
   await db.insert(shelters).values({
     id: "shelter-1",
+    slug: "refugio-los-teques",
     displayName: "Refugio Los Teques",
     accountEmail: "hola@refugio.example",
+    baseRegion: "Miranda",
     countryCode: "VE",
     createdAt: new Date("2026-01-01"),
   });

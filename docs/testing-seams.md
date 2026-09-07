@@ -143,6 +143,28 @@ from spelled several of these differently.
   reports back are `{ msgId }`, not `{ messageId }`.
 - **`Astro.locals.runtime.env` was removed in Astro v6** and throws. SSR routes read
   bindings from `import { env } from "cloudflare:workers"`.
+- **A form `POST` with no `Origin` header gets a 403**, from Astro's own
+  `security.checkOrigin`, which is on by default for on-demand rendered routes. A browser
+  sends the header on a form submission, so a test that omits it is testing something no
+  browser does — `web/test/shelter-access.test.ts` sends it, and pins the 403 for a
+  *cross*-origin post rather than turning the check off. It is load-bearing on
+  `/api/refugios/codigo`, which takes no cookie and so gets no protection from
+  `SameSite=Lax`.
+- **`Astro.clientAddress` throws** where the adapter cannot supply an address, so code that
+  wants an IP for rate limiting reads `CF-Connecting-IP` off the request itself. An
+  exception on the sign-in path is a worse failure than a coarse bucket.
+- **`applyD1Migrations` can be handed a slice**, which is the only way to test what a
+  migration does to a table that already has rows in it. It records what it has applied in a
+  `d1_migrations` table, so the database has to be one the suite's setup file has not already
+  migrated: `db/test/fixture/wrangler.jsonc` binds a second, empty `MIGRATION_DB` for exactly
+  this, and `db/test/migrations.test.ts` applies 0000, seeds a row, then applies 0001. That
+  test exists because drizzle-kit's generated 0001 **would have failed** there — see the
+  comment in `db/migrations/0001_worried_the_spike.sql`.
+- **SQLite accepts `ALTER TABLE ... ADD <col> NOT NULL` with no default only while the table
+  is empty.** With one row present it fails with `Cannot add a NOT NULL column with default
+  value NULL`. Measured both ways on SQLite 3.43.2. This matters because drizzle-kit
+  generates that exact statement, and every database in this project is empty today — so the
+  failure is invisible until the first environment that is not.
 
 ## What no test here can catch
 

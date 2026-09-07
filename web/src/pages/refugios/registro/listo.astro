@@ -1,0 +1,55 @@
+---
+import Refugios from "../../../layouts/Refugios.astro";
+
+/**
+ * What a shelter reads immediately after registering.
+ *
+ * Prerendered, and it can be because it says the same thing to every shelter. That is worth
+ * noticing rather than treating as an accident: the page carries no shelter's name, no
+ * status and no next step that varies, so there is nothing here a Worker would have to
+ * compute. It costs no invocation (ADR 0007).
+ *
+ * The three promises it has to make are the ticket's, and each is a thing a shelter would
+ * otherwise have to guess at:
+ *
+ * 1. **Nothing of yours is publicly visible yet.** A shelter that published six animals and
+ *    then found no trace of them on the site would reasonably conclude the platform was
+ *    broken. `isListed()` requires a `Verified` outcome and registration writes no
+ *    verification row (ADR 0003), so this is true from the moment the shelter arrives here
+ *    and stays true until an admin says otherwise.
+ * 2. **You can publish now anyway.** The wait is on visibility, not on access, and saying so
+ *    is what makes the invisibility bearable rather than a dead end.
+ * 3. **Three days, and chase us.** An unanswered wait with no stated end is
+ *    indistinguishable from being ignored, and there is exactly one person doing the
+ *    verifying (ADR 0002 gave admins no accounts). Inviting the chase is the honest move
+ *    when the queue is one human deep.
+ */
+---
+
+<Refugios title="Refugio registrado" heading="Listo, tu refugio está registrado">
+  <p data-testid="publishing-allowed">
+    Ya puedes entrar y publicar animales. No tienes que esperar nada para eso.
+  </p>
+
+  <p data-testid="not-yet-public">
+    <strong>Todavía no se ve nada de lo tuyo en el sitio.</strong> Antes de que tus animales
+    le aparezcan a los adoptantes, tenemos que verificar el refugio. Lo que publiques
+    mientras tanto no se pierde: aparece completo el día que quede verificado.
+  </p>
+
+  <p data-testid="three-day-promise">
+    Te respondemos en <strong>tres días</strong> o menos.
+    <!--
+      "Nos escribes" and not "puedes escribirnos": the invitation has to read as expected
+      rather than as tolerated, or nobody takes it up. Verification is one person's judgement
+      about a shelter's public presence (ADR 0003), and it queues behind that person.
+    -->
+    Si pasan tres días y no has oído nada, escríbenos y lo revisamos — no estás molestando,
+    es lo que toca hacer.
+  </p>
+
+  <p>
+    <a href="/refugios/entrar">Entra con tu correo</a> para empezar a publicar. Te mandamos
+    un código de seis dígitos; no hace falta contraseña.
+  </p>
+</Refugios>

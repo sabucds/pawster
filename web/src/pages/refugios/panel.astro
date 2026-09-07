@@ -1,0 +1,108 @@
+---
+import { createDb, shelters } from "@pawster/db";
+import { isListed } from "@pawster/domain";
+import { env } from "cloudflare:workers";
+import { eq } from "drizzle-orm";
+import Refugios from "../../layouts/Refugios.astro";
+import { authenticate } from "../../lib/auth/guard.ts";
+import { readShelterFacts } from "../../lib/auth/store.ts";
+
+/**
+ * The shelter's own area: the first authenticated route on the platform.
+ *
+ * Server-rendered by necessity rather than by choice — it renders one shelter's private
+ * state, so there is nothing to prerender. This is the invocation ADR 0013 accounts for
+ * when it says the Worker runs "on the code request, on the code check, and on the
+ * authenticated publishing routes that were already server-rendered".
+ *
+ * Two things happen here that are the ticket's acceptance criteria rather than page
+ * furniture:
+ *
+ * - **The sliding refresh.** `authenticate()` hands back a `Set-Cookie` when the cookie has
+ *   aged past a day, and this page copies it onto the response. It re-signs the same three
+ *   claims under a new issued-at and **writes nothing to the database** — which is what
+ *   makes a 90-day sliding session cost nothing per request.
+ * - **The visibility notice.** Whether this shelter's animals are public is not stored
+ *   anywhere; it is `isListed()` asked about this shelter's own facts. So the notice cannot
+ *   drift out of agreement with the listing, because it *is* the listing rule.
+ */
+export const prerender = false;
+
+const db = createDb(env.DB);
+const now = new Date();
+
+const session = await authenticate(Astro.request, db, env, now);
+if (!session) {
+  /**
+   * 303 rather than 302, so a browser that arrived here by POST follows with a GET. And a
+   * redirect rather than a 401: there is no credential to re-present — the shelter has to go
+   * and fetch a new code — so pointing at the form is the only useful answer.
+   */
+  return Astro.redirect("/refugios/entrar", 303);
+}
+
+/**
+ * Applied to the response Astro is about to build. Set before any `await` that could throw,
+ * so a later failure cannot cost the shelter its refresh.
+ */
+if (session.refreshedCookie) {
+  Astro.response.headers.append("set-cookie", session.refreshedCookie);
+}
+
+const [shelter] = await db
+  .select({
+    displayName: shelters.displayName,
+    slug: shelters.slug,
+    accountEmail: shelters.accountEmail,
+    baseRegion: shelters.baseRegion,
+  })
+  .from(shelters)
+  .where(eq(shelters.id, session.shelterId))
+  .limit(1);
+
+// `authenticate()` already proved the row exists by reading its epoch. A miss here means it
+// was deleted between the two reads, which is a signed-out shelter rather than an error.
+if (!shelter) return Astro.redirect("/refugios/entrar", 303);
+
+const facts = await readShelterFacts(db, session.shelterId);
+
+/**
+ * Asked of a hypothetical available animal, because the question is about the *shelter*: of
+ * `isListed()`'s four clauses, three are shelter-level and only availability belongs to an
+ * animal. So this answers "would anything I publish be visible", which is what the shelter
+ * is actually asking, and it answers it with the same function the public listing uses
+ * rather than with a second rule that could disagree.
+ */
+const anythingVisible =
+  facts !== null && isListed({ availability: "Available" }, facts);
+---
+
+<Refugios title="Tu refugio" heading={shelter.displayName}>
+  <dl>
+    <dt>Correo del refugio</dt>
+    <dd data-testid="account-email">{shelter.accountEmail}</dd>
+    <dt>Dónde está</dt>
+    <dd data-testid="base-region">{shelter.baseRegion}</dd>
+    <dt>Dirección pública</dt>
+    <dd data-testid="slug">/refugios/{shelter.slug}</dd>
+  </dl>
+
+  {
+    anythingVisible ? (
+      <p data-testid="visibility">
+        Tu refugio está verificado. Los animales que publiques se ven en el sitio.
+      </p>
+    ) : (
+      <p data-testid="visibility">
+        <strong>Todavía no se ve nada de lo tuyo en el sitio.</strong> Puedes publicar
+        animales desde ya y no se pierde nada de lo que hagas: aparece completo el día que
+        quede verificado el refugio. Te respondemos en tres días o menos, y si pasan tres
+        días sin respuesta, escríbenos.
+      </p>
+    )
+  }
+
+  <form method="post" action="/api/refugios/salir">
+    <button type="submit">Salir</button>
+  </form>
+</Refugios>
