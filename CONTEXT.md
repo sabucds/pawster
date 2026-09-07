@@ -143,6 +143,20 @@ closed vocabulary owned by the platform and never extended by a shelter. Which a
 depends on species. Attributes outside this set are display-only and never filterable.
 _Avoid_: Tag, facet, category
 
+**Filter Index**:
+The single compact file carrying every listed animal's filter axes and card fields, which an
+adopter's browser downloads once and filters over without asking the platform anything. Derived
+wholly from the platform's records and rewritten in full by any act that changes what is listed -
+never patched, so it cannot slowly disagree with them. When it does disagree, because a write to it
+was lost, that is Index Drift, and it is regenerated rather than repaired.
+_Avoid_: Search index, catalogue, manifest, listing feed, snapshot
+
+**Index Pointer**:
+The small, always-current file naming the filter index a reader should fetch. It exists because the
+index itself is named after its contents and therefore never changes underneath anyone: the pointer
+is the one thing that moves, so nothing has to be invalidated.
+_Avoid_: Manifest, latest, HEAD, version file, index key
+
 **Age Band**:
 The stage of life an animal is in - Puppy or Kitten, Young, Adult, Senior - derived at
 read time from its estimated date of birth and never stored, with thresholds that differ

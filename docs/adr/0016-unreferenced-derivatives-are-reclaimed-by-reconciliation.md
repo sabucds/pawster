@@ -104,7 +104,13 @@ however often it runs.
   move under `d/`, the compact JSON filter index under `i/`, and the sweep lists **`d/` only, never
   the bucket root**. The index is referenced by no animal, so a root-scoped sweep would delete it and
   [ADR 0007](0007-prerender-first-and-filter-in-the-browser.md) only regenerates it on publish - the
-  listing would stay empty until the next animal was published. The direction is the decision: a
+  listing would stay empty until the next animal was published. *(That last clause is no longer
+  true of a hand-deleted index, and the allowlist stands anyway.
+  [ADR 0017](0017-the-filter-index-is-rewritten-whole-and-found-through-a-pointer.md) adds an
+  unconditional nightly regeneration, so a missing index is rebuilt within a run. It keeps this
+  sweep's scope exactly as written - `d/` only - and has the index's own writer delete its
+  superseded objects, since that writer is the only code that ever knows a key is superseded.)*
+  The direction is the decision: a
   denylist would delete every object type added later by default, an allowlist makes anything new
   invisible to reclamation until it is deliberately opted in. Content-addressed keys are indifferent
   to a prefix, so immutability and edge caching are untouched. *(This clause was drafted against

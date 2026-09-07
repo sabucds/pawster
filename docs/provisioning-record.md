@@ -157,6 +157,15 @@ custom domain. There will not be one. When `r2.dev`'s undocumented rate limit
 (throttling above *"hundreds of requests/second"*) becomes a real ceiling, the
 answer is a cached Worker on `workers.dev`, not a zone.
 
+Needing only `pawster-media`, which exists (free, ~2 minutes):
+
+- add a CORS policy allowing `GET` from the site origin, so the browser can
+  fetch `i/current.json` and the filter index it names
+  ([ADR 0017](adr/0017-the-filter-index-is-rewritten-whole-and-found-through-a-pointer.md)).
+  Derivatives load through `<img>` and need no CORS, so this is the product's
+  first cross-origin `fetch`; without the header the listing is empty in a way
+  that looks like a broken index rather than a missing response header.
+
 Needing the digest Worker, which does not exist yet:
 
 - `wrangler secret put HEALTHCHECKS_PING_URL`
