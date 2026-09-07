@@ -28,6 +28,10 @@ matters here.
   and any regeneration heals every earlier failure.
 - **A patch cannot be content-addressed without doing the rewrite's work anyway**, since the key is
   a hash of the finished bytes.
+- **ADR 0012 had already assumed this without arguing it.** Its photo-mutation bullet says "any
+  change to the primary **rewrites** the filter index" - a rewrite, in the ordinary meaning, for a
+  change that touches one field of one animal and is the strongest possible case for a patch. This
+  ADR is making that word load-bearing rather than choosing against it.
 - **This is ADR 0016's argument, one prefix over.** A patch is a to-delete list: cost proportional
   to churn, correctness proportional to every path remembering. A rewrite is reconciliation. The
   platform has now made this choice four times - [ADR 0009](0009-digest-delivery-and-retry.md)'s
@@ -39,8 +43,9 @@ matters here.
 
 Measured by the issue [#17](https://github.com/sabucds/pawster/issues/17) prototype with a real
 `CompressionStream('gzip')`: the index the card and the filters need is **141 B/animal raw and
-33.4 KB gzipped at 2,500 animals** - about 352 KB of JSON text in, 33.4 KB of object out. A
-regeneration is then:
+33.4 KB gzipped at 2,500 animals** - about 352 KB of JSON text in, 33.4 KB of object out. The raw
+figure is the per-animal one carried out linearly, and gzip compresses a larger index better rather
+than worse, so every compressed number in this ADR is a ceiling. A regeneration is then:
 
 | Step | Cost | Meter |
 |---|---|---|
@@ -50,16 +55,29 @@ regeneration is then:
 | `put` the pointer | ~100 B | Class A |
 | `list i/` and delete what is superseded | a handful of keys | `list` Class A, `delete` free |
 
-So roughly **six subrequests and four Class A operations**, against a publish path that
+So **five subrequests** - one D1 read, two `put`s, one `list`, and one `delete` that takes an array
+of keys, which is the batching ADR 0016's sweep already relies on - and **three Class A
+operations**, because ADR 0016 establishes `DeleteObject` is neither Class A nor Class B. That is
+against a publish path
 [ADR 0012](0012-derivatives-are-generated-once-at-upload.md) keeps near 5 of the Free plan's 50, and
 against a monthly allowance three orders of magnitude above the traffic. Bytes and operations are
 not the risk.
 
-**Two numbers are unverified and must be measured, in the spirit of ADR 0007's last bullet.** The
-isolate CPU of serializing and hashing 2,500 rows, against 10 ms; and whether a 2,500-row read
-returns in one D1 query or has to be paged. A rewrite tolerates a paged read - it is reading the
-truth either way - where a patch's arithmetic would be quietly wrong on a partial one. If the CPU
-measurement comes back over budget, the fallback is stated below, and it is not a redesign.
+**Three things are unverified and must be measured, in the spirit of ADR 0007's last bullet.**
+
+1. **The isolate CPU of serializing and hashing 2,500 rows, against 10 ms.** This is the one that
+   could change the shape of the code, and the fallback is stated below rather than being a
+   redesign.
+2. **Whether a 2,500-row read returns in one D1 query or has to be paged.** A rewrite tolerates a
+   paged read - it is reading the truth either way - where a patch's arithmetic would be quietly
+   wrong on a partial one.
+3. **Whether a stored `Content-Encoding: gzip` is served back.** The decision below stores the index
+   gzipped so that 33.4 KB is the wire cost whatever fronts the bucket, which assumes R2 returns the
+   content encoding it was given. Nothing in this repo has verified that, and the failure is loud
+   but expensive: an adopter downloading ~352 KB of uncompressed JSON blows ADR 0007's ~150 KB
+   budget on the first load. **Verify it before the listing ships**, because the fallback -
+   compressing per response - is Worker work on the read path, which is the thing ADR 0007 exists
+   to avoid.
 
 ## The unit of regeneration is the act, not the animal
 
@@ -80,13 +98,21 @@ Worked through against a departing shelter's roster:
 
 1. The ceremony commits one D1 transaction: `departedAt` is set and all 40 animals are archived.
    Until it commits nothing has changed; there is no state in which 12 of the 40 are archived.
-2. One regeneration reads the listable set - the four-clause listing rule already excludes all 40,
-   by two of its clauses independently - serializes, hashes, puts, and swings the pointer.
+2. One regeneration reads the listable set - the archive alone excludes all 40 under the listing
+   rule ADR 0015 writes out as `listed = available AND shelter verified AND shelter has at least
+   one contact point`, and thirty days later the destruction of the contact points would exclude
+   them a second time, by a different clause - serializes, hashes, puts, and swings the pointer.
+   *(Issue [#45](https://github.com/sabucds/pawster/issues/45)'s spec and
+   [#56](https://github.com/sabucds/pawster/issues/56) both call this "the four-clause listing
+   rule", where ADR 0015 and `CONTEXT.md`'s **Listing** entry each enumerate three. Nothing here
+   depends on the count - a regeneration reads whatever the rule is - but a build session should
+   expect the spec and the ADRs to disagree by one clause, and ADR 0015 wins per #45's own
+   preamble.)*
 3. An adopter mid-session still holds the old index and still sees 40 cards. That window closes at
    their next page load, and it is not a lie the platform tells twice: the animal page is
    server-rendered from one D1 row, so an adopter who clicks a card reads the archive page saying
-   the shelter has left the platform. **A card can be up to one page load stale; the page an adopter
-   reads before spending a message never is.** That is exactly
+   the shelter has left the platform. **A card can be up to one page load behind; the page an
+   adopter reads before spending a message never is.** That is exactly
    [ADR 0001](0001-no-automatic-unlisting.md)'s calculus - a ghost costs one wasted click, and here
    it does not even cost the message.
 
@@ -147,8 +173,8 @@ Derivative immutability means an adopter reading mid-write provably gets a coher
 the interesting failure is not a torn read. It is the D1 write succeeding while the index write does
 not. Name it **Index Drift**: the index disagrees with D1, in one of two directions.
 
-- **An animal exists and is invisible.** A shelter published it, it is listed under the four-clause
-  rule, and no adopter can see it. The shelter cannot tell, because a shelter sees its own animals
+- **An animal exists and is invisible.** A shelter published it, the listing rule says it is listed,
+  and no adopter can see it. The shelter cannot tell, because a shelter sees its own animals
   through its session, from D1.
 - **An unlisted animal is still on a card.** The dangerous direction: a departed shelter's roster,
   or a revoked shelter's, still published to adopters. Bounded, as above, by the detail page being
@@ -166,12 +192,23 @@ regenerated away. Three things regenerate:
 3. **An unconditional regeneration in the daily digest run's preamble**, which bounds any drift at
    one run.
 
-The backstop is free, and content-addressing is why: **when the catalogue has not changed, the
-nightly regeneration produces identical bytes, hence an identical key, hence the same object and an
-unchanged pointer.** It is a no-op by construction, with nothing to compare and no way to be wrong
-about whether it was needed. It also reports for free - if the nightly pointer *changes*, a
-publish-path write had been lost, which is the only drift signal the platform needs and it costs
-nothing to emit.
+The backstop is free, and content-addressing is why: **when nothing listed has changed, the nightly
+regeneration produces identical bytes, hence an identical key, hence a `put` over the object that is
+already there and a pointer that goes on naming it.** It is a no-op by construction, with nothing to
+compare and no way to be wrong about whether it was needed.
+
+**That idempotence is a property of the bytes, so the bytes have to be deterministic, and one line
+of SQL is what buys it.** The read carries an explicit `ORDER BY` on the animal id. Without it the
+row order is whatever D1 returns, two runs over identical data serialize differently, every nightly
+run mints a new key, and the free no-op quietly becomes a nightly write plus an orphan. Ordering
+for *display* is not this decision's business: issue #56 sorts freshest-confirmed-first in the
+browser, over the index it downloaded.
+
+It also reports for free, and the signal is the key rather than the pointer: **if the nightly run
+lands on a key that differs from the one the pointer already named, a publish-path write had been
+lost.** The pointer's own bytes carry `generatedAt` and therefore change every run, so the pointer
+changing means nothing; the key changing is the whole signal, and it is the only drift detection the
+platform needs.
 
 ## The decision
 
@@ -189,13 +226,18 @@ nothing to emit.
   invisibility and nothing else.*
 - **The index object is content-addressed and immutable.** `i/<hash>.json`, hashed over the
   serialized JSON bytes, stored gzipped with `Content-Encoding: gzip` so 33.4 KB is the wire cost
-  whatever fronts the bucket, and served `max-age=31536000, immutable`.
+  whatever fronts the bucket - subject to the third measurement above - and served
+  `max-age=31536000, immutable`.
+- **The read carries an explicit `ORDER BY` on the animal id.** Content-addressing is only
+  idempotent if identical data serializes to identical bytes, and an unordered read does not. This
+  is one line of SQL holding up the free nightly no-op; display order is the browser's, per #56.
 - **The pointer is `i/current.json`, `no-store`, and holds the current key.** It is the only mutable,
   uncacheable object in the read path, and the only one whose request count scales with traffic.
 - **The pointer is last-write-wins, with no lock and no compare-and-swap.** Two acts regenerating at
-  once means the loser's index is orphaned and the pointer may name a snapshot missing the other's
-  animal - which is Index Drift, healed by the next act and bounded by the nightly run. A Durable
-  Object to serialize a race that heals itself would be a new component for nothing.
+  once means the loser's index is orphaned and the pointer may name an index built from a read of
+  D1 taken before the other act committed - which is Index Drift, healed by the next act and
+  bounded by the nightly run. A Durable Object to serialize a race that heals itself would be a new
+  component for nothing.
 - **A regeneration aborts on an incomplete read, and only on that.** If the D1 read errors or a page
   of it is missing, the pointer is not swung and the previous index stands - the same
   never-act-on-a-partial-read rail as ADR 0016. **It carries no count or percentage guard**, and the
@@ -204,11 +246,24 @@ nothing to emit.
   would eventually refuse a lawful bulk unlist - blocking a departure from taking effect, which is
   the platform lying to adopters in the one direction it least tolerates.
 - **The regenerator owns its own prefix, and reclamation's scope is unchanged.** After swinging the
-  pointer it lists `i/` and deletes every index object the pointer does not name whose `uploaded` is
-  more than an hour old - R2 returns `uploaded` on every listed object, so this needs no join, and
-  the hour is the grace for a reader holding the old pointer that has not yet fetched its index.
-  **ADR 0016's sweep still lists `d/` only.** The index is not opted into reclamation; it is kept by
-  the one writer that touches it, which is also the only code that ever knows a key is superseded.
+  pointer it lists `i/` and deletes every object there that **is not `i/current.json`**, is not the
+  key the pointer names, and whose `uploaded` is more than an hour old. All three conditions are
+  load-bearing: the pointer lives in the same prefix and a rule phrased only as "what the pointer
+  does not name" would delete the pointer itself on the first run; and the hour is the grace for a
+  reader that holds the pointer and has not yet fetched the index it names. R2 returns `uploaded` on
+  every listed object, so the age test needs no join - the same idiom as ADR 0016's third condition.
+  **ADR 0016's sweep still lists `d/` only**, and the index is not opted into it.
+- **That prefix-keeping is reconciliation too, which is why it does not contradict Reclamation.**
+  `CONTEXT.md` defines Reclamation as how storage comes back "whatever left it behind - so no path
+  has to remember to clean up after itself", and a writer tidying its own prefix looks exactly like
+  the path that has to remember. It is not, and the distinguishing property is the one that mattered
+  in ADR 0016: this is a `list` compared against a live reference, not a tombstone written at the
+  moment of unreferencing. If a run dies before deleting, the next run lists `i/` again and collects
+  what was missed; nothing has to have been recorded. The reason it lives with the regenerator
+  rather than with the nightly sweep is that `i/` has exactly one reference - the pointer - and
+  exactly one writer, which is holding that reference in its hand at the moment it swings it.
+  Reclamation reads every animal in the platform to establish its reference set; this reads one
+  small file.
 - **The nightly regeneration is a preamble step on the daily digest run, before reclamation.**
   ADR 0010 settled that a second schedule is a second thing that can die silently, so this inherits
   the Healthchecks.io watchdog and reports into the `Digest Run` summary beside reclamation's counts.
@@ -219,9 +274,11 @@ nothing to emit.
 
 ## Consequences
 
-- **`i/` holds two objects and about 67 KB**: the current index, and at most one superseded one
-  awaiting its grace hour. It cannot grow monotonically, which is the whole failure ADR 0016 exists
-  to close.
+- **`i/` holds the pointer, the current index, and every index superseded within the last hour.**
+  Not "two objects": a busy hour is a busy hour, and ten acts in one leave ten objects of ~33 KB
+  until the next regeneration clears the ones that have aged out. What matters is that the bound is
+  an hour of acts rather than all of history - `i/` cannot grow monotonically, which is the failure
+  ADR 0016 exists to close, and a quiet platform sits at about 67 KB.
 - **The index's read budget and the storage cap expire at almost the same moment.** At 13.7 B/animal
   gzipped, ADR 0016's ~9,500-animal endgame is a **~130 KB** index against ADR 0007's ~150 KB
   metered-connection budget. So ADR 0007's stated trigger - "when the index stops being cheap to
@@ -230,17 +287,15 @@ nothing to emit.
   intermediate scaling work is needed.
 - **Regeneration frequency is act-shaped, not animal-shaped.** Confirmations are the platform's most
   frequent write, so they dominate: each is a full rewrite, and a nudge answered for a shelterful is
-  one. Even ten thousand acts a month is ~40,000 Class A operations against 1M free.
+  one. Even ten thousand acts a month is ~30,000 Class A operations against 1M free.
 - **A first load costs one extra round trip; every repeat load with an unchanged catalogue costs a
   hundred bytes.** What an adopter actually pays for is photos, as both prototypes found and ADR 0007
   now says.
 - **CORS on `pawster-media` joins the provisioning record.** Without it the listing is empty in a way
   that looks like a broken index rather than a missing header.
-- **A build session can delete the index object by hand and lose nothing.** The nightly regeneration
-  rebuilds it, which is a strictly smaller blast radius than the one ADR 0016 worried about when it
-  kept the index out of the sweep: there, the listing would have stayed empty until the next animal
-  was published.
-- **The pointer is the one place a stale read is possible, and it is a hundred bytes with
-  `no-store`.** If `r2.dev`'s rate limit ever makes that request the cliff, a five-second TTL on the
-  pointer is available and costs five seconds of publish-to-visible - but it is a knob, not a
-  redesign, and the cached Worker is the better answer.
+- **The pointer is the only object in the read path that can be served out of date, and it is a
+  hundred bytes with `no-store`.** Note that a short TTL on it is not a knob available today:
+  `r2.dev` caches nothing at all (ADR 0014), so `no-store` versus five seconds makes no difference
+  to what an adopter gets. It becomes a knob only behind ADR 0014's cached Worker, where it would
+  trade five seconds of publish-to-visible for one cached request in five seconds - and by then the
+  33.4 KB index is being served from that cache, which is the win worth having.

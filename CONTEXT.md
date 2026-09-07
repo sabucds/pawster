@@ -144,18 +144,26 @@ depends on species. Attributes outside this set are display-only and never filte
 _Avoid_: Tag, facet, category
 
 **Filter Index**:
-The single compact file carrying every listed animal's filter axes and card fields, which an
-adopter's browser downloads once and filters over without asking the platform anything. Derived
-wholly from the platform's records and rewritten in full by any act that changes what is listed -
-never patched, so it cannot slowly disagree with them. When it does disagree, because a write to it
-was lost, that is Index Drift, and it is regenerated rather than repaired.
-_Avoid_: Search index, catalogue, manifest, listing feed, snapshot
+The single compact file carrying every listed animal's filter axes and card fields, which
+an adopter's browser downloads once and filters over without asking the platform anything.
+Derived wholly from the platform's records and rewritten in full by any act that changes
+what is listed, never patched, so it cannot slowly come to disagree with them. It is named
+after its own contents, so a new one is a new file rather than a new version of an old one.
+_Avoid_: Search index, manifest, listing feed, data dump
 
 **Index Pointer**:
-The small, always-current file naming the filter index a reader should fetch. It exists because the
-index itself is named after its contents and therefore never changes underneath anyone: the pointer
-is the one thing that moves, so nothing has to be invalidated.
+The small, always-current file naming the filter index a reader should fetch. It exists
+because the index never changes underneath anyone: the pointer is the only thing that
+moves, which is what leaves nothing anywhere needing to be invalidated.
 _Avoid_: Manifest, latest, HEAD, version file, index key
+
+**Index Drift**:
+The filter index disagreeing with the platform's records, because a write to the index was
+lost after the records had already changed - an animal that exists and is invisible, or an
+unlisted animal still on a card. Never repaired, always regenerated: the index is derived
+wholly from the records, so rebuilding it is the only fix there is and it fixes every drift
+at once, whatever caused them.
+_Avoid_: Index staleness, desync, index corruption, cache miss
 
 **Age Band**:
 The stage of life an animal is in - Puppy or Kitten, Young, Adult, Senior - derived at
