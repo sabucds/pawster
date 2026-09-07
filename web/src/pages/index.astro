@@ -1,0 +1,23 @@
+---
+/**
+ * Prerendered, like almost everything an anonymous adopter browses. No `prerender` export
+ * here because static is the default — the exception is the file that opts out.
+ *
+ * This page is served from Static Assets without invoking Worker code. What holds that
+ * true is `web/test/routing.test.ts` — "exists as a static asset, which is what lets the
+ * asset router answer it" — which asks the `ASSETS` binding for `/` directly. Adding
+ * `prerender = false` here makes that binding return 404 and the test fail.
+ */
+---
+
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pawster</title>
+  </head>
+  <body>
+    <h1>Pawster</h1>
+    <p data-testid="prerendered">Animales en adopción en Venezuela.</p>
+  </body>
+</html>

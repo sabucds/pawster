@@ -1,0 +1,21 @@
+{
+  "name": "@pawster/digest",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "deploy:dry-run": "wrangler deploy --dry-run --outdir bundled"
+  },
+  "dependencies": {
+    "@pawster/db": "*",
+    "@pawster/domain": "*"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.1.4",
+    "@cloudflare/workers-types": "^5.20260903.1",
+    "vitest": "^4.1.11",
+    "wrangler": "^4.129.0"
+  }
+}

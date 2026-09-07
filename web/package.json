@@ -1,0 +1,26 @@
+{
+  "name": "@pawster/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "typecheck": "astro check",
+    "test": "npm run build && vitest run",
+    "deploy:dry-run": "npm run build && wrangler deploy --dry-run --outdir bundled --config ./dist/server/wrangler.json"
+  },
+  "dependencies": {
+    "@astrojs/cloudflare": "^14.3.0",
+    "@pawster/db": "*",
+    "@pawster/domain": "*",
+    "astro": "^7.3.1"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.10",
+    "@cloudflare/vitest-plugin": "^1.1.4",
+    "@cloudflare/workers-types": "^5.20260903.1",
+    "vitest": "^4.1.11",
+    "wrangler": "^4.129.0"
+  }
+}

@@ -5,3 +5,10 @@
 node_modules/
 .wrangler/
 .DS_Store
+
+# Build output
+dist/
+.astro/
+
+# `wrangler deploy --outdir`, written by the bundle-size measurement
+bundled/
