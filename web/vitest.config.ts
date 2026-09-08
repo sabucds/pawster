@@ -29,6 +29,7 @@ export default defineConfig({
            */
           SESSION_SECRET: "test-session-secret-not-a-real-key",
           SIGN_IN_SECRET: "test-sign-in-secret-not-a-real-key",
+          MEDIA_SECRET: "test-media-secret-not-a-real-key",
           RESEND_API_KEY: "re_test_not_a_real_key",
           /**
            * Also supplied here, even though both are real `vars` in `web/wrangler.jsonc`.

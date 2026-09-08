@@ -2,7 +2,7 @@
 # web/ — local Worker secrets and overrides.
 #
 # Read by `astro dev` through the adapter's `platformProxy`, which loads this
-# file the way `wrangler dev` does. In production these three secrets are set
+# file the way `wrangler dev` does. In production these four secrets are set
 # with `wrangler secret put`, never as a committed `var` — a plaintext var for
 # either of the first two would put a shelter's whole credential in the repo.
 #
@@ -18,6 +18,14 @@ SESSION_SECRET=
 # Separate from SESSION_SECRET so rotating codes does not sign everyone out.
 #   openssl rand -base64 32
 SIGN_IN_SECRET=
+
+# Signs the capability handed to Cloudflare's image pipeline over one original
+# object at upload (ADR 0012). Its own secret because it is the only key here
+# presented by something outside the platform: it travels in a URL to Cloudflare
+# and lands in whatever that pipeline logs. Rotating it costs five minutes of
+# in-flight uploads; rotating SESSION_SECRET signs every shelter out.
+#   openssl rand -base64 32
+MEDIA_SECRET=
 
 # Shared with digest/, same key under the same name. From resend.com/api-keys.
 # Leave blank to develop everything except actually sending sign-in mail — the

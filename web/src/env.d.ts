@@ -14,6 +14,21 @@
 declare namespace Cloudflare {
   interface Env {
     /**
+     * `pawster-media`. Derivatives under `d/`, the filter index under `i/` later. ADR 0016
+     * makes the nightly sweep list `d/` only, so nothing added to this bucket afterwards is
+     * a delete candidate until it is deliberately opted in.
+     */
+    MEDIA: R2Bucket;
+    /**
+     * `pawster-originals`, which the `expire-originals-7d` lifecycle rule empties.
+     *
+     * **Never public.** Transformations strip metadata and any WebP output discards it
+     * unconditionally, so derivatives are clean by default; a retained original is not.
+     * Cloudflare's image pipeline reaches this bucket through the capability-gated route at
+     * `/api/originales/[...key]` and nothing else does.
+     */
+    ORIGINALS: R2Bucket;
+    /**
      * Signs the Session cookie. A secret: it is the whole thing standing between a
      * hand-written cookie and a shelter's publishing area.
      */
@@ -28,6 +43,17 @@ declare namespace Cloudflare {
      * session on the platform.
      */
     SIGN_IN_SECRET: string;
+    /**
+     * Signs the capability over one original object that Cloudflare's image pipeline is
+     * handed at upload (ADR 0012).
+     *
+     * The platform's third secret, and the one that earns being third: it is the only key
+     * here **presented by something outside the platform**, so it travels in a URL to
+     * Cloudflare and lands in whatever that pipeline logs. Rotating it costs the in-flight
+     * uploads of the next five minutes; rotating `SESSION_SECRET` signs every shelter out.
+     * `web/src/lib/media/capability.ts` carries the full argument.
+     */
+    MEDIA_SECRET: string;
     /** Shared with `digest/`, which holds the same key under the same name. */
     RESEND_API_KEY: string;
     /**

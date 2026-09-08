@@ -160,6 +160,25 @@ from spelled several of these differently.
   this, and `db/test/migrations.test.ts` applies 0000, seeds a row, then applies 0001. That
   test exists because drizzle-kit's generated 0001 **would have failed** there — see the
   comment in `db/migrations/0001_worried_the_spike.sql`.
+- **`crypto.DigestStream` is bound on `crypto` and declared as a global, and the two do not
+  meet.** `@cloudflare/workers-types` declares `class DigestStream` in the global scope;
+  `workerd` binds it on `crypto`, which is the form Cloudflare's own docs use. Writing the
+  global compiles and throws `ReferenceError: DigestStream is not defined` at runtime;
+  writing `crypto.DigestStream` runs and does not compile, because `astro/tsconfigs/strict`
+  pulls in the DOM `lib` and `crypto` types as the DOM's `Crypto`. `web/src/lib/media/pipeline.ts`
+  bridges the two in one place, with the reason next to it. This one was found by a green
+  test suite running a stale bundle — the source had been changed to the global, the build
+  had not been re-run, and 27 tests passed against the old bytes. `npm test` in `web/`
+  builds first for exactly this reason.
+- **`R2.put` will not accept a stream of unknown length.** It needs a request/response body
+  or the readable half of a `FixedLengthStream`. This is why the upload route answers `411
+  Length Required` to a body with no `Content-Length` rather than buffering it: the
+  alternative is holding 12 MB in the isolate to discover a number the client already knew.
+  It also makes the declared length self-enforcing — a body that sends more or less than it
+  promised fails the write instead of quietly storing something else.
+- **A `Uint8Array` body gets a `Content-Length` whether you want one or not**, so the only
+  way for a test to send a body without one is a `ReadableStream` and `duplex: "half"`.
+  Worth knowing before writing a test for the 411 above and watching it get a 201.
 - **SQLite accepts `ALTER TABLE ... ADD <col> NOT NULL` with no default only while the table
   is empty.** With one row present it fails with `Cannot add a NOT NULL column with default
   value NULL`. Measured both ways on SQLite 3.43.2. This matters because drizzle-kit
@@ -178,6 +197,17 @@ invocation. Neither does local `workerd`: every over-budget invocation returns
 `outcome: ok`. **No test in this suite can catch a CPU regression on an SSR route.** The
 only signal is `npm run check:ssr-cpu`, which reports and does not enforce — see
 [`measurements.md`](measurements.md).
+
+### Whether a derivative comes back upright
+
+`cf.image` is the interceptor's third vendor, so no transform runs locally and no test in
+this suite has ever seen a transformed image. The pipeline depends on Cloudflare applying a
+source's EXIF/`irot` orientation itself — which is why it never sends a `rotate`, since
+rotating an already-upright image is the same silent failure in the other direction. The
+suite pins our half (the transform carries a format and never a rotation; a rotated HEIC's
+stored dimensions are transposed) and can pin no more than that.
+[`measurements.md`](measurements.md#upright-derivatives-from-a-rotated-source--unverified-offline)
+records the claim and the one-photo experiment that would settle it.
 
 ### A module-scope Drizzle client is not caught either
 
@@ -202,8 +232,15 @@ So enforcement is structural, not behavioural:
 npm run check:source-rules
 ```
 
-`scripts/check-source-rules.mjs` fails the build on a module-scope Drizzle client, and on
-`domain/` importing the database layer, a Node builtin, any package, or calling `fetch`.
+`scripts/check-source-rules.mjs` fails the build on a module-scope Drizzle client, on
+`domain/` importing the database layer, a Node builtin, any package, or calling `fetch`, and
+on the two mechanisms ADR 0012 ruled out: the `env.IMAGES` binding and S3
+credentials/presigned URLs. Those last two are there for the same reason as the first — they
+**work**. The binding transforms images correctly and passes any test written against its
+output while spending 22–56 ms of Worker CPU against a 10 ms ceiling, and nothing local
+meters CPU. Comment lines are skipped by both, because the repository has to be able to
+write *about* the decisions it forbids; `web/src/lib/images.ts` names the binding in its own
+module comment in order to rule it out.
 It catches **both** wrong forms, which matters because the second is the common one: a
 column-0 `const db = createDb(...)`, and an assignment to a module-scope name at any
 indentation (`cachedDb ??= drizzle(env.DB)` inside a handler). Declarations are never

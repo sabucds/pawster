@@ -78,3 +78,33 @@ real measurement can overturn.
 
 The honest reading: about a millisecond leaves room, and nothing automated will tell us
 when it stops doing so.
+
+## Upright derivatives from a rotated source — unverified offline
+
+Not a measurement yet, and recorded here rather than left implicit because the upload path
+**depends** on it and the suite cannot check it. Issue #54 built the pipeline against this
+claim:
+
+> Cloudflare's image transformation applies the source's own EXIF/`irot` orientation and
+> then discards the metadata — WebP and PNG outputs carry none at all — so a transformed
+> image comes back upright without being asked.
+
+Everything downstream is built on that being true. `web/src/lib/media/dimensions.ts` reads
+the orientation tag **only to know what size the result will be**, and deliberately never
+asks `cf.image` for a `rotate`: if the pipeline auto-orients and we rotate as well, the
+image is turned twice, and the result is the sideways dog ADR 0012 rejected browser-side
+resizing to avoid. The two failure modes are symmetrical and both silent, which is why the
+claim is written down instead of assumed.
+
+**What the suite does check**, in `web/test/upload.test.ts`: that a rotated HEIC is accepted,
+that its stored dimensions are transposed, that every transform names an explicit output
+format, and that **no transform ever carries a `rotate`**. That pins our half of the
+contract. It cannot pin Cloudflare's, because `cf.image` is the outbound interceptor's third
+vendor and no transform runs locally — the same reason
+[`testing-seams.md`](testing-seams.md) gives for the CPU ceiling.
+
+**How to settle it**, when there is a deployed Worker to settle it against: upload one
+iPhone HEIC with `Orientation=6`, fetch its detail derivative, and check that the returned
+WebP is portrait. One photo, one request, and the answer is unambiguous either way. Until
+then this is a dependency, not a fact — and its failure mode is a shelter publishing a
+sideways animal and never being told.

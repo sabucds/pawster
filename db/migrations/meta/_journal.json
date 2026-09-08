@@ -15,6 +15,13 @@
       "when": 1788800587462,
       "tag": "0001_worried_the_spike",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1788878198171,
+      "tag": "0002_upload_sessions_and_the_storage_ledgers",
+      "breakpoints": true
     }
   ]
 }

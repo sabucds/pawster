@@ -718,9 +718,21 @@ describe("the session", () => {
       .map((row) => row.name)
       .filter((name) => !name.startsWith("_") && !name.startsWith("sqlite_"));
 
-    // There is no session table, and that is the design: revocation is one integer on the
-    // shelter row, so there is nothing to delete from and no list of active sessions.
-    expect(tables.filter((name) => name.includes("session"))).toEqual([]);
+    /**
+     * There is no session table, and that is the design: revocation is one integer on the
+     * shelter row, so there is nothing to delete from and no list of active sessions.
+     *
+     * The `upload_session` tables are excluded rather than accepted into the check, because
+     * they are a different concept that happens to share the word — an Upload Session is a
+     * shelter's in-progress photos (`CONTEXT.md`), not a signed-in browser, and it has rows
+     * for the same reason a Session must not: something has to hold the photos. Everything
+     * this assertion is actually about — a row per signed-in browser, a list to walk on
+     * revocation — remains absent.
+     */
+    const authSessionTables = tables.filter(
+      (name) => name.includes("session") && !name.startsWith("upload_session"),
+    );
+    expect(authSessionTables).toEqual([]);
     expect(tables).toEqual([
       "animals",
       "d1_migrations",
@@ -728,7 +740,11 @@ describe("the session", () => {
       "shelter_contact_points",
       "shelters",
       "sign_in_requests",
+      "storage_measurements",
       "subscribers",
+      "transformation_spends",
+      "upload_session_photos",
+      "upload_sessions",
     ]);
   });
 
