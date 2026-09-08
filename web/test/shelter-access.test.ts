@@ -16,6 +16,7 @@ import { readShelterFacts } from "../src/lib/auth/store.ts";
 import {
   ORIGIN,
   REGISTRATION,
+  adminMails,
   ageMailLedger,
   clearShelterTables,
   cookieFrom,
@@ -87,18 +88,14 @@ describe("registration", () => {
     /**
      * ADR 0003 makes standing an append-only log whose latest entry is the current
      * standing, so "awaiting verification" is the absence of any entry — there is no pending
-     * state to set. Asserted two ways: registration touches only the two tables it should,
-     * and no table on the platform holds verification entries for it to have written to.
+     * state to set.
+     *
+     * This test used to assert that `verifications` did not exist at all, which was the
+     * strongest form available while issue #53 was unbuilt. The table exists now, so the
+     * assertion moves to the sharper thing it was standing in for: the table is there and
+     * registration still writes nothing into it. A row here would be a stored `Pending`.
      */
     await register();
-
-    const { results } = await env.DB.prepare(
-      "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name",
-    ).all<{ name: string }>();
-    const tables = results.map((row) => row.name);
-
-    expect(tables).not.toContain("verifications");
-    expect(tables.filter((name) => name.includes("verif"))).toEqual([]);
 
     const counted = async (table: string) => {
       const row = await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${table}`).first<{
@@ -108,9 +105,17 @@ describe("registration", () => {
     };
     expect(await counted("shelters")).toBe(1);
     expect(await counted("shelter_contact_points")).toBe(1);
-    // Registration sends no mail, so it spends none of the sign-in allocation either.
+    expect(await counted("verifications")).toBe(0);
+    /**
+     * Registration sends no *shelter* mail, so it spends none of the sign-in allocation. The
+     * one email it does send goes to the admin asking for a decision (issue #53), counted
+     * against its own ceiling rather than this ledger — `sign_in_requests` counts sign-in
+     * mail, and writing anything else into it would make every figure in `auth/policy.ts`
+     * mean something else.
+     */
     expect(await counted("sign_in_requests")).toBe(0);
-    expect(outbound.calls).toHaveLength(0);
+    expect(outbound.callsTo("resend")).toHaveLength(1);
+    expect(adminMails()).toHaveLength(1);
   });
 
   it("keeps the first shelter's slug when a second registers under the same name", async () => {
@@ -208,6 +213,14 @@ describe("the post-registration page", () => {
 describe("requesting a code", () => {
   it("sends exactly one email, carrying six digits and no link", async () => {
     await register();
+    /**
+     * The registration's own mail to the admin (issue #53) is cleared first, so "exactly one
+     * email" below means one email *from the code request* rather than one from the whole
+     * test. Narrowed rather than raised to two: the assertion is about this endpoint sending
+     * one code and touching nothing else, and a count that included a neighbouring feature's
+     * mail would stop saying that the moment a third feature sent anything.
+     */
+    outbound.reset();
     const { response } = await requestCode(REGISTRATION.accountEmail);
 
     expect(response.status).toBe(303);
@@ -293,6 +306,9 @@ describe("requesting a code", () => {
      * dispatcher rather than three mocks.
      */
     await register();
+    // Reset *before* the handler is registered, because `reset()` clears handlers too — and
+    // it clears the registration's admin mail, so the count below is the code request's.
+    outbound.reset();
     outbound.on("resend", () => new Response("nope", { status: 500 }));
 
     const known = await post("/api/refugios/codigo", {
@@ -615,6 +631,7 @@ describe("the session", () => {
       "transformation_spends",
       "upload_session_photos",
       "upload_sessions",
+      "verifications",
     ]);
   });
 
@@ -789,6 +806,10 @@ describe("the mail budget", () => {
         ).bind(`seed-${i}`, `other-ip-${i}`, Date.now() - 60_000),
       ),
     );
+
+    // The registration mailed the admin; what this test asserts is that *neither* code
+    // request sends anything once the ceiling is reached, so the log starts empty here.
+    outbound.reset();
 
     const known = await post("/api/refugios/codigo", {
       accountEmail: REGISTRATION.accountEmail,
@@ -966,6 +987,9 @@ describe("the sign-in form", () => {
      * that does.
      */
     await register();
+    // Cleared, so the zero below is "the refused post sent nothing" and not "the registration
+    // happened to send nothing".
+    outbound.reset();
 
     const response = await post(
       "/api/refugios/codigo",

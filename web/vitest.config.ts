@@ -18,7 +18,7 @@ export default defineConfig({
         bindings: {
           TEST_MIGRATIONS: migrations,
           /**
-           * The three secrets `web/wrangler.jsonc` deliberately does not carry, supplied
+           * The four secrets `web/wrangler.jsonc` deliberately does not carry, supplied
            * here as fixed values so the suite still needs no credentials — the same thing
            * `digest/`'s seam does for `UNSUBSCRIBE_SECRET`.
            *
@@ -30,6 +30,7 @@ export default defineConfig({
           SESSION_SECRET: "test-session-secret-not-a-real-key",
           SIGN_IN_SECRET: "test-sign-in-secret-not-a-real-key",
           ORIGINAL_SECRET: "test-media-secret-not-a-real-key",
+          ADMIN_LINK_SECRET: "test-admin-link-secret-not-a-real-key",
           RESEND_API_KEY: "re_test_not_a_real_key",
           /**
            * Also supplied here, even though both are real `vars` in `web/wrangler.jsonc`.
@@ -38,6 +39,8 @@ export default defineConfig({
            * suite fail on an adapter upgrade for a reason unrelated to anything under test.
            */
           SIGN_IN_FROM_ADDRESS: "entrar@pawster.test",
+          ADMIN_EMAIL: "admin@pawster.test",
+          VERIFICATION_FROM_ADDRESS: "verificacion@pawster.test",
           SITE_ORIGIN: "https://pawster.test",
         },
       },

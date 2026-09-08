@@ -1,20 +1,22 @@
 #!/usr/bin/env node
 /**
- * Six structural rules that no test can enforce, checked over the source instead.
+ * Seven structural rules that no test can enforce, checked over the source instead.
  *
- * All six exist because the thing they forbid *passes* at runtime. A module-scope Drizzle
+ * All seven exist because the thing they forbid *passes* at runtime. A module-scope Drizzle
  * client runs fine locally and breaks in production; a `db/` import inside `domain/` is just
  * an import; a query that rewrites a shelter's slug succeeds and quietly breaks every URL an
  * adopter already held; a query that selects a shelter's account email into something public
  * succeeds and publishes a credential; the `env.IMAGES` binding transforms images correctly
- * while spending five times the Worker's CPU budget; and S3 credentials in the Worker work
- * exactly as well as not having them, minus the credential that can leak.
+ * while spending five times the Worker's CPU budget; S3 credentials in the Worker work
+ * exactly as well as not having them, minus the credential that can leak; and an
+ * `authenticate()` call on an admin route would work perfectly, which is the problem — it
+ * would be an admin session, and ADR 0002 built none.
  *
- * None has a failing test to point at. Three of them share a sharper reason for that, worth
- * naming: the slug and account-email rules could each have a test *per route*, which is the
- * problem, because the route that breaks them is the one nobody has written yet — and the
- * `IMAGES` rule could have no test at all, because nothing available locally meters CPU
- * (`docs/testing-seams.md`).
+ * None has a failing test to point at. Four of them share a sharper reason for that, worth
+ * naming: the slug, account-email and admin-cookie rules could each have a test *per route*,
+ * which is the problem, because the route that breaks them is the one nobody has written
+ * yet — and the `IMAGES` rule could have no test at all, because nothing available locally
+ * meters CPU (`docs/testing-seams.md`).
  *
  *   node scripts/check-source-rules.mjs
  *
@@ -237,6 +239,53 @@ function checkAccountEmailReaders(file, relPath, source) {
   });
 }
 
+/**
+ * The two route prefixes that are the admin surface. ADR 0002 gave the Platform Admin no
+ * account: "there is no admin account, no admin role in the auth system". A cookie read
+ * anywhere under these paths is an admin session growing back.
+ */
+const ADMIN_ROUTE_PREFIXES = ["web/src/pages/admin/", "web/src/pages/api/admin/"];
+
+/**
+ * Rule 7: nothing under the admin routes touches a cookie.
+ *
+ * This is here rather than in a test for the reason the slug and account-email rules are:
+ * the route that breaks it is the one nobody has written yet. A test can assert that
+ * *today's* two admin pages ignore a session cookie — `admin-verification.test.ts` does —
+ * and it can say nothing about the third page, which is exactly where an `authenticate()`
+ * call would look like a convenience. The whole admin credential is the signed token in the
+ * URL, verified with `verifyAdminLink()`.
+ *
+ * Comment lines are skipped, because the decision has to be writable about: both admin
+ * pages' module comments name the absence in order to explain it, and a rule that fired on
+ * prose would make the reasoning unwritable. The same heuristic rules 5 and 6 use.
+ */
+function checkAdminRoutesTakeNoCookie(file, relPath, source) {
+  if (!ADMIN_ROUTE_PREFIXES.some((prefix) => relPath.startsWith(prefix))) return;
+
+  source.split("\n").forEach((line, index) => {
+    if (/^\s*(?:\/\/|\/?\*)/.test(line)) return;
+    /**
+     * `cookie` anywhere in the line rather than as a whole word, because the ways in are
+     * spelled as one identifier: `readCookie(...)`, `getSetCookie()`, `SESSION_COOKIE`,
+     * `set-cookie`. A word-boundary form was written first and caught none of them — it let
+     * `readCookie(Astro.request, SESSION_COOKIE)` through, which is the exact line the rule
+     * exists to stop. Comments are already skipped above, so the loose match costs nothing:
+     * the prose that explains the absence is not scanned.
+     */
+    const match = line.match(/cookie|\bauthenticate\s*\(/i);
+    if (!match) return;
+    fail(
+      file,
+      index + 1,
+      "an admin route reads a cookie",
+      `${match[0]} — the admin surface has no session and no account (ADR 0002). Its whole ` +
+        "credential is the signed token in the URL, verified with verifyAdminLink(). A " +
+        "cookie read here is an admin session growing back, and it would work.",
+    );
+  });
+}
+
 for (const file of files) {
   const relPath = relative(ROOT, file);
   const source = readFileSync(file, "utf8");
@@ -245,6 +294,7 @@ for (const file of files) {
 
   checkSlugWrites(file, relPath, source);
   checkAccountEmailReaders(file, relPath, source);
+  checkAdminRoutesTakeNoCookie(file, relPath, source);
 
   /**
    * Every name declared at column 0 — the file's module scope. A client assigned to one of
@@ -429,5 +479,5 @@ if (failures.length > 0) {
 console.log(
   `source rules ok — ${files.length} files checked for module-scope Drizzle clients, ` +
     "domain/ purity, writes to shelters.slug, reads of the account-email column, " +
-    "the IMAGES binding and S3 credentials",
+    "the IMAGES binding, S3 credentials and cookies on an admin route",
 );

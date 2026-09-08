@@ -7,17 +7,24 @@
  * and ADR 0013 calls it "cheap enough to ignore the CPU ceiling", unlike the password
  * hashing that ceiling ruled out.
  *
- * ## Why one secret and not three
+ * ## Why five labels over four secrets
  *
  * `SIGN_IN_SECRET` keys the code hash and the IP fingerprint; `SESSION_SECRET` signs the
- * cookie. Two secrets rather than four, because every additional secret is another thing
+ * cookie. Two secrets for three purposes, because every additional secret is another thing
  * `wrangler secret put` has to be told about and another way a deploy can be half-configured.
  *
  * Reusing one key for two purposes is only safe if the two message spaces cannot overlap,
  * so every message here is **domain-separated by a literal label** — `code:`, `ip:`,
- * `session:` — that no caller chooses. Without it, a value that could be read as either
- * kind of message would produce a hash valid for both, and the labels are what makes that
- * impossible rather than merely unlikely.
+ * `session:`, `original:`, `admin:` — that no caller chooses. Without it, a value that could
+ * be read as either kind of message would produce a hash valid for both, and the labels are
+ * what makes that impossible rather than merely unlikely.
+ *
+ * Two of the five labels have keys of their own, and each earned it on the same test —
+ * what a rotation costs. `ORIGINAL_SECRET` because its token leaves the platform
+ * (`../photos/capability.ts`); `ADMIN_LINK_SECRET` because it is rotated in response to a
+ * link leaking out of one inbox, an emergency that must not also invalidate every
+ * outstanding One-Time Code (`../verification/link.ts`). The labels still apply to both:
+ * separate keys make cross-purpose replay impossible twice over rather than once.
  */
 
 import { ONE_TIME_CODE_DIGITS, ONE_TIME_CODE_SPACE } from "./policy.ts";
@@ -35,6 +42,14 @@ const LABELS = {
    * above — see `web/src/lib/photos/capability.ts` for why this one earns a third secret.
    */
   original: "original:",
+  /**
+   * An admin capability: a decision link, a pending-list link, or the revocation token that
+   * only a terminal mints (`../verification/link.ts`). Keyed by `ADMIN_LINK_SECRET`, which
+   * earns being the platform's fourth secret for the reason that file gives — it is rotated
+   * *because a link leaked out of the admin's inbox*, and that emergency must not also
+   * invalidate every One-Time Code sitting in a shelter's inbox.
+   */
+  admin: "admin:",
 } as const;
 
 type Purpose = keyof typeof LABELS;

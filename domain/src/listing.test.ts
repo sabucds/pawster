@@ -27,11 +27,23 @@ describe("isListed", () => {
       ).toBe(false);
     });
 
+    /**
+     * Both non-`Verified` outcomes, asserted separately rather than as one case, because
+     * the rule tests *for* `Verified` and a rule rewritten to test *against* `Revoked`
+     * would still pass with only the revoked half here — and would list every refused
+     * shelter on the platform.
+     */
     it("a shelter whose latest verification entry is not Verified", () => {
       expect(
         isListed(LISTED_ANIMAL, {
           ...GOOD_STANDING,
           latestVerificationOutcome: "Revoked",
+        }),
+      ).toBe(false);
+      expect(
+        isListed(LISTED_ANIMAL, {
+          ...GOOD_STANDING,
+          latestVerificationOutcome: "Refused",
         }),
       ).toBe(false);
     });

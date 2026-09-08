@@ -7,10 +7,10 @@ import {
 } from "drizzle-orm/sqlite-core";
 
 /**
- * The skeleton's schema plus shelter access. The rest of the model — verification entries,
- * photos, subscriptions, the sent-set — lands with the tickets that need it. What is
- * settled here is the *shape*: this package owns the schema and the migrations, and both
- * Workers bind the same database.
+ * The skeleton's schema plus shelter access, the photo pipeline and the verification
+ * log. The rest of the model — subscriptions, the sent-set — lands with the tickets that
+ * need it. What is settled here is the *shape*: this package owns the schema and the
+ * migrations, and both Workers bind the same database.
  *
  * Two absences in the access tables below are load-bearing rather than unfinished, and
  * both come from [ADR 0013](../../docs/adr/0013-shelters-sign-in-with-an-emailed-code.md):
@@ -19,11 +19,11 @@ import {
  *   issued-at and a session epoch, validated against `shelters.sessionEpoch`. Sliding
  *   refresh re-issues the cookie and writes nothing here, so a 90-day sliding session costs
  *   zero rows and zero writes per request.
- * - **There is no verification table yet, and pending is its absence.** ADR 0003 makes
- *   standing an append-only log whose latest entry is the current standing, so a shelter
- *   with no entries is awaiting verification. Registration therefore writes *no*
- *   verification row — and it does not need the table to exist in order to not write to
- *   it. Issue #53 adds the log.
+ * - **There is no pending state, and pending is the verification log's absence.** ADR 0003
+ *   makes standing an append-only log whose latest entry is the current standing, so a
+ *   shelter with no entries is awaiting verification. The log arrived with issue #53 and
+ *   registration still writes *no* verification row, which is how "pending" is expressed:
+ *   `registerShelter()` has no line about verification in it at all.
  */
 
 export const shelters = sqliteTable("shelters", {
@@ -300,6 +300,137 @@ export const animals = sqliteTable(
   (table) => [index("animals_shelter_idx").on(table.shelterId)],
 );
 
+/**
+ * The append-only log of judgements a platform admin has made about one shelter — the
+ * table [ADR 0003](../../docs/adr/0003-verification-is-an-append-only-log.md) has been
+ * describing since before it existed, and the one the comment on `shelters` promised
+ * issue #53 would add.
+ *
+ * **Nothing updates a row here and nothing deletes one.** A later judgement is a new row;
+ * "current standing" is the latest row, which is what makes a revoked shelter's appeal
+ * answerable — the reasoning behind the decision it is appealing is still on disk. That is
+ * also why there is no `verified` boolean on `shelters` for this to be denormalised into:
+ * two answers that can disagree, one of which cannot say *why*.
+ *
+ * **A departed shelter's entries survive it** (ADR 0015): "a departed shelter keeps its
+ * display name, its animals' archive pages and its verification entries, because [...] the
+ * verification log records the platform's own judgements". So nothing in a Departure — or
+ * in the grace period that destroys the shelter's contact surface — reaches this table.
+ */
+export const verifications = sqliteTable(
+  "verifications",
+  {
+    /**
+     * A monotonic sequence and **not** a UUID, unlike every other id in this schema.
+     *
+     * "Current standing is the latest entry" has to be a total order over a shelter's rows,
+     * and `decidedAt` is not one: two decisions inside the same millisecond are
+     * indistinguishable by it, and a tie broken by a random UUID would resolve differently
+     * on each read — so a shelter could be `Verified` and `Refused` depending on which query
+     * ran. SQLite's `INTEGER PRIMARY KEY` is the rowid, which is append-order by
+     * construction, so the log's order *is* the primary key and needs no second column to
+     * defend it.
+     *
+     * It is also the only id in this schema nobody outside the platform ever holds — no URL
+     * names an entry, no email carries one — so the argument for opaque UUIDs elsewhere
+     * (an id in an address should reveal nothing and be unguessable) does not apply.
+     */
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    shelterId: text("shelter_id")
+      .notNull()
+      .references(() => shelters.id),
+    /**
+     * `Verified | Refused | Revoked`, spelled exactly as `domain/`'s `VerificationOutcome`
+     * spells them, so `isListed()`'s `latestVerificationOutcome` is this column read
+     * straight out of the row with no mapping layer to keep in step.
+     *
+     * The capitalisation is `CONTEXT.md`'s and breaks with the lower-case enums elsewhere in
+     * this file (`kind`, `species`, `mode`). Those are database-local vocabulary; this one is
+     * domain vocabulary that a pure package already names, and a mapping table between two
+     * spellings of the same three words is a place for them to drift.
+     *
+     * **There is no `Pending`.** ADR 0003 makes pending the absence of any entry, so
+     * registration writes no row here at all — see `registerShelter()`, which satisfies that
+     * by having no line about verification in it.
+     */
+    outcome: text("outcome", {
+      enum: ["Verified", "Refused", "Revoked"],
+    }).notNull(),
+    /**
+     * Which of `web/src/lib/verification/policy.ts`'s `VERIFICATION_METHODS` the admin used,
+     * as a comma-separated list of keys in that list's own order.
+     *
+     * A string rather than a child table because nothing queries by method: the set is read
+     * back only to be shown on the decision page beside the entry it belongs to. A table
+     * would be a join, an index and a second write for a value that is never a predicate.
+     *
+     * A comma list rather than JSON because every member is a fixed key from a closed
+     * vocabulary — no member can contain a comma, so the encoding cannot be broken by its
+     * own contents. `citedContactPoints` below holds shelter-authored text and so cannot
+     * make that claim, which is why the two columns are encoded differently.
+     *
+     * May be empty for a `Refused` or `Revoked` entry — refusing because nothing could be
+     * found is a decision reached by no method — and is required to be non-empty for a
+     * `Verified` one, in `web/src/lib/verification/policy.ts`, because a verification with no
+     * method is the flag flip ADR 0002 rejected.
+     */
+    methods: text("methods").notNull(),
+    /**
+     * What the admin wrote. Free text, because "acceptable evidence differs by country"
+     * (ADR 0003) and a structured field would have to be invented per country.
+     *
+     * **It describes public artifacts and never people**, and the decision page says so
+     * where the admin is typing — a volunteer's name recorded here would outlive the
+     * shelter, since ADR 0015 keeps these entries after a Departure has destroyed every
+     * other trace of the people who ran it. That rule cannot be enforced by a column, which
+     * is exactly why it is stated at the moment of writing rather than checked afterwards.
+     */
+    evidence: text("evidence").notNull(),
+    decidedAt: integer("decided_at", { mode: "timestamp_ms" }).notNull(),
+    /**
+     * The admin's email address, and **not a foreign key** — there is no user table to point
+     * at, because ADR 0002 gave admins no accounts. `CONTEXT.md`: a Platform Admin "is
+     * identified only by the email address a signed link was sent to", so this is that
+     * address, read out of the signed link's payload rather than out of configuration: a
+     * decision has to be attributable to the inbox that actually held the capability, and a
+     * later change to who the admin is must not rewrite who decided what.
+     */
+    decidedBy: text("decided_by").notNull(),
+    /**
+     * The shelter's display name as it stood when this entry was written, and the first half
+     * of the dead-man's switch (ADR 0019).
+     *
+     * The admin checked a public presence against *these* strings; if the shelter rewrites
+     * them afterwards, the check no longer describes what is on the site, and the admin is
+     * emailed. A snapshot rather than a reference into the shelter row, because the whole
+     * question is whether the shelter row has moved since.
+     */
+    citedDisplayName: text("cited_display_name").notNull(),
+    /**
+     * The shelter's contact points as they stood when this entry was written, as a JSON
+     * array of `{kind, value}` **sorted into a canonical order** — the other half of the
+     * switch.
+     *
+     * Sorted, so that comparing two snapshots is a string comparison and so that
+     * *reordering* is deliberately not a change: the order decides which channel an adopter
+     * is offered first, but every channel on the list was in front of the admin either way,
+     * so a promotion between two checked channels is not a drift away from what was checked.
+     *
+     * JSON rather than the comma list `methods` uses, because these values are text a
+     * shelter typed and a delimiter chosen by us is a delimiter a shelter can type.
+     */
+    citedContactPoints: text("cited_contact_points").notNull(),
+  },
+  (table) => [
+    /**
+     * Every read of this table is "this shelter's entries, newest first" — the listing
+     * rule's one-row form and the decision page's whole-log form are the same query with a
+     * different limit. The sequence is descending in the index so neither has to sort.
+     */
+    index("verifications_shelter_idx").on(table.shelterId, table.id),
+  ],
+);
+
 export const subscribers = sqliteTable(
   "subscribers",
   {
@@ -505,6 +636,7 @@ export const storageMeasurements = sqliteTable(
 export type Shelter = typeof shelters.$inferSelect;
 export type Animal = typeof animals.$inferSelect;
 export type Subscriber = typeof subscribers.$inferSelect;
+export type Verification = typeof verifications.$inferSelect;
 export type ShelterContactPoint = typeof shelterContactPoints.$inferSelect;
 export type ContactPointKind = ShelterContactPoint["kind"];
 export type OneTimeCode = typeof oneTimeCodes.$inferSelect;

@@ -312,11 +312,20 @@ _Avoid_: Permission, scope, grant, access level
 
 **Verification**:
 An append-only log of the judgements a platform admin has made about one shelter, each
-entry capturing the outcome, the methods used and the evidence noted. A log rather than
-a flag, because acceptable evidence differs by country and because a later judgement
-must never erase the reasoning behind an earlier one. A shelter's current standing is
-the latest entry; a shelter with no entries is awaiting verification.
+entry capturing the outcome, the methods used, the evidence noted, and the Cited
+Artifacts it was written against. A log rather than a flag, because acceptable evidence
+differs by country and because a later judgement must never erase the reasoning behind an
+earlier one. A shelter's current standing is the latest entry; a shelter with no entries
+is awaiting verification.
 _Avoid_: Approval, KYC, validation, verified flag
+
+**Cited Artifact**:
+A public detail a Verification entry was written against - the display name and the
+contact points the admin had in front of them - recorded on the entry as a snapshot. When
+a verified shelter edits one, the admin is emailed once: the check has a dead-man's switch
+rather than a schedule, because nothing re-checks a shelter on a timer. Reordering contact
+points is not an edit to one, since every channel was checked either way.
+_Avoid_: Proof, attachment, document, snapshot
 
 **Revocation**:
 A verification entry that withdraws a shelter's standing, delisting its animals without

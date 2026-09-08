@@ -175,6 +175,20 @@ Needing the digest Worker, which does not exist yet:
 - point the `pawster-digest-dlq` consumer at the Healthchecks `/fail` endpoint
   (ADR 0009)
 
+Needing the web Worker, which does not exist yet:
+
+- `wrangler secret put SESSION_SECRET`, `SIGN_IN_SECRET`, `ORIGINAL_SECRET` and
+  `ADMIN_LINK_SECRET`. Four keys and not one, and the split is deliberate: each
+  was separated on what a rotation costs, which
+  [ADR 0019](adr/0019-a-verification-entry-cites-what-the-admin-saw.md) states
+  most fully for the last of them. `web/.dev.vars.example` carries the same list
+  with a line each on why.
+
+  This section is new, and it is worth saying that it was missing rather than
+  empty: the first three were added by the tickets that needed them and never
+  recorded here, so a deploy could have been half-configured with nothing to
+  check against. `ADMIN_LINK_SECRET` is the one that noticed.
+
 ## Settled since
 
 This record used to close by asking what collects an abandoned upload session's
