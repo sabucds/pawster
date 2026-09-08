@@ -27,8 +27,8 @@
 
 import type { APIRoute } from "astro";
 import { env } from "cloudflare:workers";
-import { verifyOriginalToken } from "../../../lib/media/capability.ts";
-import { ORIGINAL_PREFIX } from "../../../lib/media/keys.ts";
+import { verifyOriginalToken } from "../../../lib/photos/capability.ts";
+import { ORIGINAL_PREFIX } from "../../../lib/photos/keys.ts";
 
 export const prerender = false;
 

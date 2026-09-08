@@ -102,6 +102,23 @@ export const UPLOAD_SESSION_TTL_MS = 24 * 60 * 60_000;
 export const MONTHLY_TRANSFORMATION_BUDGET = 5_000;
 
 /**
+ * The first instant of the calendar month `now` falls in, UTC — the boundary the budget
+ * above resets on.
+ *
+ * Here rather than beside the query that uses it, because it is calendar policy and not a
+ * query: it decides *which* month a spend belongs to, and getting it wrong shifts the
+ * platform's ceiling rather than mis-shaping a `SELECT`. Cloudflare's counter resets per
+ * calendar month, and a ledger summed over a rolling 30-day window would refuse uploads
+ * Cloudflare would have accepted, every month, for the last few days of it.
+ *
+ * UTC, because a Worker has no local time zone and Venezuela's offset would put the
+ * boundary four hours out in the direction that made us optimistic.
+ */
+export function transformationMonthStart(now: Date): Date {
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+}
+
+/**
  * Which end of the animal's order a photo is being uploaded to.
  *
  * `primary` is the first photo in the session, and the only one that gets a digest
@@ -262,7 +279,7 @@ export interface UploadRefusal {
  * Everything known about an upload before its bytes are read.
  *
  * `declaredBytes` is the `Content-Length` the browser sent, which is a claim rather than a
- * fact — `web/src/lib/media/pipeline.ts` holds the body to that claim while it streams, so
+ * fact — `web/src/lib/photos/pipeline.ts` holds the body to that claim while it streams, so
  * a request that sends more than it promised fails the write. It is judged here because it
  * is the only size available before the body is touched, and refusing a 40 MB upload
  * without reading 40 MB is the entire point.
@@ -354,18 +371,20 @@ export function refuseUpload(
 /**
  * The dimension check, split out because it is the one refusal that needs bytes.
  *
- * `web/src/lib/media/dimensions.ts` reads the width and height out of the file's *header*
+ * `web/src/lib/photos/dimensions.ts` reads the width and height out of the file's *header*
  * — a few hundred bytes, no decode — and this judges them, so the refusal still lands
  * before anything reaches R2. Splitting the decision from the parse is what lets the
  * thresholds be tested with two integers.
+ *
+ * It judges dimensions and deliberately not bytes. The byte cap belongs to
+ * {@link refuseUpload}, which decides it before the body is touched at all, and the stream
+ * then holds the body to the length it declared — so a second byte check here would be a
+ * second answer to a question that already has one.
  */
-export function refuseImage(
-  size: { readonly width: number; readonly height: number },
-  bytes?: number,
-): UploadRefusal | null {
-  if (bytes !== undefined && bytes > MAX_ORIGINAL_BYTES) {
-    return { reason: "file-too-large", limit: MAX_ORIGINAL_BYTES, actual: bytes };
-  }
+export function refuseImage(size: {
+  readonly width: number;
+  readonly height: number;
+}): UploadRefusal | null {
   const longestSide = Math.max(size.width, size.height);
   if (longestSide > MAX_ORIGINAL_DIMENSION) {
     return {

@@ -1,5 +1,5 @@
 /**
- * Hand-built image headers, for the parsers in `web/src/lib/media/dimensions.ts` and the
+ * Hand-built image headers, for the parsers in `web/src/lib/photos/dimensions.ts` and the
  * upload path that depends on them.
  *
  * These are **synthesised rather than committed as binary fixtures**, and the reason is
@@ -189,6 +189,19 @@ export function webpLossless(width: number, height: number): Uint8Array {
     [0x2f],
     u32le(packed >>> 0),
   );
+}
+
+/**
+ * The same container under a generic HEIF brand rather than an HEVC-coded one.
+ *
+ * `image/heif` and `image/heic` are used interchangeably by exporters and a shelter has no
+ * influence over which its phone sends, so both are accepted and both have to be readable.
+ */
+export function heifGeneric(options: HeicOptions): Uint8Array {
+  const heicBytes = heic(options);
+  // The brand sits at offset 8, immediately after the `ftyp` box name.
+  heicBytes.set(chars("mif1"), 8);
+  return heicBytes;
 }
 
 export interface HeicOptions {

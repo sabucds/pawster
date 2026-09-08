@@ -20,7 +20,7 @@
  *
  * ## Why this is the platform's third secret
  *
- * `MEDIA_SECRET`, and not a domain-separated use of one of the two that exist. ADR 0013
+ * `ORIGINAL_SECRET`, and not a domain-separated use of one of the two that exist. ADR 0013
  * argues for few secrets — "every additional secret is another thing `wrangler secret put`
  * has to be told about and another way a deploy can be half-configured" — and that argument
  * is real. What outweighs it is that this is the only key in the platform **presented by
@@ -35,8 +35,8 @@
 
 import { digestsEqual, sign } from "../auth/crypto.ts";
 
-export interface MediaSecrets {
-  readonly MEDIA_SECRET: string;
+export interface OriginalSecrets {
+  readonly ORIGINAL_SECRET: string;
 }
 
 /**
@@ -58,13 +58,13 @@ export const ORIGINAL_TOKEN_TTL_MS = 5 * 60_000;
  * the dot and the signature still verifies.
  */
 export async function mintOriginalToken(
-  secrets: MediaSecrets,
+  secrets: OriginalSecrets,
   key: string,
   now: Date,
 ): Promise<string> {
   const expiresAt = now.getTime() + ORIGINAL_TOKEN_TTL_MS;
   const signature = await sign(
-    secrets.MEDIA_SECRET,
+    secrets.ORIGINAL_SECRET,
     "original",
     `${key}:${expiresAt}`,
   );
@@ -81,7 +81,7 @@ export async function mintOriginalToken(
  * holder is the image pipeline, which is handed a fresh token and never retries an old one.
  */
 export async function verifyOriginalToken(
-  secrets: MediaSecrets,
+  secrets: OriginalSecrets,
   key: string,
   token: string | null,
   now: Date,
@@ -95,7 +95,7 @@ export async function verifyOriginalToken(
   if (!Number.isSafeInteger(expiresAt)) return false;
 
   const expected = await sign(
-    secrets.MEDIA_SECRET,
+    secrets.ORIGINAL_SECRET,
     "original",
     `${key}:${expiresAt}`,
   );

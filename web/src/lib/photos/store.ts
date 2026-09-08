@@ -16,7 +16,10 @@ import {
   uploadSessionPhotos,
   uploadSessions,
 } from "@pawster/db";
-import type { StorageMeasurement } from "@pawster/domain";
+import {
+  type StorageMeasurement,
+  transformationMonthStart,
+} from "@pawster/domain";
 import { and, desc, eq, gte, sql } from "drizzle-orm";
 
 export interface UploadSessionRow {
@@ -158,21 +161,6 @@ export async function recordSessionPhoto(
 }
 
 /**
- * The first instant of the calendar month `now` falls in, UTC.
- *
- * Cloudflare's transformation counter resets per calendar month, and the platform's own
- * ledger has to reset on the same boundary or the two drift apart — a ledger on a rolling
- * 30-day window would refuse uploads Cloudflare would have accepted, every month, for the
- * last few days of it.
- *
- * UTC, because a Worker has no local time zone and Venezuela's offset would put the
- * boundary in the wrong place by four hours in a direction that made us optimistic.
- */
-export function monthStart(now: Date): Date {
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-}
-
-/**
  * How many transformations this calendar month has spent.
  *
  * A `SUM` over the ledger rather than a stored counter, for the reason `signInRequests` is a
@@ -188,7 +176,7 @@ export async function transformationsUsedThisMonth(
       total: sql<number>`coalesce(sum(${transformationSpends.transformations}), 0)`,
     })
     .from(transformationSpends)
-    .where(gte(transformationSpends.spentAt, monthStart(now)));
+    .where(gte(transformationSpends.spentAt, transformationMonthStart(now)));
   return Number(row?.total ?? 0);
 }
 

@@ -17,6 +17,13 @@ declare namespace Cloudflare {
      * `pawster-media`. Derivatives under `d/`, the filter index under `i/` later. ADR 0016
      * makes the nightly sweep list `d/` only, so nothing added to this bucket afterwards is
      * a delete candidate until it is deliberately opted in.
+     *
+     * `MEDIA` is on Photo's *Avoid* list in `CONTEXT.md`, and is kept anyway — the one
+     * deliberate exception, because it is not our word. The bucket is named `pawster-media`
+     * by ADR 0016 and `docs/provisioning-record.md`, it exists under that name in the
+     * account, and a binding that disagreed with the resource it binds would be a small
+     * puzzle in every config file forever. The avoid list governs the vocabulary we choose;
+     * this one was chosen before it. Everything downstream that *is* ours says photo.
      */
     MEDIA: R2Bucket;
     /**
@@ -51,9 +58,9 @@ declare namespace Cloudflare {
      * here **presented by something outside the platform**, so it travels in a URL to
      * Cloudflare and lands in whatever that pipeline logs. Rotating it costs the in-flight
      * uploads of the next five minutes; rotating `SESSION_SECRET` signs every shelter out.
-     * `web/src/lib/media/capability.ts` carries the full argument.
+     * `web/src/lib/photos/capability.ts` carries the full argument.
      */
-    MEDIA_SECRET: string;
+    ORIGINAL_SECRET: string;
     /** Shared with `digest/`, which holds the same key under the same name. */
     RESEND_API_KEY: string;
     /**

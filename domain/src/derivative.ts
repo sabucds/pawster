@@ -132,7 +132,7 @@ export function derivativeSpecFingerprint(name: DerivativeName): string {
  * Returned as material for the caller to hash rather than hashed here, because hashing is
  * `crypto.subtle` and this package holds no I/O and no globals it did not import — see
  * `docs/testing-seams.md` on why `domain/` is the one workspace that needs neither seam.
- * `web/src/lib/media/keys.ts` does the hashing.
+ * `web/src/lib/photos/keys.ts` does the hashing.
  *
  * The separator matters more than it looks: without it, a digest ending in `1` followed by
  * a fingerprint starting `44x144...` would be the same string as a different digest and a

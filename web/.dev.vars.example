@@ -25,7 +25,7 @@ SIGN_IN_SECRET=
 # and lands in whatever that pipeline logs. Rotating it costs five minutes of
 # in-flight uploads; rotating SESSION_SECRET signs every shelter out.
 #   openssl rand -base64 32
-MEDIA_SECRET=
+ORIGINAL_SECRET=
 
 # Shared with digest/, same key under the same name. From resend.com/api-keys.
 # Leave blank to develop everything except actually sending sign-in mail — the

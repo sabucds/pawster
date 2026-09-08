@@ -35,8 +35,8 @@ import {
   createUploadSession,
   latestStorageMeasurement,
   transformationsUsedThisMonth,
-} from "../../../../lib/media/store.ts";
-import { refusalResponse, withRefreshedCookie } from "../../../../lib/media/responses.ts";
+} from "../../../../lib/photos/store.ts";
+import { refusalResponse, withRefreshedCookie } from "../../../../lib/photos/responses.ts";
 
 export const prerender = false;
 

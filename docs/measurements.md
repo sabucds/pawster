@@ -31,6 +31,23 @@ them. For scale, the OpenNext/Next.js bundle that ruled Next out of the running 
 2,295.89 KiB gzipped against the same 3 MB: `web/` at 173 KiB has roughly **17×** the
 headroom that option would have had on its first day.
 
+### Recorded 2026-09-08, after the photo pipeline (#54)
+
+| Worker | Raw | Gzipped | Of the 3 MB limit |
+|---|---|---|---|
+| `web` | 886.50 KiB | **228.32 KiB** | 7.4% |
+| `digest` | 194.00 KiB | 40.62 KiB | 1.3% |
+
+`web/` grew by **54 KiB gzipped** for three routes, the media library and four new tables'
+worth of Drizzle. That is the largest single-ticket jump so far and it is recorded rather
+than waved through, because the ceiling is a cliff rather than a slope: a Worker over 3 MB
+does not deploy at all. At 7.4% there is still roughly 13× headroom, so this is a data
+point and not yet a problem — the number to watch is the *rate*, not the total.
+
+The increase was not decomposed into its parts. Doing so honestly needs a build of the
+parent commit to subtract, and the figure above is enough to answer the only question being
+asked of it today.
+
 ## Per-request SSR CPU
 
 ```sh
@@ -89,7 +106,7 @@ claim:
 > then discards the metadata — WebP and PNG outputs carry none at all — so a transformed
 > image comes back upright without being asked.
 
-Everything downstream is built on that being true. `web/src/lib/media/dimensions.ts` reads
+Everything downstream is built on that being true. `web/src/lib/photos/dimensions.ts` reads
 the orientation tag **only to know what size the result will be**, and deliberately never
 asks `cf.image` for a `rotate`: if the pipeline auto-orients and we rotate as well, the
 image is turned twice, and the result is the sideways dog ADR 0012 rejected browser-side

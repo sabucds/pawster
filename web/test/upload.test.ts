@@ -17,7 +17,7 @@ import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { outbound } from "../../test/outbound.ts";
 import { encodeSession } from "../src/lib/auth/session.ts";
-import { sha256Hex } from "../src/lib/media/keys.ts";
+import { sha256Hex } from "../src/lib/photos/keys.ts";
 import { heic, jpeg, notAnImage, png } from "./fixtures/images.ts";
 
 /**
@@ -222,9 +222,11 @@ describe("opening an upload session", () => {
     expect(await db.select().from(uploadSessions)).toHaveLength(0);
   });
 
-  it("opens no session when the sweep has never run", async () => {
-    // No measurement is not an empty platform. The refusal is `photo-limit-reached` at a
-    // limit of one — degraded, but a first photo is still allowed, so a session opens.
+  it("degrades to one photo, rather than refusing, when the sweep has never run", async () => {
+    // No measurement is not an empty platform, and `deriveStorageMode` degrades on its
+    // absence exactly as it degrades on a stale one. Degraded still accepts a first photo,
+    // so the session opens — refusing outright would lock the platform out of publishing
+    // until a job that belongs to a different ticket had run once.
     await env.DB.prepare("DELETE FROM storage_measurements").run();
     const response = await openSession(await sessionCookie());
     expect(response.status).toBe(201);
@@ -310,14 +312,23 @@ describe("uploading a photo", () => {
 
     await upload(id, cookie, photo());
 
-    // ADR 0012's arithmetic for one-photo-per-request: an Images call is exactly one
-    // subrequest (measured, issue #34), so a primary's invocation spends four of the Free
-    // plan's 50 — where a six-photo animal in one invocation would spend 34-40.
+    /**
+     * ADR 0012's arithmetic for one-photo-per-request: an Images call is exactly one
+     * subrequest (measured, issue #34), so a primary's invocation spends **four** of the
+     * Free plan's 50 — where a six-photo animal done in one invocation would spend 34-40.
+     *
+     * The count is of *outbound `fetch`* subrequests, which is what the 50 governs and what
+     * the interceptor can see. D1 and R2 binding calls are subrequests too, but against the
+     * separate per-invocation internal limit of 1,000 — a limit this route is three orders
+     * of magnitude away from, and not the one one-photo-per-request was chosen to respect.
+     * Saying which limit is being counted is the difference between this assertion meaning
+     * something and merely being true.
+     */
     const transforms = outbound.callsTo("cf.image");
     expect(transforms).toHaveLength(4);
+    // Nothing else left the isolate: the four transforms are the whole outbound budget.
     expect(outbound.calls).toHaveLength(4);
     expect(outbound.calls.every((call) => call.vendor === "cf.image")).toBe(true);
-    expect(transforms.length).toBeLessThanOrEqual(5);
 
     // Every call carries a transform, and every one of them goes to the token-gated route.
     for (const call of transforms) {

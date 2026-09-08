@@ -165,7 +165,7 @@ from spelled several of these differently.
   `workerd` binds it on `crypto`, which is the form Cloudflare's own docs use. Writing the
   global compiles and throws `ReferenceError: DigestStream is not defined` at runtime;
   writing `crypto.DigestStream` runs and does not compile, because `astro/tsconfigs/strict`
-  pulls in the DOM `lib` and `crypto` types as the DOM's `Crypto`. `web/src/lib/media/pipeline.ts`
+  pulls in the DOM `lib` and `crypto` types as the DOM's `Crypto`. `web/src/lib/photos/pipeline.ts`
   bridges the two in one place, with the reason next to it. This one was found by a green
   test suite running a stale bundle — the source had been changed to the global, the build
   had not been re-run, and 27 tests passed against the old bytes. `npm test` in `web/`

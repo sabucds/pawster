@@ -313,13 +313,11 @@ describe("refuseImage", () => {
     });
   });
 
-  it("refuses on the bytes actually read, whatever the header claimed", () => {
-    expect(
-      refuseImage({ width: 100, height: 100 }, MAX_ORIGINAL_BYTES + 1)?.reason,
-    ).toBe("file-too-large");
-    expect(
-      refuseImage({ width: 100, height: 100 }, MAX_ORIGINAL_BYTES),
-    ).toBeNull();
+  it("judges dimensions and nothing else", () => {
+    // The byte cap is `refuseUpload`'s, decided before the body is touched, and then held to
+    // by the stream itself. Judging it here as well would be a second answer to a question
+    // that already has one.
+    expect(refuseImage({ width: 100, height: 100 })).toBeNull();
   });
 });
 

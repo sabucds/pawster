@@ -4,7 +4,7 @@ import {
   ORIGINAL_TOKEN_TTL_MS,
   mintOriginalToken,
   verifyOriginalToken,
-} from "../src/lib/media/capability.ts";
+} from "../src/lib/photos/capability.ts";
 
 /**
  * The route that lets Cloudflare's image pipeline read one original and lets nothing else
@@ -145,10 +145,10 @@ describe("the capability itself", () => {
   it("does not verify under a different secret", async () => {
     const now = new Date();
     const token = await mintOriginalToken(env, KEY, now);
-    // Rotating `MEDIA_SECRET` invalidates outstanding capabilities and nothing else — which
+    // Rotating `ORIGINAL_SECRET` invalidates outstanding capabilities and nothing else — which
     // is the whole argument for it being its own secret rather than a use of the session key.
     expect(
-      await verifyOriginalToken({ MEDIA_SECRET: "rotated" }, KEY, token, now),
+      await verifyOriginalToken({ ORIGINAL_SECRET: "rotated" }, KEY, token, now),
     ).toBe(false);
   });
 });

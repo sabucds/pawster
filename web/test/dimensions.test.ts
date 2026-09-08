@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { ACCEPTED_ORIGINAL_TYPES } from "@pawster/domain";
 import {
   HEADER_BYTES,
   readImageSize,
   sniffContentType,
-} from "../src/lib/media/dimensions.ts";
+} from "../src/lib/photos/dimensions.ts";
 import {
   heic,
+  heifGeneric,
   jpeg,
   notAnImage,
   png,
@@ -174,6 +176,35 @@ describe("readImageSize", () => {
 });
 
 describe("sniffContentType", () => {
+  it("recognises exactly the types domain/ accepts, in both directions", () => {
+    /**
+     * The two lists are written in two places and this is what keeps them one list.
+     *
+     * `domain/`'s `ACCEPTED_ORIGINAL_TYPES` decides what the platform takes; `sniffContentType`
+     * decides what it can read. A type in the first and not the second is refused with
+     * `unsupported-type` despite being on the accepted list — a refusal no shelter could
+     * understand and no reader of either file would predict. A type in the second and not the
+     * first is dead code that reads a file we then turn away.
+     *
+     * Asserted rather than trusted, the same way `auth/policy.test.ts` pins the sign-in
+     * ceiling against `DIGEST_DAILY_BUDGET` instead of trusting two files to agree.
+     */
+    const readable = new Map<string, Uint8Array>([
+      ["image/jpeg", jpeg({ width: 10, height: 10 })],
+      ["image/png", png(10, 10)],
+      ["image/webp", webpLossy(10, 10)],
+      ["image/heic", heic({ width: 10, height: 10 })],
+      ["image/heif", heifGeneric({ width: 10, height: 10 })],
+    ]);
+
+    expect([...readable.keys()].sort()).toEqual([...ACCEPTED_ORIGINAL_TYPES].sort());
+
+    for (const [type, bytes] of readable) {
+      expect(sniffContentType(bytes), `${type} should be recognised`).toBe(type);
+      expect(readImageSize(bytes), `${type} should be measurable`).not.toBeNull();
+    }
+  });
+
   it("names each accepted type from its magic bytes", () => {
     expect(sniffContentType(jpeg({ width: 1, height: 1 }))).toBe("image/jpeg");
     expect(sniffContentType(png(1, 1))).toBe("image/png");

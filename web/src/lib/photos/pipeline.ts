@@ -48,11 +48,17 @@ import {
   refuseImage,
 } from "@pawster/domain";
 import { HEADER_BYTES, readImageSize, sniffContentType } from "./dimensions.ts";
-import { type MediaSecrets, mintOriginalToken } from "./capability.ts";
+import { type OriginalSecrets, mintOriginalToken } from "./capability.ts";
 import { fetchDerivative } from "../images.ts";
 import { derivativeKey, originalKey, toHex } from "./keys.ts";
 
-export interface MediaBuckets {
+/**
+ * The two buckets and the one secret the pipeline needs, which the Worker's `env` already
+ * satisfies — so the call site passes `env` once rather than passing it twice under two
+ * names. Spelled as a requirement rather than typed as `Env` so that what this function
+ * touches is legible without reading it.
+ */
+export interface PhotoBuckets {
   /** `pawster-originals`. Never public, because a retained original still carries EXIF. */
   readonly ORIGINALS: R2Bucket;
   /** `pawster-media`, where derivatives live under `d/`. */
@@ -151,8 +157,7 @@ async function peekHeader(
  * Every other refusal is the caller's, made before this is called at all.
  */
 export async function storePhoto(
-  buckets: MediaBuckets,
-  secrets: MediaSecrets,
+  platform: PhotoBuckets & OriginalSecrets,
   input: StorePhotoInput,
 ): Promise<StoredPhoto | PhotoRefused> {
   const reader = input.body.getReader();
@@ -176,14 +181,14 @@ export async function storePhoto(
   }
 
   const key = originalKey(input.photoId);
-  const stored = await streamOriginal(buckets.ORIGINALS, key, contentType, {
+  const stored = await streamOriginal(platform.ORIGINALS, key, contentType, {
     reader,
     chunks,
     done,
     declaredBytes: input.declaredBytes,
   });
 
-  const token = await mintOriginalToken(secrets, key, input.now);
+  const token = await mintOriginalToken(platform, key, input.now);
   const originalUrl = `${input.origin}/api/originales/${key}?token=${encodeURIComponent(token)}`;
 
   const derivatives: Partial<Record<DerivativeName, string>> = {};
@@ -196,7 +201,7 @@ export async function storePhoto(
     // The content-addressed key is what makes this check worth making: an object already
     // under this key holds bytes produced from these bytes by this exact spec, so there is
     // nothing a transform could add. ADR 0016's shared-key case, arriving as a saving.
-    if (await buckets.MEDIA.head(derivativeObjectKey)) continue;
+    if (await platform.MEDIA.head(derivativeObjectKey)) continue;
 
     const response = await fetchDerivative(originalUrl, name);
     if (!response.ok) {
@@ -209,7 +214,7 @@ export async function storePhoto(
     // Buffered rather than streamed: `R2.put` needs a length, and a transform's response is
     // the one body here whose length is not known before it arrives. A 1280px WebP is a few
     // hundred kilobytes, so this costs nothing the 12 MB original did not already cost.
-    await buckets.MEDIA.put(derivativeObjectKey, await response.arrayBuffer(), {
+    await platform.MEDIA.put(derivativeObjectKey, await response.arrayBuffer(), {
       httpMetadata: {
         contentType: derivativeContentType(name),
         // Set on the object rather than on a response, because the object is what `r2.dev`

@@ -31,8 +31,8 @@ const LABELS = {
   session: "session:",
   /**
    * A capability over one original object, handed to Cloudflare's image pipeline and to
-   * nothing else (ADR 0012). Keyed by `MEDIA_SECRET` rather than by either of the two
-   * above — see `web/src/lib/media/capability.ts` for why this one earns a third secret.
+   * nothing else (ADR 0012). Keyed by `ORIGINAL_SECRET` rather than by either of the two
+   * above — see `web/src/lib/photos/capability.ts` for why this one earns a third secret.
    */
   original: "original:",
 } as const;
