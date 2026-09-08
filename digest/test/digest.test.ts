@@ -8,7 +8,7 @@ import {
 } from "cloudflare:test";
 import { exports as workerExports } from "cloudflare:workers";
 import { createDb, subscribers } from "@pawster/db";
-import { digestIdempotencyKey } from "@pawster/domain";
+import { OPT_IN_TTL_MS, OPT_IN_WINDOW_MS, digestIdempotencyKey } from "@pawster/domain";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { verifyUnsubscribeToken } from "../src/unsubscribe.ts";
@@ -110,6 +110,8 @@ async function enqueuedBy(scheduledTime: Date): Promise<DigestMessage[]> {
 
 beforeEach(async () => {
   await env.DB.exec("DELETE FROM subscribers");
+  await env.DB.exec("DELETE FROM pending_opt_ins");
+  await env.DB.exec("DELETE FROM opt_in_mails");
 });
 
 describe("scheduled()", () => {
@@ -155,6 +157,118 @@ describe("scheduled()", () => {
     await runScheduled(WEDNESDAY);
 
     expect(outbound.callsTo("healthchecks")).toHaveLength(2);
+  });
+});
+
+/**
+ * The purge preamble ADR 0010 puts inside this Cron Trigger: "the purges run as a preamble to
+ * the daily digest run, inside the same Cron Trigger and under the same Healthchecks.io
+ * watchdog… a retention policy with no job behind it is a lie, and a second schedule would be
+ * a second thing that can die silently."
+ *
+ * Tested here rather than only against the query, because the query passing proves nothing
+ * about the obligation: an unwired purge is exactly the lie that sentence is about, and what
+ * makes the retention real is that *this handler* calls it.
+ */
+describe("the retention preamble", () => {
+  /** One unconfirmed opt-in, aged by `age` milliseconds. Carries the only IP in the model. */
+  async function seedPendingOptIn(tokenHash: string, age: number) {
+    await env.DB.prepare(
+      "INSERT INTO pending_opt_ins (token_hash, email, criteria, locale, ip_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+    )
+      .bind(tokenHash, "ana@adoptante.example", "{}", "es", "ip-fingerprint", WEDNESDAY.getTime() - age)
+      .run();
+  }
+
+  async function seedOptInMail(id: string, age: number) {
+    await env.DB.prepare(
+      "INSERT INTO opt_in_mails (id, email_hash, sent_at) VALUES (?, ?, ?)",
+    )
+      .bind(id, "address-fingerprint", WEDNESDAY.getTime() - age)
+      .run();
+  }
+
+  const countIn = async (table: string) =>
+    (await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${table}`).first<{ n: number }>())!.n;
+
+  it("destroys an unconfirmed opt-in past its seven days, and its IP with it", async () => {
+    await seedPendingOptIn("expired", OPT_IN_TTL_MS + 60_000);
+    await seedPendingOptIn("fresh", OPT_IN_TTL_MS - 60_000);
+
+    await runScheduled(WEDNESDAY);
+
+    const { results } = await env.DB.prepare(
+      "SELECT token_hash FROM pending_opt_ins",
+    ).all<{ token_hash: string }>();
+
+    // The IP lives on this row and nowhere else (ADR 0010), so destroying the row is what
+    // destroys the IP — there is no second delete to remember.
+    expect(results.map((row) => row.token_hash)).toEqual(["fresh"]);
+  });
+
+  it("drops mail-ledger rows past the window they serve, on a shorter clock", async () => {
+    /**
+     * The asymmetry is ADR 0010's rule that every period is derived from what the record is
+     * for. A ledger row answers the global ceiling and the per-address cooldown, both bounded
+     * by 24 hours, so a row a day old answers nothing — and keeping it for seven days to
+     * match its neighbour would be retention by symmetry.
+     */
+    await seedOptInMail("stale", OPT_IN_WINDOW_MS + 60_000);
+    await seedOptInMail("counted", OPT_IN_WINDOW_MS - 60_000);
+
+    await runScheduled(WEDNESDAY);
+
+    const { results } = await env.DB.prepare("SELECT id FROM opt_in_mails").all<{
+      id: string;
+    }>();
+    expect(results.map((row) => row.id)).toEqual(["counted"]);
+  });
+
+  it("reports what it destroyed to the watchdog", async () => {
+    /**
+     * ADR 0010 asks the purges to write "their counts into the `Digest Run` summary"; that
+     * table does not exist yet and the ping's detail body is the record that does. The
+     * reporting is the point rather than the destination — a purge that silently stopped
+     * finding rows looks exactly like a purge with nothing to do.
+     */
+    await seedPendingOptIn("expired", OPT_IN_TTL_MS + 60_000);
+    await seedOptInMail("stale", OPT_IN_WINDOW_MS + 60_000);
+
+    await runScheduled(WEDNESDAY);
+
+    const [ping] = outbound.callsTo("healthchecks");
+    expect(JSON.parse(ping!.body!)).toMatchObject({
+      purgedOptIns: 1,
+      purgedOptInMails: 1,
+    });
+  });
+
+  it("purges before enqueuing, so a shard that fails still leaves retention done", async () => {
+    /**
+     * A preamble and not an epilogue. The digest's own work can be cut short — by the shard
+     * budget, or by an enqueue that throws — and retention is the half with a legal
+     * obligation behind it, so it must not be downstream of the half that can fail.
+     */
+    await seedPendingOptIn("expired", OPT_IN_TTL_MS + 60_000);
+    await seedSubscriber("s-wed", "wed@example.org", 3);
+
+    const ctx = createExecutionContext();
+    await expect(
+      worker.scheduled(
+        createScheduledController({ scheduledTime: WEDNESDAY }),
+        {
+          ...env,
+          DIGEST_QUEUE: {
+            send: async () => {
+              throw new Error("the queue is down");
+            },
+          },
+        } as unknown as Parameters<typeof worker.scheduled>[1],
+        ctx,
+      ),
+    ).rejects.toThrow(/queue is down/);
+
+    expect(await countIn("pending_opt_ins")).toBe(0);
   });
 });
 

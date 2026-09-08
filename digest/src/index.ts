@@ -1,5 +1,10 @@
-import { createDb, subscribers } from "@pawster/db";
-import { DIGEST_DAILY_BUDGET, digestIdempotencyKey } from "@pawster/domain";
+import { createDb, runSubscriberPurges, subscribers } from "@pawster/db";
+import {
+  DIGEST_DAILY_BUDGET,
+  digestIdempotencyKey,
+  optInMailLedgerCutoff,
+  optInPurgeCutoff,
+} from "@pawster/domain";
 import { asc, eq } from "drizzle-orm";
 import type { DigestMessage, Env } from "./env.ts";
 import { pingWatchdog } from "./watchdog.ts";
@@ -12,9 +17,9 @@ import { unsubscribeUrl } from "./unsubscribe.ts";
  * gets its own 3 MB bundle and 10 ms CPU budget, deploys independently, and — the reason
  * that matters — can be tested without booting Astro (ADR 0007).
  *
- * The skeleton's run is deliberately thin: it finds today's shard, enqueues one message
- * per subscriber, and pings the watchdog once the shard is enqueued. What is settled here
- * is the shape —
+ * The run is deliberately thin: it purges what retention is due, finds today's shard,
+ * enqueues one message per subscriber, and pings the watchdog once the shard is enqueued.
+ * What is settled here is the shape —
  * fan-out is forced by the 50-subrequest and 10 ms limits, so neither handler may do
  * unbounded work in one invocation (ADR 0006). Matching animals to subscriptions is the
  * next ticket's job and slots into `queue()` below.
@@ -32,9 +37,33 @@ export default {
     ctx: ExecutionContext,
   ): Promise<void> {
     const period = periodOf(controller.scheduledTime);
-    const sendDay = new Date(controller.scheduledTime).getUTCDay();
+    const now = new Date(controller.scheduledTime);
+    const sendDay = now.getUTCDay();
 
     const db = createDb(env.DB);
+
+    /**
+     * Retention first, before a single message is enqueued.
+     *
+     * [ADR 0010](../../docs/adr/0010-subscriber-data-retention.md) puts the purges here and
+     * says why it is here rather than on a schedule of its own: "a retention policy with no
+     * job behind it is a lie, and a second schedule would be a second thing that can die
+     * silently." Sharing this trigger means the purges are covered by the same watchdog as
+     * the digest, so a run that stops purging is a run that stops reporting.
+     *
+     * A **preamble** and not an epilogue, deliberately. The digest's own work can be cut
+     * short by the shard budget or by an enqueue that throws, and retention is the half with
+     * a legal obligation behind it — an unconfirmed opt-in is an address the platform holds
+     * no consent for at all. So it runs while there is certainly budget left.
+     *
+     * The 10 ms CPU ceiling is not a constraint on two database-side `DELETE`s, and lag
+     * equals the run's own lag, which periods of 7 and 1 days absorb without harm.
+     */
+    const purged = await runSubscriberPurges(db, {
+      optIns: optInPurgeCutoff(now),
+      mailLedger: optInMailLedgerCutoff(now),
+    });
+
     /**
      * "A shard that exceeds its budget sends its longest-waiting subscribers and defers
      * the rest to tomorrow" (ADR 0009). The ordering is the whole of that sentence: with a
@@ -69,6 +98,16 @@ export default {
       pingWatchdog(env.HEALTHCHECK_URL, "success", {
         period,
         subscribers: shard.length,
+        /**
+         * ADR 0010 asks the purges to write "their counts into the `Digest Run` summary".
+         * That table does not exist yet, and the ping's detail body is the record that does —
+         * so the counts go here until it lands. It is the reporting that matters rather than
+         * the destination: a purge that silently stopped finding rows looks exactly like a
+         * purge with nothing to do, and these two numbers are the only thing that tells them
+         * apart.
+         */
+        purgedOptIns: purged.optIns,
+        purgedOptInMails: purged.mailLedger,
       }),
     );
   },

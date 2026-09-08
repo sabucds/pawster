@@ -1,3 +1,5 @@
+import { OPT_IN_TTL_MS, optInMailLedgerCutoff } from "@pawster/domain";
+
 /**
  * The numbers and verdicts of subscriber opt-in, with no I/O and no clock of its own.
  *
@@ -27,17 +29,35 @@
 export const MAX_SUBSCRIPTIONS_PER_SUBSCRIBER = 3;
 
 /**
- * Seven days, and **one constant serves both** the opt-in link's lifetime and the purge
- * cutoff that destroys the row the link names.
+ * The opt-in link's lifetime, and the days it comes to.
  *
- * That is the design rather than a convenience. The row *is* what the link names, so a link
- * outliving its row is a link that finds nothing anyway; deriving
- * {@link optInPurgeCutoff} from the same figure makes "the link stops working exactly when
- * the row is due for destruction" true by construction. Two constants would have been two
- * facts that can disagree about a single moment — the mistake `db/`'s `upload_sessions`
- * comment already names about carrying a `createdAt` and an `expiresAt` side by side.
+ * **Re-exported from `@pawster/db` rather than declared here**, which is the one placement in
+ * this file that is not obvious. It reads most naturally beside the rest of the signup policy
+ * — the link's lifetime is a rule about a form — and that placement made the policy honest
+ * and the retention a lie: ADR 0010 runs the purge inside the digest's Cron Trigger, and
+ * `digest/` cannot import `web/`. A period declared where the job that enforces it cannot
+ * reach is a period nothing enforces. `domain/src/retention.ts` carries the full argument and
+ * the reason the figure is seven days; `db/src/retention.ts` holds the deletes that spend it.
+ *
+ * What the move preserves is the property the figure exists for: one constant serves both the
+ * link's lifetime and the cutoff that destroys the row it names, now across two Workers
+ * rather than two files that can disagree.
  */
-export const OPT_IN_TTL_MS = 7 * 24 * 60 * 60_000;
+export {
+  OPT_IN_TTL_MS,
+  OPT_IN_WINDOW_MS,
+  optInMailLedgerCutoff,
+  optInPurgeCutoff,
+} from "@pawster/domain";
+
+/**
+ * The link's lifetime in whole days, for the three pages and the email that say it out loud.
+ *
+ * Derived here rather than at each surface, because `Math.round(OPT_IN_TTL_MS / 86_400_000)`
+ * written four times is four places that would keep agreeing only by luck — and the number a
+ * subscriber is told is the one promise on this path they can check.
+ */
+export const OPT_IN_TTL_DAYS = Math.round(OPT_IN_TTL_MS / (24 * 60 * 60_000));
 
 /**
  * At most one opt-in mail per address per 24 hours (ADR 0010).
@@ -45,6 +65,13 @@ export const OPT_IN_TTL_MS = 7 * 24 * 60 * 60_000;
  * Refused **silently**. Telling a caller it is inside a cooldown reveals that somebody asked
  * about that address recently, which is a fact about the address and therefore exactly the
  * oracle the identical-response rule exists to close.
+ *
+ * The same figure as `OPT_IN_WINDOW_MS` and deliberately **not** derived from it. They are two
+ * facts that happen to coincide: ADR 0010 sets this one directly ("at most one opt-in mail per
+ * address per 24 hours"), while the window is a separate choice about how the global ceiling is
+ * counted, and one of them moving should not move the other. That is the opposite call from
+ * `OPT_IN_TTL_MS` serving two purposes, and the test is whether the two uses are the *same
+ * fact*: there, they are — the row is what the link names.
  */
 export const OPT_IN_MAIL_COOLDOWN_MS = 24 * 60 * 60_000;
 
@@ -269,17 +296,11 @@ export function refuseSignup(state: SignupState, now: Date): SignupRefusal | nul
 }
 
 /**
- * The trailing-day window the global opt-in ceiling is counted over.
- *
- * A rolling 24 hours rather than a calendar day, matching sign-in: a fixed reset hands an
- * attacker two full allocations back to back across the boundary, and 00:00 UTC is 20:00 in
- * Venezuela — the middle of the evening rather than a quiet hour.
+ * The start of the window the global ceiling is counted over. `optInMailLedgerCutoff()` under
+ * another name: the ledger holds rows for exactly as long as this window can see them, which
+ * is why one function computes both and this is an alias rather than a second subtraction.
  */
-export const OPT_IN_WINDOW_MS = 24 * 60 * 60_000;
-
-export function optInWindowStart(now: Date): Date {
-  return new Date(now.getTime() - OPT_IN_WINDOW_MS);
-}
+export { optInMailLedgerCutoff as optInWindowStart } from "@pawster/domain";
 
 export function signupIpWindowStart(now: Date): Date {
   return new Date(now.getTime() - SIGNUP_IP_WINDOW_MS);
@@ -342,16 +363,4 @@ export function refuseOptIn(
 
 export function isOptInExpired(createdAt: Date, now: Date): boolean {
   return now.getTime() - createdAt.getTime() >= OPT_IN_TTL_MS;
-}
-
-/**
- * The instant before which pending opt-in rows are due for destruction; anything created at
- * or before it is gone.
- *
- * Derived from {@link OPT_IN_TTL_MS}, which is the point: this is the same fact as the link's
- * expiry, read from the other end. #66 owns running it on a schedule — this supplies the
- * cutoff and nothing else.
- */
-export function optInPurgeCutoff(now: Date): Date {
-  return new Date(now.getTime() - OPT_IN_TTL_MS);
 }

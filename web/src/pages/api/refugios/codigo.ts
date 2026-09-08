@@ -50,6 +50,7 @@ import {
   recordSignInRequest,
 } from "../../../lib/auth/store.ts";
 import { clientIp } from "../../../lib/client-ip.ts";
+import { seeOther } from "../../../lib/see-other.ts";
 
 export const prerender = false;
 
@@ -90,18 +91,15 @@ function codeFormResponse(requestToken: string): Response {
 /**
  * The refusal, which is deliberately *not* address-specific.
  *
- * Only the global ceiling and the IP limit reach here, and neither is a fact about the
- * submitted address: the ceiling is platform-wide state, and the IP limit is a fact about
- * the caller. A per-address refusal must never land here — telling a caller it is inside a
- * five-minute cooldown confirms the address exists, which is the whole thing this endpoint
- * is built not to do. Those two are refused silently, with the success response.
+ * Only the global ceiling and the IP limit reach `seeOther` on this path, and neither is a
+ * fact about the submitted address: the ceiling is platform-wide state, and the IP limit is a
+ * fact about the caller. A per-address refusal must never be spoken — telling a caller it is
+ * inside a five-minute cooldown confirms the address exists, which is the whole thing this
+ * endpoint is built not to do. Those two are refused silently, with the success response.
  *
- * The two that do reach here take *different* pages, because they are different facts and
- * one page cannot be honest about both. See {@link TOO_MANY}.
+ * The two that are spoken take *different* pages, because they are different facts and one
+ * page cannot be honest about both. See {@link TOO_MANY}.
  */
-function refusalResponse(location: string): Response {
-  return new Response(null, { status: 303, headers: { location } });
-}
 
 export const POST: APIRoute = async ({ request }) => {
   const db = createDb(env.DB);
@@ -115,7 +113,7 @@ export const POST: APIRoute = async ({ request }) => {
    * to D1 without limit. Over the limit, the cost of a request is one indexed `COUNT(*)`.
    */
   if ((await countIpRequests(db, ipHash, now)) >= SIGN_IN_IP_REQUEST_LIMIT) {
-    return refusalResponse(TOO_MANY);
+    return seeOther(TOO_MANY);
   }
 
   const accountEmail = parseCodeRequest(await request.formData());
@@ -144,7 +142,7 @@ export const POST: APIRoute = async ({ request }) => {
       { shelterId: shelter?.id ?? null, ipHash, mailSent: false },
       now,
     );
-    return refusalResponse(TRY_LATER);
+    return seeOther(TRY_LATER);
   }
 
   if (shelter === null || refusal !== null) {

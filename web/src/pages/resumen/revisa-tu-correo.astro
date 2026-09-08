@@ -1,8 +1,6 @@
 ---
 import Resumen from "../../layouts/Resumen.astro";
-import { OPT_IN_TTL_MS } from "../../lib/subscriber/policy.ts";
-
-const days = Math.round(OPT_IN_TTL_MS / (24 * 60 * 60_000));
+import { OPT_IN_TTL_DAYS } from "../../lib/subscriber/policy.ts";
 
 /**
  * **The identical response**, and the whole of issue #61's third acceptance criterion.
@@ -34,7 +32,7 @@ const days = Math.round(OPT_IN_TTL_MS / (24 * 60 * 60_000));
   </p>
 
   <p>
-    El enlace sirve una sola vez y vence en {days} días. Si no te llega en unos minutos,
+    El enlace sirve una sola vez y vence en {OPT_IN_TTL_DAYS} días. Si no te llega en unos minutos,
     revisa la carpeta de spam y que el correo esté bien escrito.
   </p>
 

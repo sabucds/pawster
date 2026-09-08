@@ -23,6 +23,12 @@
  *   [ADR 0010](../../../../docs/adr/0010-subscriber-data-retention.md) allows the subscriber
  *   model exactly one table holding an IP and `opt_in_mails` is not it. `policy.ts`'s
  *   `SIGNUP_IP_REQUEST_LIMIT` records what that costs.
+ *
+ * **The purges that destroy both tables' rows are not here.** They are in
+ * `db/src/retention.ts`, called from `digest/`'s `scheduled()` preamble, because ADR 0010 puts
+ * them inside the digest's Cron Trigger and `digest/` cannot import `web/`. That file records
+ * the placement; what matters from this end is that nothing on the signup path deletes, so
+ * every query below is a read or an append.
  */
 
 import type { Database } from "@pawster/db";
@@ -36,7 +42,7 @@ import {
 import type { PendingOptIn } from "@pawster/db";
 import type { SubscriptionCriteria } from "@pawster/domain";
 import { readCriteria, writeCriteria } from "@pawster/domain";
-import { and, count, desc, eq, gte, lt } from "drizzle-orm";
+import { and, count, desc, eq, gte } from "drizzle-orm";
 import { normaliseAddress } from "./crypto.ts";
 import type {
   SendDay,
@@ -52,32 +58,29 @@ import {
   signupIpWindowStart,
 } from "./policy.ts";
 
-/** What {@link readSignupState} needs, all of it already hashed by the endpoint. */
+/**
+ * What {@link readSignupState} needs, all of it already hashed by the endpoint.
+ *
+ * Every field is required, unlike `readMailBudgetUsage()`'s nullable `shelterId`. That
+ * asymmetry is worth a line, because the nullable version was written first and was dead
+ * code: sign-in has to do the same work for an address that resolves to nobody as for one
+ * that does, since telling those apart *is* the enumeration answer there — but a signup with
+ * no usable address never reaches this function at all. `suscribir.ts` answers
+ * `correo-invalido` from the parse, before a hash is taken or a query is run, and that is
+ * allowed precisely because the shape of an address reveals nothing about its owner.
+ */
 export interface SignupSubject {
-  /**
-   * The submitted address, normalised — or `null` where the field was unusable.
-   *
-   * `null` means the reads below are done anyway and answered with zeros, the same shape
-   * `readMailBudgetUsage()` takes: the work done for a malformed address and for a
-   * well-formed stranger has to be the same, or the endpoint's identical response is
-   * distinguishable by how long it took.
-   */
-  readonly email: string | null;
-  /** `hashSubscriberEmail()` of the same address, or `null` alongside it. */
-  readonly emailHash: string | null;
-  /** `doNotContactDigest()` of the same address, or `null` alongside it. */
-  readonly doNotContactDigest: string | null;
-  /** `hashSignupIp()` of the caller. Never `null` — an unattributable caller shares one bucket. */
+  /** The submitted address, normalised. */
+  readonly email: string;
+  /** `hashSubscriberEmail()` of the same address. */
+  readonly emailHash: string;
+  /** `doNotContactDigest()` of the same address. */
+  readonly doNotContactDigest: string;
+  /** `hashSignupIp()` of the caller. An unattributable caller shares one bucket. */
   readonly ipHash: string;
 }
 
-/**
- * Everything `refuseSignup()` decides on, in one pass.
- *
- * The global ceiling is read for every caller, including one whose address is unusable, so
- * that the honest refusal a full platform owes ("try again in a few hours") is reachable
- * without first establishing that there is an address to refuse.
- */
+/** Everything `refuseSignup()` decides on, in one pass. */
 export async function readSignupState(
   db: Database,
   subject: SignupSubject,
@@ -100,24 +103,6 @@ export async function readSignupState(
       ),
     );
 
-  const shared = {
-    optInMailsInWindow: global?.n ?? 0,
-    ipRequestsInWindow: ip?.n ?? 0,
-  };
-
-  if (
-    subject.email === null ||
-    subject.emailHash === null ||
-    subject.doNotContactDigest === null
-  ) {
-    return {
-      ...shared,
-      onDoNotContact: false,
-      subscriptionCount: 0,
-      lastOptInMailAt: null,
-    };
-  }
-
   const [refused] = await db
     .select({ digest: doNotContact.digest })
     .from(doNotContact)
@@ -139,7 +124,8 @@ export async function readSignupState(
     .limit(1);
 
   return {
-    ...shared,
+    optInMailsInWindow: global?.n ?? 0,
+    ipRequestsInWindow: ip?.n ?? 0,
     onDoNotContact: refused !== undefined,
     subscriptionCount: await countSubscriptionsFor(db, subject.email),
     lastOptInMailAt: lastMail?.at ?? null,
@@ -393,64 +379,6 @@ export function pendingCriteria(pending: PendingOptIn): SubscriptionCriteria {
 }
 
 /**
- * Destroy every unconfirmed opt-in past its seven days, and with it the only IP the
- * subscriber model holds.
- *
- * ADR 0010 runs the purges "as a preamble to the daily digest run, inside the same Cron
- * Trigger and under the same Healthchecks.io watchdog", because "a retention policy with no
- * job behind it is a lie, and a second schedule would be a second thing that can die
- * silently". **That job is issue #66 and it does not exist yet**, so what is here is the
- * query and its test and not a running purge.
- *
- * The reason it stops here rather than being wired into `digest/scheduled()` today is a
- * package boundary rather than a preference: `digest/` imports `@pawster/db` and
- * `@pawster/domain` and cannot import `web/`, and both this query and the cutoff it takes
- * live in `web/` because the *rule* about what may be held belongs beside the code that
- * writes it. So #66 owns a decision as well as a schedule — either these two functions and
- * `OPT_IN_TTL_MS` move into a package both Workers can reach, or the cron calls a `web/`
- * route. Neither is a call this ticket should make inside that one's file.
- *
- * What holds meanwhile, and is worth being exact about: the *link* dies on time regardless,
- * because `refuseOptIn()` compares the row's age against the request clock on every
- * redemption. What waits for #66 is the row's destruction, not its expiry.
- *
- * The cutoff comes from `optInPurgeCutoff()`, which is `OPT_IN_TTL_MS` read from the other
- * end — so a row is destroyed at exactly the moment its link stops working, by construction
- * rather than by two figures agreeing.
- */
-export async function purgeExpiredOptIns(
-  db: Database,
-  cutoff: Date,
-): Promise<number> {
-  const rows = await db
-    .delete(pendingOptIns)
-    .where(lt(pendingOptIns.createdAt, cutoff))
-    .returning({ tokenHash: pendingOptIns.tokenHash });
-  return rows.length;
-}
-
-/**
- * Drop mail-ledger rows older than the window they exist to serve.
- *
- * A **shorter** retention than the opt-in rows above, and the asymmetry is ADR 0010's rule
- * that "every other retention period is derived from what the record is for, never guessed".
- * These rows answer two questions, both bounded by 24 hours — the global ceiling and the
- * per-address cooldown — so a row a day old answers nothing, and it is a fingerprint of an
- * address the platform may hold no consent for. Keeping it to match the seven-day figure
- * next door would be retention by symmetry.
- */
-export async function purgeOptInMailLedger(
-  db: Database,
-  cutoff: Date,
-): Promise<number> {
-  const rows = await db
-    .delete(optInMails)
-    .where(lt(optInMails.sentAt, cutoff))
-    .returning({ id: optInMails.id });
-  return rows.length;
-}
-
-/**
  * Whether the configured pepper is the one the Do-Not-Contact list was written under, and the
  * bootstrap that answers the question the first time.
  *
@@ -464,13 +392,19 @@ export async function purgeOptInMailLedger(
  * A row also makes the check the same point lookup the refusal itself is, so it costs one
  * indexed read on the signup path.
  *
- * Writing the row when it is absent is the provisioning step, and it has one honest
- * consequence worth stating: **the first pepper the platform ever sees becomes the canonical
- * one**, typo and all. That is inherent to self-bootstrapping, and the alternative — a
- * provisioning script run once by hand — belongs with the first public deploy (issue #67).
- * What this guarantees from that moment on is that a *change* is loud.
+ * **The bootstrap is allowed only into an empty table**, and that condition is the whole
+ * strength of the check. Writing the canary whenever it is merely absent would have left the
+ * failure it guards reachable in one step: delete the canary row, and the next signup writes
+ * a fresh one under whatever pepper is now configured, while every real entry beside it has
+ * silently stopped matching. Requiring the table to hold nothing at all closes that, because
+ * a table with no entries has nothing that *can* fail open — there is no refusal to lose.
  *
- * @throws if the pepper has changed since the canary was written.
+ * One honest consequence remains, and it belongs in the provisioning record rather than being
+ * discovered: **the pepper in place at the platform's first-ever signup becomes canonical**,
+ * typo and all. That is inherent to self-bootstrapping, and `docs/provisioning-record.md` now
+ * says to set the secret before that moment.
+ *
+ * @throws if the pepper has changed, or if entries exist with no canary beside them.
  */
 export async function assertPepperUnchanged(
   db: Database,
@@ -483,35 +417,51 @@ export async function assertPepperUnchanged(
     .where(eq(doNotContact.reason, "canary"))
     .limit(1);
 
-  if (stored === undefined) {
-    await db
-      .insert(doNotContact)
-      .values({ digest: canary, reason: "canary", recordedAt: now })
-      // Two first-ever signups arriving together both find no canary and both write one.
-      // They compute the same digest, so the loser's row is the winner's row.
-      .onConflictDoNothing();
+  if (stored !== undefined) {
+    if (stored.digest !== canary) {
+      throw new Error(
+        "DO_NOT_CONTACT_PEPPER does not match the pepper the Do-Not-Contact list was " +
+          "written under. Every entry has silently stopped matching (ADR 0010). Restore " +
+          "the original pepper; do not clear the canary.",
+      );
+    }
     return;
   }
 
-  if (stored.digest !== canary) {
+  const [anyEntry] = await db
+    .select({ digest: doNotContact.digest })
+    .from(doNotContact)
+    .limit(1);
+
+  if (anyEntry !== undefined) {
     throw new Error(
-      "DO_NOT_CONTACT_PEPPER does not match the pepper the Do-Not-Contact list was " +
-        "written under. Every entry has silently stopped matching (ADR 0010). Restore the " +
-        "original pepper; do not clear the canary.",
+      "The Do-Not-Contact list holds entries but no canary, so there is no way to tell " +
+        "whether DO_NOT_CONTACT_PEPPER still matches what they were written under (ADR " +
+        "0010). Restore the canary row rather than deleting the entries.",
     );
   }
+
+  await db
+    .insert(doNotContact)
+    .values({ digest: canary, reason: "canary", recordedAt: now })
+    // Two first-ever signups arriving together both find an empty table and both write a
+    // canary. They compute the same digest, so the loser's row is the winner's row.
+    .onConflictDoNothing();
 }
 
 /**
  * Put an address beyond contact.
  *
- * **Issue #61 only reads the Do-Not-Contact list**; what puts an address on it is a
- * Retirement, which belongs to the ticket that handles Resend's complaint webhook. This is
- * here because the write has to exist somewhere the moment the table does — the canary above
- * already writes it, and the suite has to be able to put an address on the list in order to
- * assert that the signup form refuses it silently. A second module that also inserted here
- * would be a second place the reason vocabulary and the digest's construction are spelled
- * out.
+ * The `complaint` half of a table this module already writes: {@link assertPepperUnchanged}
+ * inserts the `canary` row, so the question was never whether this file writes
+ * `do_not_contact` but whether both reasons live together — and they should, because the
+ * digest's construction and the reason vocabulary are then spelled out once.
+ *
+ * What *decides* to refuse an address is a Retirement, which belongs to the ticket that reads
+ * Resend's complaint webhook; this is the statement it will call. The suite is its other
+ * caller, and not incidentally: the identical-response rule cannot be tested without putting
+ * an address on the list, and a test that hand-rolled the insert would be a second copy of
+ * the schema knowledge above.
  *
  * The conflict deliberately changes nothing: an address refused twice has one entry, and the
  * date worth keeping is the earlier one.

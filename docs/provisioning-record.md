@@ -166,14 +166,35 @@ Needing only `pawster-media`, which exists (free, ~2 minutes):
   first cross-origin `fetch`; without the header the listing is empty in a way
   that looks like a broken index rather than a missing response header.
 
-Needing the digest Worker, which does not exist yet:
+Needing the digest Worker, which now exists as `digest/`:
 
-- `wrangler secret put HEALTHCHECKS_PING_URL`
-- `wrangler secret put PAWSTER_DNC_PEPPER`
-- `wrangler secret put PAWSTER_LINK_SIGNING_KEY`
+- `wrangler secret put UNSUBSCRIBE_SECRET` — signs unsubscribe links; this is
+  the key the list above called `PAWSTER_LINK_SIGNING_KEY` before the Worker
+  was written and named it
 - wire `pawster-digest-dlq` as `pawster-digest`'s dead-letter queue
 - point the `pawster-digest-dlq` consumer at the Healthchecks `/fail` endpoint
-  (ADR 0009)
+  (ADR 0009). `HEALTHCHECK_URL` is a committed `var` rather than a secret: it
+  is a check URL, not a credential, and `digest/wrangler.jsonc` carries it
+
+Needing the web Worker, on which subscriber signup landed with issue #61:
+
+- `wrangler secret put SUBSCRIBER_SECRET` — keys the opt-in token hash, the
+  signup IP fingerprints and the mail ledger's address fingerprints. Rotatable;
+  everything it protects fails closed and self-heals inside seven days.
+- `wrangler secret put DO_NOT_CONTACT_PEPPER` — this is the key the list above
+  called `PAWSTER_DNC_PEPPER`, and two things about it changed once the code
+  existed. It belongs on **`web`** and not on `digest`, because the reader is
+  the signup form ([ADR 0010](adr/0010-subscriber-data-retention.md): "the
+  signup form computes the same HMAC over what was typed and refuses on a
+  match"); and it **must be set before the first signup the platform ever
+  serves**. `web/src/lib/subscriber/store.ts` writes a canary over a fixed
+  string on first use and compares against it forever after, so whatever pepper
+  is in place at that moment becomes the canonical one. Setting it afterwards
+  is not a fix — it is the rotation ADR 0010 says must never happen, and the
+  canary will refuse every signup with a 500 until the original is restored.
+  **Never rotate it.** A lost pepper fails *open*: every Do-Not-Contact entry
+  silently stops matching and the platform resumes mailing people who reported
+  it as spam.
 
 ## Settled since
 

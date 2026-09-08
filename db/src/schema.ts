@@ -745,7 +745,6 @@ export const storageMeasurements = sqliteTable(
 export type Shelter = typeof shelters.$inferSelect;
 export type Animal = typeof animals.$inferSelect;
 export type Subscriber = typeof subscribers.$inferSelect;
-export type SubscriberLocaleColumn = Subscriber["locale"];
 export type Subscription = typeof subscriptions.$inferSelect;
 export type PendingOptIn = typeof pendingOptIns.$inferSelect;
 export type OptInMail = typeof optInMails.$inferSelect;

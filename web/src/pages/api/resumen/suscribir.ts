@@ -26,17 +26,40 @@
  * shaped like an email" answers nothing about anybody's inbox. It is checked first, so a
  * request with nothing usable in it costs no reads and no writes.
  *
- * **The response timing still leaks, and is not fixed here.** Only the sending branch awaits
- * Resend, so it answers hundreds of milliseconds later than a silent refusal. Closing that
- * needs either a `waitUntil` the Astro adapter no longer exposes or a fixed response floor
- * that spends the CPU ADR 0007 is trying not to spend. The honest statement, the same one
- * `codigo.ts` makes: this endpoint resists *reading* the answer and not *timing* it.
+ * ## Two channels this does not close, stated rather than assumed away
+ *
+ * **The response timing leaks.** Only the sending branch awaits Resend, so it answers
+ * hundreds of milliseconds later than a silent refusal. Closing it needs either a `waitUntil`
+ * the Astro adapter no longer exposes or a fixed response floor that spends the CPU ADR 0007
+ * is trying not to spend. Same statement `codigo.ts` makes: this resists *reading* the answer
+ * and not *timing* it.
+ *
+ * **The daily ceiling's counter leaks, and it is the sharper of the two.** A silent refusal
+ * spends none of `OPT_IN_GLOBAL_DAILY_CEILING`; a mailable address spends one. So an attacker
+ * holding six addresses of its own can submit the address it is asking about, then count how
+ * many of its own get through before `espera` — six means the target was refused, five means
+ * it was mailed. One bit per day, at the cost of exhausting the platform's signup capacity
+ * while doing it.
+ *
+ * It is left open because every fix is worse, and the alternatives are worth naming so the
+ * next reader does not re-derive them. Charging a ledger row for *every* request closes the
+ * channel and hands the same attacker a six-request denial of service against the whole day's
+ * signups. Making the ceiling silent closes it too, and costs the honest refusal a real
+ * person needs — `policy.ts` argues at length that "try again in a few hours" is actionable
+ * where "check your inbox" for mail that was never sent is a lie. Any design in which a
+ * refused address costs less than a mailed one leaks through the counter; the only leak-free
+ * shapes are those two.
+ *
+ * Worth knowing that this is not new and not this endpoint's: ADR 0013's sign-in path has the
+ * identical property, since a registered address spends mail and a stranger does not, and its
+ * ceiling is spoken for the same reason. Whatever closes one closes both.
  */
 
 import { createDb } from "@pawster/db";
 import type { APIRoute } from "astro";
 import { env } from "cloudflare:workers";
 import { clientIp } from "../../../lib/client-ip.ts";
+import { seeOther } from "../../../lib/see-other.ts";
 import {
   doNotContactCanary,
   doNotContactDigest,
@@ -74,10 +97,6 @@ const TOO_MANY = "/resumen/demasiados";
 
 /** The platform has no opt-in mail left today. A fact about the platform. */
 const TRY_LATER = "/resumen/espera";
-
-function seeOther(location: string): Response {
-  return new Response(null, { status: 303, headers: { location } });
-}
 
 export const POST: APIRoute = async ({ request }) => {
   const db = createDb(env.DB);

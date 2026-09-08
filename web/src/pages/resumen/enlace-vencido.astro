@@ -1,8 +1,6 @@
 ---
 import Resumen from "../../layouts/Resumen.astro";
-import { OPT_IN_TTL_MS } from "../../lib/subscriber/policy.ts";
-
-const days = Math.round(OPT_IN_TTL_MS / (24 * 60 * 60_000));
+import { OPT_IN_TTL_DAYS } from "../../lib/subscriber/policy.ts";
 
 /**
  * The link does not work, and this page cannot say which kind of not working it is.
@@ -27,7 +25,7 @@ const days = Math.round(OPT_IN_TTL_MS / (24 * 60 * 60_000));
 <Resumen title="El enlace ya no sirve" heading="Ese enlace ya no sirve">
   <p data-testid="dead-link">
     Puede que ya lo hayas usado — sirve una sola vez — o que se haya vencido: los enlaces
-    duran {days} días y después borramos la solicitud.
+    duran {OPT_IN_TTL_DAYS} días y después borramos la solicitud.
   </p>
 
   <p>

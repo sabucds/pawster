@@ -17,12 +17,14 @@ import {
 import { encodeSession } from "../src/lib/auth/session.ts";
 import { readShelterFacts } from "../src/lib/auth/store.ts";
 import {
-  REGISTRATION,
-  ageMailLedger,
-  clearShelterTables,
   cookieFrom,
   get,
   post,
+} from "./support/http.ts";
+import {
+  REGISTRATION,
+  ageMailLedger,
+  clearShelterTables,
   register,
   requestCode,
   signIn,

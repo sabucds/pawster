@@ -8,7 +8,10 @@ import {
   DEFAULT_SUBSCRIBER_LOCALE,
   MAX_SUBSCRIPTIONS_PER_SUBSCRIBER,
 } from "../../lib/subscriber/policy.ts";
-import { MAX_REGION_LENGTH } from "@pawster/domain";
+import {
+  MAX_CRITERIA_VALUES_PER_AXIS,
+  MAX_REGION_LENGTH,
+} from "@pawster/domain";
 
 /**
  * Save a search.
@@ -72,11 +75,19 @@ import { MAX_REGION_LENGTH } from "@pawster/domain";
       <legend>{REGION_HEADING}</legend>
       <p>
         <label for="regions">Estados, separados por comas</label><br />
+        <!--
+          `maxlength` is derived from the two constants that actually bound this axis rather
+          than picked: the parser keeps up to `MAX_CRITERIA_VALUES_PER_AXIS` regions of up to
+          `MAX_REGION_LENGTH` each, so anything shorter than their product would truncate a
+          submission the parser would have accepted — and "a subscription can name several
+          regions" is one of the ticket's own acceptance criteria. The `+ 2` per value is the
+          comma and the space between them.
+        -->
         <input
           id="regions"
           name="regions"
           type="text"
-          maxlength={MAX_REGION_LENGTH * 4}
+          maxlength={(MAX_REGION_LENGTH + 2) * MAX_CRITERIA_VALUES_PER_AXIS}
           placeholder="Miranda, Distrito Capital, Aragua"
         />
       </p>

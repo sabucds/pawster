@@ -1,11 +1,14 @@
 /**
- * The es-VE words for the criteria vocabularies, and the one place the signup form and the
- * opt-in page take them from.
+ * The es-VE words for the things a subscriber picks from a list: the criteria vocabularies
+ * and the weekdays.
  *
- * Two surfaces render the same six axes — the form offers them as checkboxes and the opt-in
- * page reads back what was chosen — so a second copy would be two lists that can disagree
- * about what a subscriber ticked. `CONTEXT.md`'s *User-facing Spanish* table governs every
- * word here.
+ * The scope is deliberately "vocabulary values", not "all subscriber copy". Two surfaces
+ * render the same six axes — the form offers them as checkboxes and the opt-in page reads back
+ * what was chosen — so a second copy of *these* would be two lists that can disagree about
+ * what a subscriber ticked. Prose stays where it is read: a page's sentences are in the page,
+ * and the opt-in email's body is in `mail.ts`, because a paragraph has one surface and moving
+ * it here would buy nothing but distance. `CONTEXT.md`'s *User-facing Spanish* table governs
+ * every word in all of those places.
  *
  * ## The shape ADR 0018 asks for, in the package that needs it
  *
@@ -25,11 +28,7 @@
  */
 
 import {
-  AGE_BANDS,
-  GOOD_WITH_AXES,
-  SEXES,
-  SIZES,
-  SPECIES,
+  CRITERIA_VOCABULARIES,
   type AgeBand,
   type GoodWithAxis,
   type Sex,
@@ -100,37 +99,80 @@ export interface LabelledAxis {
   readonly values: readonly { readonly value: string; readonly label: string }[];
 }
 
-const axis = (
+/**
+ * One axis, with the vocabulary and its words checked against each other.
+ *
+ * **Generic over the vocabulary's element type**, which is the line that makes the module
+ * comment's claim true rather than decorative. Widened to `readonly string[]` plus
+ * `Record<string, string>`, this factory would accept a label record missing an entry and
+ * produce `undefined` at runtime — throwing away exactly the guarantee each `satisfies`
+ * above establishes, at the one place it has to survive to be worth anything.
+ */
+const labelledAxis = <Value extends string>(
   field: LabelledAxis["field"],
   heading: string,
-  vocabulary: readonly string[],
-  labels: Readonly<Record<string, string>>,
+  vocabulary: readonly Value[],
+  labels: Readonly<Record<Value, string>>,
 ): LabelledAxis => ({
   field,
   heading,
   // Mapped over the vocabulary rather than over the label record, so the order rendered is
   // the canonical order `parseCriteria()` sorts into — `axes.ts` calls that order load-bearing
   // and a subscriber reading their own choices back should find them in it.
-  values: vocabulary.map((value) => ({ value, label: labels[value]! })),
+  values: vocabulary.map((value) => ({ value, label: labels[value] })),
 });
 
 /**
  * Every closed axis, in the order the form asks about them.
+ *
+ * The vocabularies come through `CRITERIA_VOCABULARIES` rather than as five separate imports,
+ * because that is what it exists for: its own comment promises that "the form that renders the
+ * checkboxes and the parser that reads them back have to agree, and the cheapest way to
+ * guarantee that is for both to name the same import". Importing `SPECIES` and friends
+ * individually here would have left that promise unkept by the only form there is.
  *
  * Species first because it is the one axis that narrows the others — `Cachorro` and `Gatico`
  * only make sense once you know which animal is being asked about — and good-with last
  * because it is a question about the adopter's home rather than about the animal.
  */
 export const LABELLED_AXES: readonly LabelledAxis[] = [
-  axis("species", "¿Perro o gato?", SPECIES, SPECIES_LABELS),
-  axis("ageBands", "Etapa", AGE_BANDS, AGE_BAND_LABELS),
-  axis("sizes", "Tamaño adulto", SIZES, SIZE_LABELS),
-  axis("sexes", "Sexo", SEXES, SEX_LABELS),
-  axis("goodWith", "Convivencia", GOOD_WITH_AXES, GOOD_WITH_LABELS),
+  labelledAxis(
+    "species",
+    "¿Perro o gato?",
+    CRITERIA_VOCABULARIES.species,
+    SPECIES_LABELS,
+  ),
+  labelledAxis(
+    "ageBands",
+    "Etapa",
+    CRITERIA_VOCABULARIES.ageBands,
+    AGE_BAND_LABELS,
+  ),
+  labelledAxis(
+    "sizes",
+    "Tamaño adulto",
+    CRITERIA_VOCABULARIES.sizes,
+    SIZE_LABELS,
+  ),
+  labelledAxis("sexes", "Sexo", CRITERIA_VOCABULARIES.sexes, SEX_LABELS),
+  labelledAxis(
+    "goodWith",
+    "Convivencia",
+    CRITERIA_VOCABULARIES.goodWith,
+    GOOD_WITH_LABELS,
+  ),
 ];
 
-/** The word for one stored criteria value, or the value itself if it has none. */
-export function labelFor(field: string, value: string): string {
+/**
+ * The word for one stored criteria value, or the value itself if it has none.
+ *
+ * The fallback is not defensive padding: a column written before a vocabulary changed can hold
+ * a value no longer in it, and `readCriteria()` drops those before they reach here — so what
+ * survives to this function is always labelled. Returning the raw value rather than throwing
+ * keeps a future third caller from turning a stale row into a 500 on a page a subscriber is
+ * reading.
+ */
+function labelFor(field: string, value: string): string {
   const found = LABELLED_AXES.find((entry) => entry.field === field);
   return found?.values.find((item) => item.value === value)?.label ?? value;
 }

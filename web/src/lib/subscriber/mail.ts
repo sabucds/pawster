@@ -36,7 +36,7 @@
  * like the others.
  */
 
-import { OPT_IN_TTL_MS } from "./policy.ts";
+import { OPT_IN_TTL_DAYS } from "./policy.ts";
 
 export interface OptInMailEnv {
   readonly RESEND_API_KEY: string;
@@ -59,8 +59,6 @@ export interface OptInMail {
   /** The plaintext token. Only the keyed hash of it reaches the database. */
   readonly token: string;
 }
-
-const TTL_DAYS = Math.round(OPT_IN_TTL_MS / (24 * 60 * 60_000));
 
 /**
  * Where a token is redeemed. One function so the mail and the route cannot disagree about
@@ -110,7 +108,7 @@ export async function sendOptInEmail(
         "Si fuiste tú, abre este enlace para activarla:",
         url,
         "",
-        `El enlace sirve una sola vez y vence en ${TTL_DAYS} días.`,
+        `El enlace sirve una sola vez y vence en ${OPT_IN_TTL_DAYS} días.`,
         "",
         "Si no fuiste tú, no hace falta que hagas nada: sin ese enlace no te llega ningún resumen y borramos esta solicitud en unos días.",
       ].join("\n"),

@@ -204,13 +204,19 @@ export function parseCriteria(
  * question nobody asks by axis, and the digest asks it once per subscription per run.
  */
 export function writeCriteria(criteria: SubscriptionCriteria): string {
-  const parsed = parseCriteria(criteria as Readonly<Record<string, unknown>>);
-  const ordered: Record<string, readonly string[]> = {};
-  for (const axis of AXIS_NAMES) {
-    const values = parsed[axis];
-    if (values !== undefined) ordered[axis] = values;
-  }
-  return JSON.stringify(ordered);
+  /**
+   * The canonical key order comes from {@link parseCriteria}, which assigns in `AXES` order
+   * and so builds its object in it — `JSON.stringify` then emits insertion order for string
+   * keys, which is what makes the *string* canonical rather than merely the value.
+   *
+   * This used to re-order the parsed result into a second object, which was the same loop
+   * run twice: whatever `parseCriteria` returns is already in `AXES` order by construction.
+   * The guarantee now rests on that one loop, which is where it belongs — a second copy of an
+   * ordering rule is a second thing that can drift from the first.
+   */
+  return JSON.stringify(
+    parseCriteria(criteria as Readonly<Record<string, unknown>>),
+  );
 }
 
 /**

@@ -41,6 +41,10 @@ export const prerender = false;
  * That is what makes the link single-use, and it is why a second visit is indistinguishable
  * from an invented token: there is nothing left to have a state.
  *
+ * That delete comes *after* the verdict rather than before it, so a link refused for a full
+ * account survives to be used once a slot is free. The comment on the read below is the one
+ * ordering decision on this page that is not obvious.
+ *
  * A server-rendered route, and the only one the subscriber path adds. It cannot be otherwise
  * — the page's whole content is one row that has to be read at request time — and it is paid
  * for at most twice per subscription.
@@ -58,15 +62,28 @@ if (Astro.request.method === "POST") {
   );
   if (submitted === null) return Astro.redirect(DEAD_LINK, 303);
 
-  const consumed = await consumePendingOptIn(
-    db,
-    await hashOptInToken(env, submitted),
-  );
+  const tokenHash = await hashOptInToken(env, submitted);
+
+  /**
+   * **Read before consuming, so a refusal does not spend the link.**
+   *
+   * The obvious order is to consume first and judge afterwards, since the consume is the
+   * atomic act and doing it early looks like the way to make single use airtight. It costs a
+   * subscriber their search: a link arriving at a full account would be destroyed on the way
+   * to being told so, and `limite.astro`'s advice — swap one of your three for this — becomes
+   * unactionable, because the criteria it was offering to swap in went with the row.
+   *
+   * Reading first loses nothing. Single use is still enforced by the delete below and only by
+   * it, so two concurrent redemptions still resolve to one; what changes is that the delete
+   * happens on the path that succeeds. An expired row is left for the purge, which is where
+   * it was going anyway.
+   */
+  const outstanding = await findPendingOptIn(db, tokenHash);
   /**
    * Never real, already used, expired-and-purged: one answer, because the row is gone in
    * every one of those cases and there is nothing to tell them apart with.
    */
-  if (consumed === null) return Astro.redirect(DEAD_LINK, 303);
+  if (outstanding === null) return Astro.redirect(DEAD_LINK, 303);
 
   /**
    * The cap is read again here rather than carried from signup, because up to seven days
@@ -75,8 +92,8 @@ if (Astro.request.method === "POST") {
    */
   const refusal = refuseOptIn(
     {
-      createdAt: consumed.createdAt,
-      subscriptionCount: await countSubscriptionsFor(db, consumed.email),
+      createdAt: outstanding.createdAt,
+      subscriptionCount: await countSubscriptionsFor(db, outstanding.email),
     },
     now,
   );
@@ -84,9 +101,19 @@ if (Astro.request.method === "POST") {
   if (refusal === "subscription-cap") return Astro.redirect(CAPPED, 303);
 
   /**
-   * `null` is the same refusal reached from the other side: the count above predicted a free
-   * slot and the unique index disagreed, which is what happens when two links are redeemed in
-   * the same second. The database's answer is the one that holds.
+   * The one statement that makes the link single-use, and the moment it is spent. Of two
+   * `POST`s arriving together one gets the row and the other gets `null` — decided by SQLite,
+   * which serialises writes, rather than by an interval between a read and a write.
+   */
+  const consumed = await consumePendingOptIn(db, tokenHash);
+  if (consumed === null) return Astro.redirect(DEAD_LINK, 303);
+
+  /**
+   * `null` is the cap reached from the other side: the count above predicted a free slot and
+   * the unique index disagreed, which is what happens when two of a subscriber's links are
+   * redeemed in the same second. The database's answer is the one that holds — and this is
+   * the one path where a refusal does spend the link, unavoidably, because the row is gone by
+   * the time the index has spoken.
    */
   const opted = await optIn(db, consumed, now);
   if (opted === null) return Astro.redirect(CAPPED, 303);

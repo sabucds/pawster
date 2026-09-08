@@ -54,6 +54,12 @@ export type {
   SubscriptionCriteria,
 } from "./matching.ts";
 export { ageBandsFor, goodWithFor, matches } from "./matching.ts";
+export {
+  OPT_IN_TTL_MS,
+  OPT_IN_WINDOW_MS,
+  optInMailLedgerCutoff,
+  optInPurgeCutoff,
+} from "./retention.ts";
 export type { StalenessBand } from "./staleness.ts";
 export { daysBetween, deriveStalenessBand } from "./staleness.ts";
 export type {

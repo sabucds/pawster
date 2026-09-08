@@ -1,4 +1,5 @@
-import { createDb } from "@pawster/db";
+import { createDb, purgeExpiredOptIns } from "@pawster/db";
+import { optInPurgeCutoff } from "@pawster/domain";
 import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { outbound } from "../../test/outbound.ts";
@@ -13,12 +14,8 @@ import {
   OPT_IN_MAIL_COOLDOWN_MS,
   OPT_IN_TTL_MS,
   SIGNUP_IP_REQUEST_LIMIT,
-  optInPurgeCutoff,
 } from "../src/lib/subscriber/policy.ts";
-import {
-  purgeExpiredOptIns,
-  refuseContact,
-} from "../src/lib/subscriber/store.ts";
+import { refuseContact } from "../src/lib/subscriber/store.ts";
 import { get } from "./support/http.ts";
 import {
   SIGNUP,
@@ -29,6 +26,7 @@ import {
   countIn,
   emailedToken,
   emailedUrl,
+  refuseAddress,
   rowsIn,
   signUp,
   subscribe,
@@ -232,12 +230,7 @@ describe("3 — the signup form's response is identical on every path", () => {
     const returning = await signUp({ email: "vieja@adoptante.example" });
 
     // Do-Not-Contact: an address that reported us as spam, refused without being told why.
-    const db = createDb(env.DB);
-    await refuseContact(
-      db,
-      await doNotContactDigest(env, "quejosa@adoptante.example"),
-      new Date(),
-    );
+    await refuseAddress("quejosa@adoptante.example");
     const refused = await signUp({ email: "quejosa@adoptante.example" });
 
     expect(shape(returning)).toBe(shape(newcomer));
@@ -255,8 +248,7 @@ describe("3 — the signup form's response is identical on every path", () => {
   });
 
   it("refuses a Do-Not-Contact address in silence, writing nothing at all", async () => {
-    const db = createDb(env.DB);
-    await refuseContact(db, await doNotContactDigest(env, SUBSCRIBER_EMAIL), new Date());
+    await refuseAddress(SUBSCRIBER_EMAIL);
 
     const response = await signUp();
 
@@ -271,8 +263,7 @@ describe("3 — the signup form's response is identical on every path", () => {
      * The same normalisation on both sides is the whole of matching, and a mismatch here
      * does not fail loudly — it resumes mailing somebody who reported us as spam.
      */
-    const db = createDb(env.DB);
-    await refuseContact(db, await doNotContactDigest(env, SUBSCRIBER_EMAIL), new Date());
+    await refuseAddress(SUBSCRIBER_EMAIL);
 
     await signUp({ email: " Ana@Adoptante.Example " });
 
@@ -374,6 +365,34 @@ describe("4 — a fourth subscription is refused", () => {
     expect(await countIn("pending_opt_ins")).toBe(0);
   });
 
+  it("leaves a refused link intact so the subscriber can free a slot and use it", async () => {
+    /**
+     * The ordering on `activar.astro`: the row is read and judged *before* it is consumed, so
+     * a link that arrives at a full account is not destroyed on the way to being told so.
+     * Without that, `limite.astro`'s advice — swap one of your three for this — is
+     * unactionable, because the criteria it offers to swap in went with the row.
+     */
+    await signUp({ regions: "esperando" });
+    const held = emailedToken();
+
+    for (let n = 0; n < MAX_SUBSCRIPTIONS_PER_SUBSCRIBER; n++) {
+      await ageOptInClocks(OPT_IN_MAIL_COOLDOWN_MS + 1);
+      await subscribe({ regions: `llena-${n}` });
+    }
+
+    expect(await activate(held)).toMatchObject({ status: 303 });
+    // Still outstanding, not spent.
+    expect(await countIn("pending_opt_ins")).toBe(1);
+
+    // A slot frees up, and the link the subscriber was already holding works.
+    await env.DB.prepare("DELETE FROM subscriptions WHERE slot = 2").run();
+    const late = await activate(held);
+    expect(late.headers.get("location")).toMatch(/^\/resumen\/listo/);
+
+    const criteria = await storedCriteria();
+    expect(criteria.some((row) => row.includes("esperando"))).toBe(true);
+  });
+
   it("refuses a link that was live when the account filled up behind it", async () => {
     /**
      * The case `refuseSignup()` cannot see, because up to seven days pass between the mail
@@ -394,9 +413,6 @@ describe("4 — a fourth subscription is refused", () => {
     expect(late.headers.get("location")).toBe(CAPPED);
 
     expect(await countIn("subscriptions")).toBe(MAX_SUBSCRIPTIONS_PER_SUBSCRIBER);
-    // The link is spent either way: it was consumed before the verdict, so it cannot be
-    // held in reserve against a slot freeing up later.
-    expect(await countIn("pending_opt_ins")).toBe(0);
   });
 
   it("counts the cap per address rather than per platform", async () => {
@@ -640,8 +656,7 @@ describe("9 — exactly one opt-in email per signup", () => {
   });
 
   it("sends nothing at all on any silent refusal", async () => {
-    const db = createDb(env.DB);
-    await refuseContact(db, await doNotContactDigest(env, SUBSCRIBER_EMAIL), new Date());
+    await refuseAddress(SUBSCRIBER_EMAIL);
 
     await signUp();
     await signUp({ email: "ana@gmial" });
@@ -688,6 +703,31 @@ describe("the Do-Not-Contact pepper canary", () => {
 
     const [canary] = await rowsIn("do_not_contact");
     expect(canary!.reason).toBe("canary");
+  });
+
+  it("refuses to bootstrap beside entries it cannot vouch for", async () => {
+    /**
+     * The one-step version of the failure the canary exists to catch: delete the canary row
+     * and the next signup would happily write a fresh one under whatever pepper is configured
+     * now, while every real entry beside it has silently stopped matching. Bootstrapping only
+     * into an *empty* table closes it — a table with no entries has nothing that can fail
+     * open, and a table with entries and no canary is a state nobody should be able to serve
+     * a signup from.
+     */
+    const db = createDb(env.DB);
+    await refuseContact(
+      db,
+      await doNotContactDigest(env, "quejosa@adoptante.example"),
+      new Date(),
+    );
+    expect(await countIn("do_not_contact")).toBe(1);
+
+    const response = await signUp();
+
+    expect(response.status).toBe(500);
+    expect(outbound.calls).toHaveLength(0);
+    // And no canary was invented to paper over it.
+    expect(await countIn("do_not_contact")).toBe(1);
   });
 
   it("refuses to serve a signup once the pepper has changed underneath it", async () => {

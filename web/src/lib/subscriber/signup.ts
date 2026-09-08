@@ -28,7 +28,7 @@
 
 import type { SubscriptionCriteria } from "@pawster/domain";
 import { MAX_CRITERIA_VALUES_PER_AXIS, parseCriteria } from "@pawster/domain";
-import { looksLikeEmail, trimmedField } from "../shelter/fields.ts";
+import { looksLikeEmail, trimmedField } from "../form-fields.ts";
 import { normaliseAddress } from "./crypto.ts";
 import type { SubscriberLocale } from "./policy.ts";
 import { parseLocale } from "./policy.ts";

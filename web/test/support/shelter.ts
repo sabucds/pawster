@@ -22,9 +22,6 @@ import type { PostOptions } from "./http.ts";
  * shares.
  */
 
-export { ORIGIN, cookieFrom, get, post } from "./http.ts";
-export type { PostOptions } from "./http.ts";
-
 export const REGISTRATION = {
   displayName: "Refugio Los Teques",
   accountEmail: "hola@refugio.example",

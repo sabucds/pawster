@@ -240,10 +240,20 @@ three, so "dogs in Caracas" and "cats in Maracay" are two subscriptions rather t
 broadened search. Managed entirely through signed links; never behind a login.
 _Avoid_: Alert, watch, saved search, newsletter signup
 
+**Signup**:
+The act of submitting the form: an address and a set of criteria, and nothing else. It is
+**not** the Opt-In and never becomes one on its own - a signup writes an unconfirmed record
+that cannot be mailed to, and it is the Opt-In that turns that into a Subscriber and a
+Subscription. Holding the two apart is what the identical-response rule is about: a signup
+answers the same way on every path *because* it commits to nothing, so there is nothing about
+the address for the answer to vary with.
+_Avoid_: Registration (that is a shelter's), subscribe, join, opt-in
+
 **Opt-In**:
 A subscriber's proof, through a single-use link, that the address is genuinely theirs. Nothing
 is ever sent to an address that has not opted in. Named apart from Confirmation, which belongs
-to shelters and animals and means something else entirely.
+to shelters and animals and means something else entirely - and apart from Signup, which is
+the request this answers.
 _Avoid_: Confirmation, verification, signup, double opt-in
 
 **Digest**:
