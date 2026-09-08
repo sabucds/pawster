@@ -176,8 +176,19 @@ Needing the digest Worker, which now exists as `digest/`:
   (ADR 0009). `HEALTHCHECK_URL` is a committed `var` rather than a secret: it
   is a check URL, not a credential, and `digest/wrangler.jsonc` carries it
 
-Needing the web Worker, on which subscriber signup landed with issue #61:
+Needing the web Worker, on which subscriber signup landed with issue #61 and
+admin verification with issue #53:
 
+- `wrangler secret put SESSION_SECRET`, `SIGN_IN_SECRET`, `ORIGINAL_SECRET` and
+  `ADMIN_LINK_SECRET`. Four keys and not one, and the split is deliberate: each
+  was separated on what a rotation costs, which
+  [ADR 0019](adr/0019-a-verification-entry-cites-what-the-admin-saw.md) states
+  most fully for the last of them. `web/.dev.vars.example` carries the same list
+  with a line each on why.
+
+  The first three were added by the tickets that needed them and never recorded
+  here, so a deploy could have been half-configured with nothing to check
+  against; `ADMIN_LINK_SECRET` is the one that noticed the gap.
 - `wrangler secret put SUBSCRIBER_SECRET` — keys the opt-in token hash, the
   signup IP fingerprints and the mail ledger's address fingerprints. Rotatable;
   everything it protects fails closed and self-heals inside seven days.

@@ -1,0 +1,361 @@
+---
+import { createDb } from "@pawster/db";
+import { isListed } from "@pawster/domain";
+import { env } from "cloudflare:workers";
+import Admin from "../../layouts/Admin.astro";
+import { readShelterFacts } from "../../lib/auth/store.ts";
+import { CONTACT_POINT_LABELS } from "../../lib/shelter/fields.ts";
+import { readShelterProfile } from "../../lib/shelter/store.ts";
+import { decideVerification } from "../../lib/verification/decide.ts";
+import type { DecisionError } from "../../lib/verification/decision.ts";
+import { decodeMethods, parseDecision } from "../../lib/verification/decision.ts";
+import {
+  ADMIN_DECISION_PATH,
+  authorises,
+  refuseAdminLink,
+  verifyAdminLink,
+} from "../../lib/verification/link.ts";
+import {
+  DECIDABLE_OUTCOMES,
+  EVIDENCE_RULE,
+  MAX_EVIDENCE,
+  VERIFICATION_METHODS,
+  VERIFICATION_METHOD_LABELS,
+  parseCitedContactPoints,
+} from "../../lib/verification/policy.ts";
+import { readVerificationLog } from "../../lib/verification/store.ts";
+
+/**
+ * The whole admin surface: one unstyled page behind a signed link
+ * ([ADR 0002](../../../../docs/adr/0002-no-admin-accounts.md)).
+ *
+ * Four properties of this page are the ticket's acceptance criteria rather than page
+ * furniture, and each is a decision that would be easy to undo by accident:
+ *
+ * 1. **A `GET` mutates nothing.** ADR 0008 forbids an emailed link from writing on `GET` —
+ *    "Outlook Safe Links, corporate mail scanners and link prefetchers fetch URLs with no
+ *    human behind them" — and says the rule "applies equally to ADR 0002's
+ *    verification-decision links, where a scanner silently verifying a shelter would be
+ *    worse". So this renders live state and every write is a `POST` from the form below.
+ *    There is no true one-tap verify, and that is the point rather than a limitation.
+ * 2. **No cookie is read.** There is no admin account to have a session for (ADR 0002), and
+ *    `scripts/check-source-rules.mjs` fails the build if anything under `pages/admin/` names
+ *    a cookie — so this holds for the admin routes nobody has written yet. The capability is
+ *    the token in the URL and nothing else, which is also why a shelter signed in on this
+ *    browser sees exactly the same 404 as a stranger.
+ * 3. **The link is reusable inside its seven days**, because "the decision is idempotent — a
+ *    second click shows current state rather than deciding twice" (ADR 0002). A second
+ *    *decision* is a second entry, appended: the first is never touched.
+ * 4. **The evidence rule is on the page, beside the box.** `EVIDENCE_RULE` is a constant
+ *    rendered once rather than prose typed here, because a test asserts it is present and a
+ *    sentence in a template is a sentence an edit can reword past the assertion.
+ *
+ * Server-rendered by necessity: the page's whole content is one shelter's live state, and the
+ * token that authorises it is in the request.
+ *
+ * ## What this page does not show, and cannot do
+ *
+ * - **The shelter's account email.** The judgement is about a public presence, so the address
+ *   adds nothing to it — and it is the shelter's whole credential, which does not belong on a
+ *   page whose security model is that a bearer link stays in one inbox. The refusal mail
+ *   reaches it through `decideVerification()`, which never hands it to a template.
+ * - **A revoke button.** `DECIDABLE_OUTCOMES` is what this page's parser accepts, and
+ *   `Revoked` is not in it: ADR 0002 puts revocation "off any link" because it is the rare
+ *   adversarial action, so it is unreachable from any inbox by construction rather than by an
+ *   `if` a later edit could drop. `POST /api/admin/revoke` is the only door, and only a
+ *   token minted at a terminal opens it.
+ */
+export const prerender = false;
+
+const db = createDb(env.DB);
+const now = new Date();
+
+let errors: readonly DecisionError[] = [];
+/** What the admin typed, so a refused decision comes back with the evidence intact. */
+let submitted: FormData | null = null;
+
+if (Astro.request.method === "POST") submitted = await Astro.request.formData();
+
+/**
+ * The token, from the form on a `POST` and from the query on a `GET`.
+ *
+ * Carried in a hidden input rather than left in the form's `action` URL, so that the one
+ * place it is read is the one place it is checked. Either way it is the *only* thing that
+ * authorises this request: nothing else on the page or in the request is trusted, including
+ * the shelter id, which comes out of the token's signed payload and never out of the form.
+ */
+const fromForm = submitted?.get("t");
+const token =
+  typeof fromForm === "string" && fromForm.length > 0
+    ? fromForm
+    : Astro.url.searchParams.get("t");
+
+const claims = await verifyAdminLink(env, token, now);
+if (!authorises(claims, "decision") || !claims.shelterId) return refuseAdminLink();
+const shelterId = claims.shelterId;
+
+if (submitted) {
+  const parsed = parseDecision(submitted, DECIDABLE_OUTCOMES);
+
+  if (parsed.ok) {
+    const result = await decideVerification(
+      db,
+      env,
+      {
+        shelterId,
+        outcome: parsed.value.outcome,
+        methods: parsed.value.methods,
+        evidence: parsed.value.evidence,
+        /**
+         * Out of the token, and this is the load-bearing half of ADR 0002's "`decidedBy` is
+         * an email address string, not a foreign key". Reading it from `env.ADMIN_EMAIL`
+         * would attribute the decision to whoever the admin *is now*; the address a link was
+         * sent to is the only thing the platform ever knew about an admin.
+         */
+        decidedBy: claims.admin,
+      },
+      now,
+    );
+
+    // The shelter was deleted between the link being minted and this post. Not an error page:
+    // the capability names a subject that is gone, so it authorises nothing.
+    if (!result.recorded) return refuseAdminLink();
+
+    /**
+     * Post-redirect-get back to this same page, carrying the token, so that a reload does not
+     * re-submit the decision — which on an append-only log would be a second entry rather
+     * than a harmless repeat. The notice is driven entirely by the query, because there is no
+     * server-side flash state and nowhere to keep any.
+     */
+    const params = new URLSearchParams({ t: token!, recorded: parsed.value.outcome });
+    if (result.shelterMailed === false) params.set("mail", "failed");
+    return new Response(null, {
+      status: 303,
+      headers: { location: `${ADMIN_DECISION_PATH}?${params.toString()}` },
+    });
+  }
+
+  errors = parsed.errors;
+}
+
+const shelter = await readShelterProfile(db, shelterId);
+if (!shelter) return refuseAdminLink();
+
+const log = await readVerificationLog(db, shelterId);
+const facts = await readShelterFacts(db, shelterId);
+
+/**
+ * Whether anything this shelter publishes is visible right now, asked of a hypothetical
+ * available animal — the same question `panel.astro` asks the shelter, answered with the same
+ * function, so the admin and the shelter cannot be shown different answers.
+ *
+ * It is also the only place the *consequence* of a decision appears on this page. A
+ * `Revoked` latest entry delists through `isListed()`'s verification clause and through
+ * nothing else, so this line moving is the whole delisting.
+ */
+const anythingVisible =
+  facts !== null && isListed({ availability: "Available" }, facts);
+
+const recorded = Astro.url.searchParams.get("recorded");
+const mailFailed = Astro.url.searchParams.get("mail") === "failed";
+
+const priorEvidence = (): string => {
+  const value = submitted?.get("evidence");
+  return typeof value === "string" ? value : "";
+};
+const priorMethods = new Set(
+  submitted?.getAll("methods").filter((value): value is string => typeof value === "string") ??
+    [],
+);
+
+const dateTime = (at: Date): string => at.toISOString().slice(0, 16).replace("T", " ");
+---
+
+<Admin title={`Verify ${shelter.displayName}`} heading={shelter.displayName}>
+  {
+    recorded && (
+      <p role="status" data-testid="recorded">
+        Recorded: <strong>{recorded}</strong>. The entry below is appended and permanent;
+        deciding again adds another one and changes nothing about this one.
+        {mailFailed && (
+          <>
+            {" "}
+            <strong data-testid="mail-failed">
+              The shelter was not emailed — Resend refused the send. Write to them yourself.
+            </strong>
+          </>
+        )}
+      </p>
+    )
+  }
+
+  <!--
+    Its own block rather than `components/FormErrors.astro`, which the three shelter-facing
+    forms share. That component's copy is es-VE — "Revisa lo siguiente:" — and this page is
+    the one surface on the platform written in English, because the Platform Admin is the
+    maintainer who reads this repository rather than a user (see `layouts/Admin.astro`).
+    Reusing it would have put one Spanish sentence in the middle of an English tool. The
+    `data-testid` is the same, so the suite asks about a refusal the same way everywhere.
+  -->
+  {
+    errors.length > 0 && (
+      <div role="alert" data-testid="errors">
+        <p>This was not recorded:</p>
+        <ul>
+          {errors.map((error) => (
+            <li>{error.reason}</li>
+          ))}
+        </ul>
+      </div>
+    )
+  }
+
+  <h2>What this shelter looks like now</h2>
+  <dl>
+    <dt>Display name</dt>
+    <dd data-testid="display-name">{shelter.displayName}</dd>
+    <dt>Public address</dt>
+    <dd data-testid="slug">/refugios/{shelter.slug}</dd>
+    <dt>Where</dt>
+    <dd data-testid="base-region">{shelter.baseRegion}, {shelter.countryCode}</dd>
+    <dt>Currently visible to adopters</dt>
+    <dd data-testid="visibility">{anythingVisible ? "yes" : "no"}</dd>
+  </dl>
+
+  <h3>Contact points</h3>
+  <!--
+    Rendered in the shelter's own order, with the first one named as the one an adopter is
+    offered (`CONTEXT.md`, *Contact Point*). The admin is checking a public presence, and the
+    channel that presence is reached through is the thing to check.
+  -->
+  <ol data-testid="contact-points">
+    {
+      shelter.contactPoints.map((point, index) => (
+        <li>
+          {CONTACT_POINT_LABELS[point.kind]}: {point.value}
+          {index === 0 && <em> — offered first</em>}
+        </li>
+      ))
+    }
+  </ol>
+  {
+    shelter.contactPoints.length === 0 && (
+      <p data-testid="no-contact-points">
+        <strong>No contact points.</strong> Nothing it publishes can be listed until it adds
+        one, whatever you decide here.
+      </p>
+    )
+  }
+
+  <h2>Decide</h2>
+  <form method="post" action={ADMIN_DECISION_PATH}>
+    <input type="hidden" name="t" value={token} />
+
+    <fieldset>
+      <legend>How did you check?</legend>
+      {
+        VERIFICATION_METHODS.map((method) => (
+          <p>
+            <label>
+              <input
+                type="checkbox"
+                name="methods"
+                value={method}
+                checked={priorMethods.has(method)}
+              />{" "}
+              {VERIFICATION_METHOD_LABELS[method]}
+            </label>
+          </p>
+        ))
+      }
+    </fieldset>
+
+    <p>
+      <label for="evidence">Evidence</label><br />
+      <!--
+        The rule the ticket requires to be "where the admin will read it": immediately above
+        the box, as the field's description, rather than in a paragraph further up that a
+        person typing at 11pm scrolls past.
+      -->
+      <small id="evidence-rule" data-testid="evidence-rule">{EVIDENCE_RULE}</small><br />
+      <textarea
+        id="evidence"
+        name="evidence"
+        rows="6"
+        cols="60"
+        required
+        maxlength={MAX_EVIDENCE}
+        aria-describedby="evidence-rule">{priorEvidence()}</textarea>
+    </p>
+
+    <!--
+      Two submit buttons sharing one `name`, so the outcome is what the admin pressed rather
+      than a radio group they could leave unset. `DECIDABLE_OUTCOMES` is rendered rather than
+      typed, which is what keeps `Revoked` off this page: adding an outcome to the union does
+      not put a button here, and removing one from the decidable set removes the button.
+    -->
+    <p>
+      {
+        DECIDABLE_OUTCOMES.map((outcome) => (
+          <>
+            <button type="submit" name="outcome" value={outcome} data-testid={`submit-${outcome}`}>
+              {outcome === "Verified" ? "Verify this shelter" : "Refuse — and email them"}
+            </button>{" "}
+          </>
+        ))
+      }
+    </p>
+    <p>
+      <small>
+        Refusing emails the shelter and invites a reply, because a mistake about a shelter has
+        to be correctable by a human. Verifying emails nobody: its own page already says
+        whether its animals are visible.
+      </small>
+    </p>
+  </form>
+
+  <h2>Entries so far</h2>
+  <!--
+    The whole log, newest first, because a second judgement is made *against* the first one's
+    reasoning: ADR 0003 keeps the log so "a later judgement never erases the reasoning behind
+    an earlier one", and that is only true if the earlier reasoning is in front of whoever
+    judges next.
+  -->
+  {
+    log.length === 0 ? (
+      <p data-testid="no-entries">
+        No entries. This shelter is awaiting a first decision — which is not a stored state,
+        just the absence of a row (ADR 0003).
+      </p>
+    ) : (
+      <ol data-testid="entries" reversed>
+        {log.map((entry) => (
+          <li data-testid="entry">
+            <strong>{entry.outcome}</strong> — {dateTime(entry.decidedAt)} by{" "}
+            {entry.decidedBy}
+            <br />
+            Methods:{" "}
+            {decodeMethods(entry.methods)
+              .map((method) => VERIFICATION_METHOD_LABELS[method])
+              .join("; ") || "none recorded"}
+            <br />
+            <blockquote>{entry.evidence}</blockquote>
+            <!--
+              Decoded rather than printed, because the stored form is a sorted JSON array
+              built for comparison (ADR 0019) and not for reading — and this line is the one
+              place a human ever sees what an entry was written against. Showing the raw
+              column would make the dead-man's switch's evidence unreadable at exactly the
+              moment it matters: when the admin is deciding again after a drift email.
+            -->
+            <small data-testid="cited">
+              Cited at the time: {entry.citedDisplayName} —{" "}
+              {parseCitedContactPoints(entry.citedContactPoints)
+                .map((point) => `${CONTACT_POINT_LABELS[point.kind]}: ${point.value}`)
+                .join("; ") || "no contact points"}
+            </small>
+          </li>
+        ))}
+      </ol>
+    )
+  }
+</Admin>

@@ -36,6 +36,13 @@
       "when": 1788886103943,
       "tag": "0004_subscriptions_opt_ins_and_do_not_contact",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1788890960920,
+      "tag": "0005_the_verification_log",
+      "breakpoints": true
     }
   ]
 }

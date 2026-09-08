@@ -14,6 +14,7 @@ import {
 import type { ProfileError } from "../../lib/shelter/profile.ts";
 import { parseProfile } from "../../lib/shelter/profile.ts";
 import { readShelterProfile, saveShelterProfile } from "../../lib/shelter/store.ts";
+import { citedOf, noteProfileEdit } from "../../lib/verification/decide.ts";
 
 /**
  * The shelter's own profile: display name, base region, and the ordered set of contact
@@ -22,8 +23,14 @@ import { readShelterProfile, saveShelterProfile } from "../../lib/shelter/store.
  * **Everything here is editable for as long as the shelter exists, before and after
  * verification.** That is the whole point of the ticket this page belongs to: a new phone
  * number should not be a support request. Verification standing is a judgement about the
- * shelter (ADR 0003) and never a lock on its own record, so nothing on this page consults
- * it.
+ * shelter (ADR 0003) and never a lock on its own record, so nothing here is refused because
+ * of it and nothing here is gated on it.
+ *
+ * It is *observed* once, after a successful save, and only in one direction: if this shelter
+ * is verified and the edit changed a display name or contact point its entry was written
+ * against, the admin is emailed (ADR 0019, issue #53). That is a notification and not a
+ * lock — the save has already landed by the time the question is asked, and a shelter is
+ * never shown a failed save because the platform could not reach its admin.
  *
  * Server-rendered like registration, and for the same reason spelled out in
  * `registro/index.astro`: it reports several field errors at once and comes back filled in
@@ -72,7 +79,28 @@ if (Astro.request.method === "POST") {
   const parsed = parseProfile(submitted);
 
   if (parsed.ok) {
+    /**
+     * Read *before* the save, because the dead-man's switch fires on a transition: the admin
+     * is emailed when a verified shelter stops matching what its entry cited, and "stops"
+     * needs the previous state (ADR 0019). One extra read on a path a shelter takes a handful
+     * of times in the platform's lifetime.
+     */
+    const before = await readShelterProfile(db, session.shelterId);
     await saveShelterProfile(db, session.shelterId, parsed.value, now);
+
+    /**
+     * After the save and never before it, and its failures never reach the shelter: a shelter
+     * must not be shown a failed save because the platform could not tell its admin about it.
+     *
+     * The *after* state is re-read rather than assembled from `parsed.value`, so the mail
+     * describes the shelter as it is now — the slug and the region among it, which this form
+     * does not submit — and so the two sides of the comparison are read the same way.
+     */
+    const after = await readShelterProfile(db, session.shelterId);
+    if (before && after) {
+      await noteProfileEdit(db, env, session.shelterId, citedOf(before), after, now);
+    }
+
     /**
      * Built as a `Response` rather than through `Astro.redirect()`, because a redirect is a
      * fresh response and does **not** carry the headers staged on `Astro.response` — measured

@@ -877,16 +877,16 @@ SKIPPED+=("wrangler secret put PAWSTER_DNC_PEPPER, once the Worker exists")
 pause "Press Enter to continue."
 
 # ── 18 ────────────────────────────────────────────────────────────────────
-stage "The link-signing key"
+stage "The link-signing keys"
 say "Every route into Pawster that carries no session is a signed link: a"
 say "shelter confirming its animals (ADR 0008), a subscriber managing or"
 say "unsubscribing (ADR 0010), the admin deciding a verification (ADR 0002)."
-say "They share one signing key, and #18 asked for it to be generated here."
+say "#18 asked for a key to be generated here. There are two of them."
 printf '\n'
-note "Unlike the pepper, this key MAY be rotated. Rotating it strands every"
-note "live link — a shelter's nudge, a subscriber's manage link — which is a"
-note "loud and recoverable failure. The pepper's failure is silent. Do not"
-note "store the two as though they carried the same risk."
+note "Unlike the pepper, both keys MAY be rotated. Rotating one strands every"
+note "live link it signed — a shelter's nudge, a subscriber's manage link —"
+note "which is a loud and recoverable failure. The pepper's failure is silent."
+note "Do not store them as though they carried the same risk."
 printf '\n'
 EXISTING_LINK_KEY=$(_existing PAWSTER_LINK_SIGNING_KEY || true)
 if [[ -n "$EXISTING_LINK_KEY" ]]; then
@@ -894,13 +894,32 @@ if [[ -n "$EXISTING_LINK_KEY" ]]; then
   PAWSTER_LINK_SIGNING_KEY="$EXISTING_LINK_KEY"
 else
   PAWSTER_LINK_SIGNING_KEY=$(openssl rand -base64 32)
-  step "Generated a fresh 32-byte key, locally."
+  step "Generated a fresh 32-byte key for shelter and subscriber links."
   write_env PAWSTER_LINK_SIGNING_KEY "$PAWSTER_LINK_SIGNING_KEY"
 fi
 printf '\n'
-note "Not printed and not recorded: the provisioning record is destined for a"
-note "public issue. Read it out of $ENV_FILE if you need it."
+say "Admin links are signed with a key of their own (ADR 0019). They used to"
+say "share the key above; they no longer do, and the reason is what a rotation"
+say "costs. This key is rotated because a decision link leaked out of the"
+say "admin's inbox — an emergency that must not also strand every shelter"
+say "mid-confirmation. It is also what scripts/admin-link.mjs reads to mint a"
+say "pending-list link or to revoke a shelter, which are the two acts no link"
+say "in an inbox can perform."
+printf '\n'
+EXISTING_ADMIN_KEY=$(_existing PAWSTER_ADMIN_LINK_SECRET || true)
+if [[ -n "$EXISTING_ADMIN_KEY" ]]; then
+  step "An admin key is already in $ENV_FILE. Keeping it."
+  PAWSTER_ADMIN_LINK_SECRET="$EXISTING_ADMIN_KEY"
+else
+  PAWSTER_ADMIN_LINK_SECRET=$(openssl rand -base64 32)
+  step "Generated a fresh 32-byte key for admin links."
+  write_env PAWSTER_ADMIN_LINK_SECRET "$PAWSTER_ADMIN_LINK_SECRET"
+fi
+printf '\n'
+note "Neither is printed and neither is recorded: the provisioning record is"
+note "destined for a public issue. Read them out of $ENV_FILE if you need them."
 SKIPPED+=("wrangler secret put PAWSTER_LINK_SIGNING_KEY, once the Worker exists")
+SKIPPED+=("wrangler secret put ADMIN_LINK_SECRET on the web Worker, once it exists")
 pause "Press Enter to continue."
 
 # ── 19 ────────────────────────────────────────────────────────────────────

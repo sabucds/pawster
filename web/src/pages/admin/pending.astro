@@ -1,0 +1,117 @@
+---
+import { createDb } from "@pawster/db";
+import { env } from "cloudflare:workers";
+import Admin from "../../layouts/Admin.astro";
+import {
+  ADMIN_DECISION_PATH,
+  adminLinkUrl,
+  authorises,
+  mintAdminLink,
+  refuseAdminLink,
+  verifyAdminLink,
+} from "../../lib/verification/link.ts";
+import { PENDING_LIST_LINK_TTL_MS } from "../../lib/verification/policy.ts";
+import { readPendingShelters } from "../../lib/verification/store.ts";
+
+/**
+ * Every shelter waiting on a first decision, longest wait first.
+ *
+ * This is the link [ADR 0002](../../../../docs/adr/0002-no-admin-accounts.md) singles out as
+ * the higher-value target — it "enumerates every waiting shelter" — and so it is the
+ * shortest-lived thing on the platform at twenty-four hours, against a decision link's seven
+ * days. That ordering is asserted in `verification-policy.test.ts` rather than left to two
+ * constants happening to be in the right relation.
+ *
+ * **It is a queue of decisions owed and not a list of shelters in trouble.** A refused
+ * shelter is absent: it has an entry, the judgement was made. Pending is the absence of any
+ * entry (ADR 0003), which is what `readPendingShelters()` asks in SQL.
+ *
+ * Read-only, and it has no form at all — the decision is one page away, behind its own token.
+ * A `GET` here mutates nothing for the same reason it mutates nothing there (ADR 0008), with
+ * the difference that here there is nothing it *could* mutate.
+ *
+ * ## Why each row gets a freshly minted link
+ *
+ * The rows link into `decide.astro`, and each link is minted at render with the decision
+ * TTL rather than reusing whatever token brought the admin here. Two reasons: this page's
+ * token authorises the *list* and not any shelter on it, so a decision link has to be a
+ * different capability; and a shelter that registered twenty-three hours ago would otherwise
+ * inherit an hour of life for a seven-day decision.
+ */
+export const prerender = false;
+
+const db = createDb(env.DB);
+const now = new Date();
+
+const claims = await verifyAdminLink(env, Astro.url.searchParams.get("t"), now);
+if (!authorises(claims, "pending")) return refuseAdminLink();
+
+const pending = await readPendingShelters(db);
+
+const rows = await Promise.all(
+  pending.map(async (shelter) => ({
+    ...shelter,
+    decisionUrl: adminLinkUrl(
+      env.SITE_ORIGIN,
+      ADMIN_DECISION_PATH,
+      await mintAdminLink(
+        env,
+        { kind: "decision", shelterId: shelter.id, admin: claims.admin },
+        now,
+      ),
+    ),
+    /**
+     * Days waited, floored. Rendered because the shelter was promised an answer within three
+     * days at registration and invited to chase if it did not get one — so the number the
+     * admin needs to see is the one that promise is measured in.
+     */
+    daysWaiting: Math.floor(
+      (now.getTime() - shelter.registeredAt.getTime()) / (24 * 60 * 60_000),
+    ),
+  })),
+);
+
+const linkHours = Math.round(PENDING_LIST_LINK_TTL_MS / (60 * 60_000));
+---
+
+<Admin title="Waiting on a decision" heading="Waiting on a decision">
+  <p>
+    <small>
+      This link lists every waiting shelter, so it dies after {linkHours} hours. Mint another
+      with <code>node scripts/admin-link.mjs pending</code>.
+    </small>
+  </p>
+
+  {
+    rows.length === 0 ? (
+      <p data-testid="empty">
+        Nothing is waiting. Every shelter on the platform has an entry — which is not the
+        same as every shelter being verified.
+      </p>
+    ) : (
+      <ol data-testid="pending">
+        {rows.map((row) => (
+          <li data-testid="pending-shelter">
+            <a href={row.decisionUrl}>{row.displayName}</a>
+            <br />
+            <small>
+              {row.baseRegion}, {row.countryCode} — waiting {row.daysWaiting}{" "}
+              {row.daysWaiting === 1 ? "day" : "days"} — /refugios/{row.slug}
+              {row.contactPointCount === 0 && (
+                <strong data-testid="unreachable"> — no contact points</strong>
+              )}
+            </small>
+          </li>
+        ))}
+      </ol>
+    )
+  }
+
+  <p>
+    <small>
+      Three days is what each of these shelters was promised, and they were told to chase if
+      nothing arrives. Nobody is watching this queue but you — there is no cron over it, on
+      purpose (ADR 0002).
+    </small>
+  </p>
+</Admin>

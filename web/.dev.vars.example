@@ -2,7 +2,7 @@
 # web/ — local Worker secrets and overrides.
 #
 # Read by `astro dev` through the adapter's `platformProxy`, which loads this
-# file the way `wrangler dev` does. In production these four secrets are set
+# file the way `wrangler dev` does. In production these secrets are set
 # with `wrangler secret put`, never as a committed `var` — a plaintext var for
 # either of the first two would put a shelter's whole credential in the repo.
 #
@@ -27,6 +27,13 @@ SIGN_IN_SECRET=
 #   openssl rand -base64 32
 ORIGINAL_SECRET=
 
+# Signs every admin capability: the decision link a registration mails, the
+# pending-list link, and the revocation token `scripts/admin-link.mjs` mints.
+# Its own secret because rotating it invalidates the admin's links and nothing
+# else — where rotating SIGN_IN_SECRET invalidates every outstanding code.
+#   openssl rand -base64 32
+ADMIN_LINK_SECRET=
+
 # Shared with digest/, same key under the same name. From resend.com/api-keys.
 # Leave blank to develop everything except actually sending sign-in mail — the
 # code is logged by Resend's failure path, not delivered.
@@ -37,3 +44,7 @@ RESEND_API_KEY=
 # to be the dev server's, not production's.
 SIGN_IN_FROM_ADDRESS=entrar@pawster.test
 SITE_ORIGIN=http://localhost:4321
+# Who decisions are attributed to and where decision mail goes. Locally, any
+# address you can read.
+ADMIN_EMAIL=admin@pawster.test
+VERIFICATION_FROM_ADDRESS=verificacion@pawster.test

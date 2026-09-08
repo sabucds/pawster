@@ -13,8 +13,8 @@
  * the cookie. Two rather than four on the shelter path, because every additional secret is
  * another thing `wrangler secret put` has to be told about and another way a deploy can be
  * half-configured — and a key earns its own existence only by having a different blast
- * radius, which `ORIGINAL_SECRET` (ADR 0012) and `DO_NOT_CONTACT_PEPPER` (ADR 0010) both do
- * and each of their own files argues.
+ * radius, which `ORIGINAL_SECRET` (ADR 0012), `ADMIN_LINK_SECRET` (ADR 0019) and
+ * `DO_NOT_CONTACT_PEPPER` (ADR 0010) all do and each of their own files argues.
  *
  * Reusing one key for two purposes is only safe if the two message spaces cannot overlap,
  * so every message here is **domain-separated by a literal label** — `code:`, `ip:`,
@@ -45,6 +45,14 @@ const LABELS = {
    * above — see `web/src/lib/photos/capability.ts` for why this one earns a third secret.
    */
   original: "original:",
+  /**
+   * An admin capability: a decision link, a pending-list link, or the revocation token that
+   * only a terminal mints (`../verification/link.ts`). Keyed by `ADMIN_LINK_SECRET`, which
+   * earns a key of its own for the reason that file gives — it is rotated *because a link
+   * leaked out of the admin's inbox*, and that emergency must not also invalidate every
+   * One-Time Code sitting in a shelter's inbox.
+   */
+  admin: "admin:",
   /**
    * An opt-in link's token. Keyed by `SUBSCRIBER_SECRET`.
    *

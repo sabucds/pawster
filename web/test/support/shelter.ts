@@ -37,14 +37,32 @@ export async function register(
   return await post("/refugios/registro", { ...REGISTRATION, ...overrides });
 }
 
-/** The code Pawster just emailed, read out of the interceptor's call log. */
+/**
+ * The code Pawster just emailed, read out of the interceptor's call log.
+ *
+ * Picked out **by recipient** rather than by taking the only call, because a registration
+ * also mails the admin a decision link (issue #53) — so the log holds two kinds of mail, and
+ * a length assertion here would have made every sign-in test fail for a reason that has
+ * nothing to do with sign-in. The admin's address is the one thing that reliably tells them
+ * apart: it is a `var` the seam supplies, and no shelter in the suite registers under it.
+ */
 export function emailedCode(): string {
-  const calls = outbound.callsTo("resend");
-  expect(calls).toHaveLength(1);
-  const body = JSON.parse(calls[0]!.body!) as { text: string };
-  const match = body.text.match(/\b(\d{6})\b/);
+  const codeMails = outbound
+    .callsTo("resend")
+    .map((call) => JSON.parse(call.body!) as { to: string[]; text: string })
+    .filter((mail) => !mail.to.includes(env.ADMIN_EMAIL));
+  expect(codeMails, "exactly one code email should have been sent").toHaveLength(1);
+  const match = codeMails[0]!.text.match(/\b(\d{6})\b/);
   expect(match, "the code email should carry six digits").not.toBeNull();
   return match![1]!;
+}
+
+/** Every email sent to the admin, parsed. Registration sends one per new shelter. */
+export function adminMails(): { to: string[]; subject: string; text: string }[] {
+  return outbound
+    .callsTo("resend")
+    .map((call) => JSON.parse(call.body!) as { to: string[]; subject: string; text: string })
+    .filter((mail) => mail.to.includes(env.ADMIN_EMAIL));
 }
 
 /** Ask for a code and come back with the handle and the digits. */
@@ -106,6 +124,7 @@ export async function ageMailLedger(ms: number): Promise<void> {
 /** Every table a shelter's rows reach, children before parents. */
 export async function clearShelterTables(): Promise<void> {
   await env.DB.exec("DELETE FROM animals");
+  await env.DB.exec("DELETE FROM verifications");
   await env.DB.exec("DELETE FROM one_time_codes");
   await env.DB.exec("DELETE FROM sign_in_requests");
   await env.DB.exec("DELETE FROM shelter_contact_points");

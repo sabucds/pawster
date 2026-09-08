@@ -37,14 +37,15 @@
     { "binding": "ORIGINALS", "bucket_name": "pawster-originals" }
   ],
 
-  // Six secrets are deliberately absent: `SESSION_SECRET` signs the Session cookie,
+  // Seven secrets are deliberately absent: `SESSION_SECRET` signs the Session cookie,
   // `SIGN_IN_SECRET` keys the One-Time Code hash, `ORIGINAL_SECRET` signs the capability
-  // handed to the image pipeline, `SUBSCRIBER_SECRET` keys the opt-in token and the signup
-  // IP fingerprints, `DO_NOT_CONTACT_PEPPER` keys the Do-Not-Contact list (ADR 0010), and
-  // `RESEND_API_KEY` is the mail credential. A committed plaintext `var` for any of them
-  // would put a credential in the repository — the same rule `digest/wrangler.jsonc` follows
-  // for `UNSUBSCRIBE_SECRET`. They are set with `wrangler secret put`, and the test seam
-  // supplies fixed ones, so the suite still needs no credentials.
+  // handed to the image pipeline, `ADMIN_LINK_SECRET` signs every admin link (ADR 0019),
+  // `SUBSCRIBER_SECRET` keys the opt-in token and the signup IP fingerprints,
+  // `DO_NOT_CONTACT_PEPPER` keys the Do-Not-Contact list (ADR 0010), and `RESEND_API_KEY` is
+  // the mail credential. A committed plaintext `var` for any of them would put a credential
+  // in the repository — the same rule `digest/wrangler.jsonc` follows for
+  // `UNSUBSCRIBE_SECRET`. They are set with `wrangler secret put`, and the test seam supplies
+  // fixed ones, so the suite still needs no credentials.
   //
   // `DO_NOT_CONTACT_PEPPER` is the one that must never be rotated: ADR 0010 records that a
   // lost pepper fails *open*, silently resuming mail to people who reported us as spam. The
@@ -54,6 +55,13 @@
     // can tell a credential from a newsletter, and so a spam complaint about the digest
     // cannot take the sign-in sender's reputation with it.
     "SIGN_IN_FROM_ADDRESS": "entrar@pawster.dpdns.org",
+    // The one address a signed admin link is sent to (ADR 0002), and the `reply_to` a refused
+    // shelter answers. A var and not a secret: it is a destination, and the credential is the
+    // signature over the link.
+    "ADMIN_EMAIL": "hola@pawster.dpdns.org",
+    // Verification mail, held apart from `entrar@` so a refusal marked as spam cannot take
+    // the sign-in sender's reputation with it.
+    "VERIFICATION_FROM_ADDRESS": "verificacion@pawster.dpdns.org",
     // The same sender `digest/wrangler.jsonc` holds, and the opt-in link goes out from it:
     // that mail is the first message of the digest relationship, so it should arrive from the
     // address every later resumen arrives from. A subscriber allow-lists it once, and a

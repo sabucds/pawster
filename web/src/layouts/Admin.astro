@@ -1,0 +1,50 @@
+---
+/**
+ * The frame the two admin pages share, and the whole of the admin surface's furniture.
+ *
+ * [ADR 0002](../../../docs/adr/0002-no-admin-accounts.md) rules out an admin area — "one
+ * unstyled page behind a signed link is the admin surface, entire" (issue #45's out-of-scope
+ * list). So this is deliberately less than `Refugios.astro`: no navigation, because there is
+ * nowhere to navigate to that is not another signed link; no stylesheet and no script, for
+ * the reason that layout gives — every page in this group has to work before either arrives.
+ *
+ * `lang="en"` and not `es`, unlike every other page on the platform. The Platform Admin is
+ * "a role in the domain, not in the auth system" (`CONTEXT.md`) and is the maintainer who
+ * reads this repository; `CONTEXT.md`'s *User-facing Spanish* table governs what adopters
+ * and shelters read, and translating a one-person tool would invent a Spanish vocabulary for
+ * concepts — evidence, method, entry — that the glossary has no words for. The mail this
+ * surface causes to be sent to a *shelter* is es-VE, in `lib/verification/mail.ts`, which is
+ * where the boundary between the two audiences actually falls.
+ */
+interface Props {
+  title: string;
+  heading: string;
+}
+
+const { title, heading } = Astro.props;
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title} — Pawster admin</title>
+    <!--
+      Never indexed, and here the reason is sharper than on the shelter pages: the URL that
+      reaches this page carries a bearer capability in its query string, and a search engine
+      that crawled one would hold the credential. `noindex` is not the defence — the
+      capability's expiry is — but a crawler has no business here either way.
+    -->
+    <meta name="robots" content="noindex, nofollow" />
+    <!--
+      No referrer, because the token is in the URL. Any link this page renders to a shelter's
+      own public page would otherwise hand that request's `Referer` header the admin's live
+      capability, and the shelter's page is served by the same Worker that would log it.
+    -->
+    <meta name="referrer" content="no-referrer" />
+  </head>
+  <body>
+    <h1>{heading}</h1>
+    <slot />
+  </body>
+</html>
