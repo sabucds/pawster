@@ -54,9 +54,21 @@ export function isAvailability(value: string): value is Availability {
  * outcome read off the top of the log.
  *
  * The rule below tests for `Verified` rather than against `Revoked`, which is what lets a
- * later ticket add an outcome without widening the listing by accident.
+ * later ticket add an outcome without widening the listing by accident. `Refused` is that
+ * later ticket arriving (issue #53): it was added here and `isListed()` needed no edit,
+ * which is the property that sentence was describing.
+ *
+ * **Three outcomes and no fourth.** *Pending* is not one — ADR 0003 makes it the absence of
+ * any entry, which is why the field that holds this is nullable rather than this union
+ * carrying a `Pending` member that a registration would have to write a row to express. And
+ * a Departure is not one either: ADR 0015 makes it a dated fact on the shelter, because
+ * filing it here would make `decidedBy` polymorphic over two unrelated actors and leave
+ * "current standing" ambiguous between *we trust them* and *they are still here*.
+ *
+ * The spellings are the ones `CONTEXT.md` uses and are written into `db/`'s column enum
+ * unchanged, so no layer maps between a stored word and a domain one.
  */
-export type VerificationOutcome = "Verified" | "Revoked";
+export type VerificationOutcome = "Verified" | "Refused" | "Revoked";
 
 /**
  * What the listing rule needs to know about an animal, which is one field.

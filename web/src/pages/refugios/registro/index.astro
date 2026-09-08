@@ -10,6 +10,19 @@ import {
   CONTACT_POINT_KINDS,
   CONTACT_POINT_LABELS,
 } from "../../../lib/shelter/fields.ts";
+import { readShelterProfile } from "../../../lib/shelter/store.ts";
+import {
+  ADMIN_DECISION_PATH,
+  ADMIN_PENDING_PATH,
+  adminLinkUrl,
+  mintAdminLink,
+} from "../../../lib/verification/link.ts";
+import { sendDecisionRequestEmail } from "../../../lib/verification/mail.ts";
+import {
+  adminMailWindowStart,
+  refuseAdminMail,
+} from "../../../lib/verification/policy.ts";
+import { countRegistrationsSince } from "../../../lib/verification/store.ts";
 
 /**
  * Registration: the one form on the platform that both renders and processes itself.
@@ -72,19 +85,81 @@ if (Astro.request.method === "POST") {
      * the platform either.
      *
      * The cost is that a genuine registration typed into another shelter's address is
-     * silently dropped. Nothing is lost that the shelter can see — no mail is sent at
-     * registration — and the recovery is the same out-of-band path ADR 0013 already defines
-     * for a lost inbox.
+     * silently dropped. Nothing is lost that the shelter can see — the only mail registration
+     * sends goes to the *admin*, and it is skipped here along with the row, so the duplicate
+     * is also not a way to make the platform send mail on demand. The recovery is the same
+     * out-of-band path ADR 0013 already defines for a lost inbox.
      */
     const existing = await findShelterByEmail(db, parsed.value.accountEmail);
     if (existing === null) {
-      await registerShelter(db, parsed.value, new Date());
+      const now = new Date();
+      const registered = await registerShelter(db, parsed.value, now);
+      await askAdminToDecide(db, registered.id, now);
     }
 
     return Astro.redirect(SUCCESS, 303);
   }
 
   errors = parsed.errors;
+}
+
+/**
+ * Email the admin one decision link for a shelter that has just been created.
+ *
+ * **Failures are swallowed**, and that is the right direction rather than a shortcut: the
+ * shelter's registration is already written, it was promised an answer within three days and
+ * invited to chase, and the pending list still holds it — so a refused or failed send costs
+ * the queue a notification and never an entry (ADR 0002 makes the shelter the external
+ * dead-man's switch precisely so that this is true). Failing the registration instead would
+ * show a shelter an error for something it cannot affect and did not cause.
+ *
+ * **It is capped per trailing day.** This route is unauthenticated and its writes are
+ * unbounded (see the module comment above), so handing it an email hands an attacker Resend's
+ * 100 a day — and the first thing that starves is sign-in mail, which is an outage rather
+ * than an inconvenience. The ledger is `shelters.created_at`, because exactly one decision
+ * email is sent per shelter created, so the registrations *are* the send history and no
+ * second table can disagree with them.
+ *
+ * The shelter is **read back** rather than assembled from the form, so the mail describes the
+ * shelter the decision page will render — the slug in particular, which registration chose
+ * and the form never saw.
+ */
+async function askAdminToDecide(
+  db: ReturnType<typeof createDb>,
+  shelterId: string,
+  now: Date,
+): Promise<void> {
+  try {
+    const registrations = await countRegistrationsSince(db, adminMailWindowStart(now));
+    if (refuseAdminMail(registrations) !== null) return;
+
+    const shelter = await readShelterProfile(db, shelterId);
+    if (!shelter) return;
+
+    const [decision, pending] = await Promise.all([
+      mintAdminLink(env, { kind: "decision", shelterId, admin: env.ADMIN_EMAIL }, now),
+      mintAdminLink(env, { kind: "pending", admin: env.ADMIN_EMAIL }, now),
+    ]);
+
+    await sendDecisionRequestEmail(env, {
+      /**
+       * Named field by field rather than spread, because `readShelterProfile()` also returns
+       * the account email and this mail must not carry it: the judgement is about a public
+       * presence, and the address is the shelter's whole credential.
+       */
+      shelter: {
+        displayName: shelter.displayName,
+        slug: shelter.slug,
+        baseRegion: shelter.baseRegion,
+        countryCode: shelter.countryCode,
+        contactPoints: shelter.contactPoints,
+      },
+      decisionUrl: adminLinkUrl(env.SITE_ORIGIN, ADMIN_DECISION_PATH, decision),
+      pendingUrl: adminLinkUrl(env.SITE_ORIGIN, ADMIN_PENDING_PATH, pending),
+    });
+  } catch {
+    // Deliberately silent. See above: the shelter is not the right person to tell.
+  }
 }
 
 const priorValue = (field: string): string => {

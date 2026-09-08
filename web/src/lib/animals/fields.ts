@@ -47,7 +47,7 @@ import {
   isSpecies,
   isSterilisation,
 } from "@pawster/domain";
-import { type ReadField, trimmedField } from "../shelter/fields.ts";
+import { type ReadField, trimmedField } from "../form-fields.ts";
 
 export type { ReadField };
 

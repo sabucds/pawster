@@ -9,7 +9,7 @@
  */
 
 export type { AgeBand } from "./age-band.ts";
-export { deriveAgeBand, monthsBetween } from "./age-band.ts";
+export { AGE_BANDS, deriveAgeBand, monthsBetween } from "./age-band.ts";
 export type {
   AgeEstimateBasis,
   AnimalDraftFacts,
@@ -51,6 +51,14 @@ export {
   isSpecies,
   sizeApplies,
 } from "./axes.ts";
+export {
+  CRITERIA_VOCABULARIES,
+  MAX_CRITERIA_VALUES_PER_AXIS,
+  MAX_REGION_LENGTH,
+  parseCriteria,
+  readCriteria,
+  writeCriteria,
+} from "./criteria.ts";
 export type { DerivativeName, DerivativeSpec } from "./derivative.ts";
 export {
   DERIVATIVE_CACHE_CONTROL,
@@ -77,6 +85,12 @@ export type {
   SubscriptionCriteria,
 } from "./matching.ts";
 export { ageBandsFor, goodWithFor, matches } from "./matching.ts";
+export {
+  OPT_IN_TTL_MS,
+  OPT_IN_WINDOW_MS,
+  optInMailLedgerCutoff,
+  optInPurgeCutoff,
+} from "./retention.ts";
 export type { StalenessBand } from "./staleness.ts";
 export { daysBetween, deriveStalenessBand } from "./staleness.ts";
 export type {

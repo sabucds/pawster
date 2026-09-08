@@ -116,6 +116,17 @@ const facts = await readShelterFacts(db, session.shelterId);
 if (!facts) return Astro.redirect("/refugios/entrar", 303);
 
 const listed = isListed({ availability: animal.availability }, facts);
+
+/**
+ * Whether verification has already given this shelter an answer *against* it.
+ *
+ * Narrowed to the two outcomes that are against the shelter rather than "has any outcome": a
+ * `Verified` shelter can still be unlisted — no contact points — and pointing it at an email
+ * nobody sent would be the same lie in the other direction.
+ */
+const answered =
+  facts.latestVerificationOutcome === "Refused" ||
+  facts.latestVerificationOutcome === "Revoked";
 const ageBand = deriveAgeBand(animal.species, animal.estimatedBirthDate, now);
 
 /** The one place a stored `Date` becomes what `<input type="date">` wants. */
@@ -201,13 +212,21 @@ const published = Astro.url.searchParams.has("publicado") && submitted === null;
     ) : (
       /**
        * Says *why*, not merely that it is not visible. A shelter told only "no aparece" would
-       * look for something it did wrong on this form, and the reason is almost always that
-       * verification has not happened yet — which is not something it can fix here.
+       * look for something it did wrong on this form, and the reason is usually not on this
+       * form at all.
+       *
+       * **Pending and answered are told different things**, which is the distinction issue #53
+       * made real: before its log existed, every shelter was awaiting a decision and one
+       * sentence covered them all. A `Refused` or `Revoked` shelter has already had its answer
+       * by email, so telling it to keep waiting would be the platform lying to itself — the
+       * same reasoning `panel.astro` records for its own notice.
        */
       <p data-testid="visibility">
         Este animal todavía no aparece en el sitio público.
+        {answered && " Te escribimos al correo del refugio sobre esto; respóndele a ese correo."}
         {
-          facts.latestVerificationOutcome !== "Verified" &&
+          !answered &&
+            facts.latestVerificationOutcome !== "Verified" &&
             " El refugio está esperando la verificación."
         }
         {

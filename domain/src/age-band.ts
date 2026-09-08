@@ -10,6 +10,23 @@ import type { Species } from "./axes.ts";
 export type AgeBand = "Puppy" | "Kitten" | "Young" | "Adult" | "Senior";
 
 /**
+ * The band vocabulary as data, in **life-stage order**, which is the canonical order a
+ * subscription's `ageBands` set is stored and rendered in (`criteria.ts`).
+ *
+ * `Puppy` and `Kitten` sit together at the front rather than being folded into one value,
+ * because they are the same stage under two species' names — a subscription naming both is
+ * a subscriber who wants the young of either species, and ADR 0018's band-replacement rule
+ * is what turns the pair into one word on screen.
+ */
+export const AGE_BANDS = [
+  "Puppy",
+  "Kitten",
+  "Young",
+  "Adult",
+  "Senior",
+] as const satisfies readonly AgeBand[];
+
+/**
  * Upper bound, in whole months, of each band below `Senior`. A species' first band is
  * named for the species, which is the only reason `Puppy` and `Kitten` are distinct
  * values rather than one `Juvenile`.

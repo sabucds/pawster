@@ -24,6 +24,7 @@ import { and, count, desc, eq, gte, like, or, sql } from "drizzle-orm";
 import type { ContactPointInput } from "../shelter/fields.ts";
 import { writeContactPoints } from "../shelter/store.ts";
 import { slugCandidates } from "../slug.ts";
+import { readLatestVerificationOutcome } from "../verification/store.ts";
 import { generateOneTimeCode, generateRequestToken, hashOneTimeCode } from "./crypto.ts";
 import type { MailBudgetUsage } from "./policy.ts";
 import {
@@ -406,18 +407,17 @@ export async function recordSignInRequest(
 /**
  * The facts `domain/`'s `isListed()` needs about one shelter.
  *
- * Three of the four clauses cannot be read from the schema yet, and each absence is a
- * different ticket rather than a gap here:
+ * One clause still cannot be read from the schema, and its absence is a ticket rather than a
+ * gap here: `departedAt` is always `null` until Departure lands with issue #65. When that
+ * ticket adds its column this function grows one more read and every caller keeps working,
+ * which is the reason the listing rule takes flat facts rather than rows.
  *
- * - `latestVerificationOutcome` is **always `null`** because the verification log does not
- *   exist yet (issue #53). `null` is not a placeholder — ADR 0003 makes pending the absence
- *   of an entry, so a platform with no log at all is a platform where every shelter is
- *   pending, which is exactly true today. This is the clause that makes a newly registered
- *   shelter invisible, and it is doing real work.
- * - `departedAt` is always `null`; Departure lands with issue #65.
- *
- * When those tickets add their columns this function grows a join and every caller keeps
- * working, which is the reason the listing rule takes flat facts rather than rows.
+ * `latestVerificationOutcome` **is** read now (issue #53). It is the outcome off the top of
+ * the append-only log, through `../verification/store.ts` rather than through a select of
+ * its own, so the definition of "latest" — the sequence and not the clock — lives in one
+ * place. A shelter with no entries reads `null`, which ADR 0003 makes *pending*: the absence
+ * is spelled as an absence rather than as a stored state, so nothing here has to know what
+ * pending is.
  */
 export async function readShelterFacts(
   db: Database,
@@ -436,7 +436,7 @@ export async function readShelterFacts(
     .where(eq(shelterContactPoints.shelterId, shelterId));
 
   return {
-    latestVerificationOutcome: null,
+    latestVerificationOutcome: await readLatestVerificationOutcome(db, shelterId),
     contactPointCount: contacts?.n ?? 0,
     departedAt: null,
   };

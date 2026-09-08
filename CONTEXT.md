@@ -240,10 +240,20 @@ three, so "dogs in Caracas" and "cats in Maracay" are two subscriptions rather t
 broadened search. Managed entirely through signed links; never behind a login.
 _Avoid_: Alert, watch, saved search, newsletter signup
 
+**Signup**:
+The act of submitting the form: an address and a set of criteria, and nothing else. It is
+**not** the Opt-In and never becomes one on its own - a signup writes an unconfirmed record
+that cannot be mailed to, and it is the Opt-In that turns that into a Subscriber and a
+Subscription. Holding the two apart is what the identical-response rule is about: a signup
+answers the same way on every path *because* it commits to nothing, so there is nothing about
+the address for the answer to vary with.
+_Avoid_: Registration (that is a shelter's), subscribe, join, opt-in
+
 **Opt-In**:
 A subscriber's proof, through a single-use link, that the address is genuinely theirs. Nothing
 is ever sent to an address that has not opted in. Named apart from Confirmation, which belongs
-to shelters and animals and means something else entirely.
+to shelters and animals and means something else entirely - and apart from Signup, which is
+the request this answers.
 _Avoid_: Confirmation, verification, signup, double opt-in
 
 **Digest**:
@@ -312,11 +322,20 @@ _Avoid_: Permission, scope, grant, access level
 
 **Verification**:
 An append-only log of the judgements a platform admin has made about one shelter, each
-entry capturing the outcome, the methods used and the evidence noted. A log rather than
-a flag, because acceptable evidence differs by country and because a later judgement
-must never erase the reasoning behind an earlier one. A shelter's current standing is
-the latest entry; a shelter with no entries is awaiting verification.
+entry capturing the outcome, the methods used, the evidence noted, and the Cited
+Artifacts it was written against. A log rather than a flag, because acceptable evidence
+differs by country and because a later judgement must never erase the reasoning behind an
+earlier one. A shelter's current standing is the latest entry; a shelter with no entries
+is awaiting verification.
 _Avoid_: Approval, KYC, validation, verified flag
+
+**Cited Artifact**:
+A public detail a Verification entry was written against - the display name and the
+contact points the admin had in front of them - recorded on the entry as a snapshot. When
+a verified shelter edits one, the admin is emailed once: the check has a dead-man's switch
+rather than a schedule, because nothing re-checks a shelter on a timer. Reordering contact
+points is not an edit to one, since every channel was checked either way.
+_Avoid_: Proof, attachment, document, snapshot
 
 **Revocation**:
 A verification entry that withdraws a shelter's standing, delisting its animals without
@@ -350,7 +369,7 @@ the _Avoid_ lists structurally cannot catch: two surfaces picking `refugio` and 
 thing, with both passing review because the avoid list is in the other language.
 
 **It is deliberately short.** A term earns a row only when an adopter or a shelter actually reads it.
-Most of the glossary - `Unreferenced Derivative`, `Digest Run`, `Send Day`, `Do-Not-Contact`,
+Most of the glossary - `Unreferenced Derivative`, `Digest Run`, `Do-Not-Contact`,
 `Capability` - never reaches a user, and giving it Spanish would be inventing language the project
 does not speak. Rows marked _unsettled_ are concepts a user will read whose wording belongs to the
 issue that builds the surface.
@@ -404,7 +423,8 @@ issue that builds the surface.
 | Digest | `resumen` | |
 | Subscription | `búsqueda` | What a subscriber calls their own: `Cambiar mis búsquedas` |
 | Unsubscribe | `darme de baja` | |
-| Opt-In | _unsettled_ | See below |
+| Opt-In | `activar`, `activación` | `Activa tu búsqueda`, `enlace para activarla`. Settled by issue #61 - see below |
+| Send Day | *(no noun)* | Rendered as the day itself: `Tu resumen te llega los martes`. The concept is never named to a subscriber, only its value |
 | Archive | _unsettled_ | Belongs to the issue that builds the archive page |
 | Confirmation Nudge | _unsettled_ | Belongs to the issue that writes the nudge email |
 
@@ -412,9 +432,21 @@ issue that builds the surface.
 write to an animal), `Verification` (an admin's judgement about a shelter) and `Opt-In` (a
 subscriber's proof of their own address) are three concepts the English glossary separates on
 purpose, with `Opt-In` explicitly avoiding both other words. Spanish collapses the first two onto
-`confirmar` and `verificar` cleanly enough, but leaves `Opt-In` with no third verb: the issue #15
-digest prototype currently writes `Recibes esto porque confirmaste tu correo en Pawster`, which
-borrows the shelter's verb for the subscriber's act. Recorded here as a finding rather than settled:
-issue #61 owns `Opt-In`'s wording, and the constraint it inherits is that a subscriber's act and a
-shelter's act should not read as the same word. That digest footer line is the one place the
-collision has already shipped.
+`confirmar` and `verificar` cleanly enough, but left `Opt-In` with no third verb: the issue #15
+digest prototype writes `Recibes esto porque confirmaste tu correo en Pawster`, which borrows the
+shelter's verb for the subscriber's act.
+
+**Issue #61 settles it as `activar`**, and the third verb is a real one rather than a coinage: it is
+what a Venezuelan already says about a SIM card, a service or an account they have just been given.
+It also names the right act. A subscriber following the link is not being judged and is not
+attesting to a fact about somebody else - they are turning their own saved search on, and it does
+nothing until they do. So the footer line above becomes `activaste`, and the three acts read as
+three different things.
+
+Two candidates were rejected, both of which look better than they are. `dar de alta` is the neat
+mirror of `darme de baja` and is wrong twice over: `alta`/`baja` as a pair is Peninsular
+administrative register that reads as filing a form, and pairing the two verbs would imply the acts
+are symmetric - while [ADR 0010](docs/adr/0010-subscriber-data-retention.md) is explicit that they
+are not, since unsubscribing is one deliberately unconfirmed click and opting in is proof of a
+mailbox. `validar` reads as the platform passing judgement on the address, which is the posture
+`verificar` already occupies for shelters and the opposite of what is happening.

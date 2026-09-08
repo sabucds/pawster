@@ -5,10 +5,10 @@ import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { outbound } from "../../test/outbound.ts";
 import { seedUploadSession } from "./support/animal.ts";
+import { get, post } from "./support/http.ts";
 import {
   clearShelterTables,
-  get,
-  post,
+  decideShelter,
   signIn,
 } from "./support/shelter.ts";
 
@@ -465,6 +465,23 @@ describe("the shelter's own page for one animal", () => {
     // A shelter told only "no aparece" would hunt for something it did wrong on the form.
     expect(html).toContain("todavía no aparece en el sitio público");
     expect(html).toContain("esperando la verificación");
+  });
+
+  it("does not tell a refused shelter it is still waiting", async () => {
+    const { shelterId, cookie, animalId } = await published();
+    await decideShelter(shelterId, "Refused");
+
+    const html = await (await get(`/refugios/animales/${animalId}`, cookie)).text();
+
+    /**
+     * Before issue #53 landed the log, every shelter was pending and one sentence covered them
+     * all. Now `Refused` and `Revoked` exist, and telling a shelter that already has its answer
+     * to keep waiting is the platform lying to itself — so it is pointed back at the mail that
+     * invited a reply instead.
+     */
+    expect(html).toContain("todavía no aparece en el sitio público");
+    expect(html).toContain("respóndele a ese correo");
+    expect(html).not.toContain("esperando la verificación");
   });
 
   it("describes the animal with its gender agreed", async () => {

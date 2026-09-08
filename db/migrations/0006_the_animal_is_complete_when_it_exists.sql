@@ -8,7 +8,8 @@
 --   INSERT INTO `__new_animals`(..., "upload_session_id", "sex", "description", ...)
 --   SELECT ..., "upload_session_id", "sex", "description", ... FROM `animals`;
 --
--- `animals` has seven columns as of `0000_init`, so that statement fails with
+-- `animals` still has the seven columns `0000_init` gave it — nothing between there and
+-- `0005_the_verification_log` touched the table — so that statement fails with
 -- `no such column: upload_session_id` on every database the table exists in. Nor can it be
 -- repaired by supplying values for the new columns: `upload_session_id` must reference a real
 -- `upload_sessions` row, and there is no session that an already-published animal could have

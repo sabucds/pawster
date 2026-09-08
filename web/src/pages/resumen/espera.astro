@@ -1,0 +1,48 @@
+---
+import Resumen from "../../layouts/Resumen.astro";
+
+/**
+ * The platform is out of opt-in mail for today.
+ *
+ * ADR 0010 caps opt-in sends because the signup form is unauthenticated by necessity, and
+ * `policy.ts` sets the figure at six a day out of Resend's hundred — with the honest note
+ * that six "is a real limit on how fast the subscriber base can grow, not a comfortable
+ * headroom: a shelter posting the signup link to Instagram can beat it in an evening, and the
+ * seventh person that day is refused".
+ *
+ * This page is that seventh person, and they are **told the truth** rather than shown the
+ * identical response. The refusal is not a fact about their address — it is a fact about us —
+ * so speaking it leaks nothing, and a person told "try tomorrow" can act on it where a person
+ * shown "check your inbox" waits for mail that was never sent.
+ *
+ * "In a few hours" rather than "tomorrow", because the ceiling is counted over a trailing 24
+ * hours rather than a calendar day (`optInWindowStart`). 00:00 UTC is 20:00 in Venezuela, the
+ * middle of the evening rather than a quiet hour, which is why the window rolls — and telling
+ * somebody "tomorrow" when the answer is "in three hours" is a small lie that costs them a
+ * day.
+ */
+---
+
+<Resumen title="Vuelve más tarde" heading="Ahora mismo no podemos mandar el correo">
+  <p data-testid="mail-ceiling">
+    Pawster manda una cantidad limitada de correos al día y hoy ya se llegó al tope. No es
+    nada que hayas hecho tú y tu correo está bien.
+  </p>
+
+  <p data-testid="try-later">
+    Vuelve a intentarlo <strong>en unas horas</strong> y te va a llegar el enlace sin problema.
+  </p>
+
+  <p>
+    <!--
+      Named rather than hidden behind "technical limits". The reservation is real: the same
+      hundred emails a day carry the resúmenes themselves and the codes shelters use to
+      publish, and a person who understands the platform is small is not the same as a person
+      who thinks it is broken.
+    -->
+    El tope existe porque el correo es lo único que este proyecto tiene contado, y la mayor
+    parte está reservada para los resúmenes que ya se prometieron.
+  </p>
+
+  <p><a href="/resumen">Volver</a></p>
+</Resumen>

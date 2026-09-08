@@ -9,10 +9,10 @@ import {
 } from "drizzle-orm/sqlite-core";
 
 /**
- * The skeleton's schema plus shelter access. The rest of the model — verification entries,
- * photos, subscriptions, the sent-set — lands with the tickets that need it. What is
- * settled here is the *shape*: this package owns the schema and the migrations, and both
- * Workers bind the same database.
+ * The skeleton's schema plus shelter access, the photo pipeline, the verification log and
+ * the subscriber side. What is left is the sent-set, which lands with the ticket that needs
+ * it. What is settled here is the *shape*: this package owns the schema and the migrations,
+ * and both Workers bind the same database.
  *
  * Two absences in the access tables below are load-bearing rather than unfinished, and
  * both come from [ADR 0013](../../docs/adr/0013-shelters-sign-in-with-an-emailed-code.md):
@@ -21,11 +21,11 @@ import {
  *   issued-at and a session epoch, validated against `shelters.sessionEpoch`. Sliding
  *   refresh re-issues the cookie and writes nothing here, so a 90-day sliding session costs
  *   zero rows and zero writes per request.
- * - **There is no verification table yet, and pending is its absence.** ADR 0003 makes
- *   standing an append-only log whose latest entry is the current standing, so a shelter
- *   with no entries is awaiting verification. Registration therefore writes *no*
- *   verification row — and it does not need the table to exist in order to not write to
- *   it. Issue #53 adds the log.
+ * - **There is no pending state, and pending is the verification log's absence.** ADR 0003
+ *   makes standing an append-only log whose latest entry is the current standing, so a
+ *   shelter with no entries is awaiting verification. The log arrived with issue #53 and
+ *   registration still writes *no* verification row, which is how "pending" is expressed:
+ *   `registerShelter()` has no line about verification in it at all.
  */
 
 export const shelters = sqliteTable("shelters", {
@@ -429,6 +429,137 @@ export const animals = sqliteTable(
   ],
 );
 
+/**
+ * The append-only log of judgements a platform admin has made about one shelter — the
+ * table [ADR 0003](../../docs/adr/0003-verification-is-an-append-only-log.md) has been
+ * describing since before it existed, and the one the comment on `shelters` promised
+ * issue #53 would add.
+ *
+ * **Nothing updates a row here and nothing deletes one.** A later judgement is a new row;
+ * "current standing" is the latest row, which is what makes a revoked shelter's appeal
+ * answerable — the reasoning behind the decision it is appealing is still on disk. That is
+ * also why there is no `verified` boolean on `shelters` for this to be denormalised into:
+ * two answers that can disagree, one of which cannot say *why*.
+ *
+ * **A departed shelter's entries survive it** (ADR 0015): "a departed shelter keeps its
+ * display name, its animals' archive pages and its verification entries, because [...] the
+ * verification log records the platform's own judgements". So nothing in a Departure — or
+ * in the grace period that destroys the shelter's contact surface — reaches this table.
+ */
+export const verifications = sqliteTable(
+  "verifications",
+  {
+    /**
+     * A monotonic sequence and **not** a UUID, unlike every other id in this schema.
+     *
+     * "Current standing is the latest entry" has to be a total order over a shelter's rows,
+     * and `decidedAt` is not one: two decisions inside the same millisecond are
+     * indistinguishable by it, and a tie broken by a random UUID would resolve differently
+     * on each read — so a shelter could be `Verified` and `Refused` depending on which query
+     * ran. SQLite's `INTEGER PRIMARY KEY` is the rowid, which is append-order by
+     * construction, so the log's order *is* the primary key and needs no second column to
+     * defend it.
+     *
+     * It is also the only id in this schema nobody outside the platform ever holds — no URL
+     * names an entry, no email carries one — so the argument for opaque UUIDs elsewhere
+     * (an id in an address should reveal nothing and be unguessable) does not apply.
+     */
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    shelterId: text("shelter_id")
+      .notNull()
+      .references(() => shelters.id),
+    /**
+     * `Verified | Refused | Revoked`, spelled exactly as `domain/`'s `VerificationOutcome`
+     * spells them, so `isListed()`'s `latestVerificationOutcome` is this column read
+     * straight out of the row with no mapping layer to keep in step.
+     *
+     * The capitalisation is `CONTEXT.md`'s and breaks with the lower-case enums elsewhere in
+     * this file (`kind`, `species`, `mode`). Those are database-local vocabulary; this one is
+     * domain vocabulary that a pure package already names, and a mapping table between two
+     * spellings of the same three words is a place for them to drift.
+     *
+     * **There is no `Pending`.** ADR 0003 makes pending the absence of any entry, so
+     * registration writes no row here at all — see `registerShelter()`, which satisfies that
+     * by having no line about verification in it.
+     */
+    outcome: text("outcome", {
+      enum: ["Verified", "Refused", "Revoked"],
+    }).notNull(),
+    /**
+     * Which of `web/src/lib/verification/policy.ts`'s `VERIFICATION_METHODS` the admin used,
+     * as a comma-separated list of keys in that list's own order.
+     *
+     * A string rather than a child table because nothing queries by method: the set is read
+     * back only to be shown on the decision page beside the entry it belongs to. A table
+     * would be a join, an index and a second write for a value that is never a predicate.
+     *
+     * A comma list rather than JSON because every member is a fixed key from a closed
+     * vocabulary — no member can contain a comma, so the encoding cannot be broken by its
+     * own contents. `citedContactPoints` below holds shelter-authored text and so cannot
+     * make that claim, which is why the two columns are encoded differently.
+     *
+     * May be empty for a `Refused` or `Revoked` entry — refusing because nothing could be
+     * found is a decision reached by no method — and is required to be non-empty for a
+     * `Verified` one, in `web/src/lib/verification/policy.ts`, because a verification with no
+     * method is the flag flip ADR 0002 rejected.
+     */
+    methods: text("methods").notNull(),
+    /**
+     * What the admin wrote. Free text, because "acceptable evidence differs by country"
+     * (ADR 0003) and a structured field would have to be invented per country.
+     *
+     * **It describes public artifacts and never people**, and the decision page says so
+     * where the admin is typing — a volunteer's name recorded here would outlive the
+     * shelter, since ADR 0015 keeps these entries after a Departure has destroyed every
+     * other trace of the people who ran it. That rule cannot be enforced by a column, which
+     * is exactly why it is stated at the moment of writing rather than checked afterwards.
+     */
+    evidence: text("evidence").notNull(),
+    decidedAt: integer("decided_at", { mode: "timestamp_ms" }).notNull(),
+    /**
+     * The admin's email address, and **not a foreign key** — there is no user table to point
+     * at, because ADR 0002 gave admins no accounts. `CONTEXT.md`: a Platform Admin "is
+     * identified only by the email address a signed link was sent to", so this is that
+     * address, read out of the signed link's payload rather than out of configuration: a
+     * decision has to be attributable to the inbox that actually held the capability, and a
+     * later change to who the admin is must not rewrite who decided what.
+     */
+    decidedBy: text("decided_by").notNull(),
+    /**
+     * The shelter's display name as it stood when this entry was written, and the first half
+     * of the dead-man's switch (ADR 0019).
+     *
+     * The admin checked a public presence against *these* strings; if the shelter rewrites
+     * them afterwards, the check no longer describes what is on the site, and the admin is
+     * emailed. A snapshot rather than a reference into the shelter row, because the whole
+     * question is whether the shelter row has moved since.
+     */
+    citedDisplayName: text("cited_display_name").notNull(),
+    /**
+     * The shelter's contact points as they stood when this entry was written, as a JSON
+     * array of `{kind, value}` **sorted into a canonical order** — the other half of the
+     * switch.
+     *
+     * Sorted, so that comparing two snapshots is a string comparison and so that
+     * *reordering* is deliberately not a change: the order decides which channel an adopter
+     * is offered first, but every channel on the list was in front of the admin either way,
+     * so a promotion between two checked channels is not a drift away from what was checked.
+     *
+     * JSON rather than the comma list `methods` uses, because these values are text a
+     * shelter typed and a delimiter chosen by us is a delimiter a shelter can type.
+     */
+    citedContactPoints: text("cited_contact_points").notNull(),
+  },
+  (table) => [
+    /**
+     * Every read of this table is "this shelter's entries, newest first" — the listing
+     * rule's one-row form and the decision page's whole-log form are the same query with a
+     * different limit. The sequence is descending in the index so neither has to sort.
+     */
+    index("verifications_shelter_idx").on(table.shelterId, table.id),
+  ],
+);
+
 export const subscribers = sqliteTable(
   "subscribers",
   {
@@ -443,6 +574,21 @@ export const subscribers = sqliteTable(
     /** Nothing is ever sent to an address that has not opted in. */
     optedInAt: integer("opted_in_at", { mode: "timestamp_ms" }).notNull(),
     /**
+     * Which language this subscriber's digest is written in, captured at opt-in from the
+     * page they signed up on.
+     *
+     * [ADR 0018](../../docs/adr/0018-strings-are-typed-phrase-functions.md): the digest is
+     * "the only surface whose locale is a stored per-subscriber fact rather than a property
+     * of the URL", because every other surface reads its locale off the route the reader is
+     * already on and an email has no route. So it has to be stored, and this is the column.
+     *
+     * On the subscriber and not on the subscription, even though a subscription is what
+     * carries a section of the mail. A subscriber holds up to three and they arrive in one
+     * email, so three locales on one document is not a thing that can be rendered; the
+     * language belongs to the person reading it.
+     */
+    locale: text("locale", { enum: ["es", "en"] }).notNull().default("es"),
+    /**
      * When this subscriber last received a digest, or `null` if never. ADR 0009's
      * reporting field, and what makes "a shard that exceeds its budget sends its
      * longest-waiting subscribers" expressible: `ORDER BY last_digest_at ASC` puts NULLs
@@ -454,6 +600,229 @@ export const subscribers = sqliteTable(
   },
   (table) => [index("subscribers_send_day_idx").on(table.sendDay)],
 );
+
+/**
+ * One standing set of criteria belonging to a subscriber (`CONTEXT.md`, *Subscription*).
+ *
+ * **`slot` plus a unique index is what actually refuses a fourth subscription**, and that is
+ * the design rather than belt-and-braces. `web/src/lib/subscriber/policy.ts`'s
+ * `MAX_SUBSCRIPTIONS_PER_SUBSCRIBER` is a *count read and acted on a moment later*, which is
+ * a race by construction — two opt-in links redeemed in the same second both read two and
+ * both write a third. A column bounded to 0-2 with at most one row per (subscriber, slot)
+ * cannot be raced: the fourth insert has nowhere to go. The constant's job is the *early*
+ * refusal, before an opt-in email is spent on a subscription that would be rejected at the
+ * end of it.
+ *
+ * The `CHECK` is half of that and is not decoration. A unique index on `(subscriber_id,
+ * slot)` alone bounds nothing — it admits slot 7 — so the cap is the two constraints
+ * together, and dropping either silently removes it.
+ *
+ * A slot is an identity a subscriber's own manage page can name (#62) and is reused after a
+ * deletion, which is why it is an assigned small integer rather than a position: a
+ * subscriber who deletes their second search and adds another has two searches, not a gap.
+ */
+export const subscriptions = sqliteTable(
+  "subscriptions",
+  {
+    id: text("id").primaryKey(),
+    subscriberId: text("subscriber_id")
+      .notNull()
+      .references(() => subscribers.id),
+    /** 0, 1 or 2 — see the table comment. Assigned lowest-free at opt-in. */
+    slot: integer("slot").notNull(),
+    /**
+     * The criteria as `domain/`'s `writeCriteria()` renders it: canonical JSON, keys in axis
+     * order, every axis a set.
+     *
+     * **One JSON column rather than a join table per axis**, and the consumer decides it:
+     * `matches()` takes a `SubscriptionCriteria` whole, six axes at once, and every read of
+     * this data reads all of it. Six join tables would turn one row into six queries to
+     * answer a question nobody asks by axis, and the digest asks it once per subscription
+     * per run. `domain/src/criteria.ts` carries the full argument, including why the JSON is
+     * canonical as a *string* — two rows then compare with `=`, which the sent-set and the
+     * manage page both end up wanting.
+     *
+     * Never read with `JSON.parse` directly. `readCriteria()` re-runs the parser over it, so
+     * a value that was legal when it was written and is not after a vocabulary change cannot
+     * reach the matcher.
+     */
+    criteria: text("criteria").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("subscriptions_slot_idx").on(table.subscriberId, table.slot),
+    check("subscriptions_slot_range", sql`${table.slot} between 0 and 2`),
+  ],
+);
+
+/**
+ * A signup that has not been proved yet: an address the platform holds **no consent for at
+ * all**, plus the one thing that will become a subscription if the link is followed.
+ *
+ * [ADR 0010](../../docs/adr/0010-subscriber-data-retention.md) sets both of this table's
+ * unusual properties, and they are the same decision read from two ends. It is hard-deleted
+ * at seven days, because "an unconfirmed opt-in is an address we hold no consent for at all";
+ * and **it is the only record in the subscriber model that holds an IP**, because "IP is
+ * recorded only on the *unconfirmed* row, where it serves rate limiting, and dies with the
+ * seven-day purge. Confirmed subscribers carry no IP at all."
+ *
+ * That second property is an acceptance criterion of issue #61 rather than a preference, and
+ * it is asserted against the live schema in `db/test/migrations.test.ts` — a promise about a
+ * column nobody checks is a promise that lapses the first time a ledger looks convenient.
+ *
+ * A row's existence is what "outstanding" means, so a redeemed opt-in is **deleted** rather
+ * than flagged, the way `oneTimeCodes` is. That is what makes the link single-use, and it is
+ * why `refuseOptIn()` has no "already used" verdict to return: a used link finds no row.
+ */
+export const pendingOptIns = sqliteTable(
+  "pending_opt_ins",
+  {
+    /**
+     * `HMAC-SHA256(SUBSCRIBER_SECRET, "optin:" || token)`, base64url, and the primary key.
+     *
+     * Hashed for the reason `oneTimeCodes.codeHash` is: "a plaintext column would hand live
+     * login codes to anything that gets query access" (ADR 0013), and a live opt-in link is
+     * the same kind of thing — following one writes a subscriber. The token itself is 32
+     * random bytes, so unlike a six-digit code it is not searchable and the hash is not
+     * standing between an attacker and a guess; what it buys is that a database read is not
+     * a set of working links.
+     *
+     * The primary key rather than a column beside an id, because redemption is a lookup by
+     * exactly this value and nothing else ever addresses a row here.
+     */
+    tokenHash: text("token_hash").primaryKey(),
+    /**
+     * The address, in plaintext, and the one place in the subscriber model that holds an
+     * unconsented one.
+     *
+     * It cannot be a fingerprint: redemption has to *create a subscriber* with this address
+     * and there is no way back from a hash. What bounds the exposure is the seven-day purge
+     * rather than the storage form — ADR 0010 derives "every other retention period from
+     * what the record is for", and what this record is for ends when the link does.
+     */
+    email: text("email").notNull(),
+    /**
+     * The criteria the signup form submitted, already canonicalised by `writeCriteria()`.
+     *
+     * Stored here rather than re-collected after the click, so following the link is the
+     * whole of the subscriber's second visit. The alternative — a form on the opt-in page
+     * asking again — turns proof of a mailbox into a second round of checkbox-ticking, and
+     * the drop-off would land on the one step nothing works without.
+     */
+    criteria: text("criteria").notNull(),
+    /** Captured here and copied onto the subscriber at redemption — see `subscribers.locale`. */
+    locale: text("locale", { enum: ["es", "en"] }).notNull(),
+    /**
+     * `HMAC-SHA256(SUBSCRIBER_SECRET, "signup-ip:" || address)`, base64url. A fingerprint and
+     * not the address, the same posture `signInRequests.ipHash` takes: this column answers
+     * "how many signups from this caller in the last hour" and needs nothing else, so it
+     * holds the answer rather than the identifier.
+     *
+     * A hash is still an IP for the purposes of ADR 0010's rule, which is why it lives here
+     * and on no other subscriber table.
+     */
+    ipHash: text("ip_hash").notNull(),
+    /**
+     * When the mail went out, and **the whole clock**: the link's seven-day expiry is
+     * measured from it and the purge cutoff is the same figure read from the other end
+     * (`OPT_IN_TTL_MS`). One timestamp rather than a `createdAt` and an `expiresAt`, for the
+     * reason `uploadSessions.createdAt` gives — two facts that can disagree about one moment.
+     */
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [
+    // The per-IP signup limit, and the purge, are both reads over a time range.
+    index("pending_opt_ins_ip_idx").on(table.ipHash, table.createdAt),
+    index("pending_opt_ins_created_at_idx").on(table.createdAt),
+  ],
+);
+
+/**
+ * One row per opt-in email actually sent: the ledger the global daily ceiling and the
+ * per-address cooldown are counted over.
+ *
+ * **It exists because `pendingOptIns` is deleted on redemption**, and a ceiling counted over
+ * rows that disappear when the link is followed is not a ceiling — six sends all redeemed
+ * would read as zero and the next six would go out inside the same day. This is the same
+ * split `oneTimeCodes` and `signInRequests` already make: one table holds the outstanding
+ * credential, another holds the history the limits are spent from.
+ *
+ * A ledger rather than two counters, for the reason `signInRequests` is one: every limit is
+ * then a `SELECT COUNT(*)` over the same rows, with no denormalised total that can disagree
+ * with the history it summarises.
+ *
+ * **It holds no IP and no address**, only a fingerprint of one. The per-IP limit is counted
+ * over `pendingOptIns` instead, because ADR 0010 allows exactly one table to hold an IP and
+ * that is not this one. `web/src/lib/subscriber/store.ts` records what that costs.
+ */
+export const optInMails = sqliteTable(
+  "opt_in_mails",
+  {
+    id: text("id").primaryKey(),
+    /**
+     * `HMAC-SHA256(SUBSCRIBER_SECRET, "subscriber:" || normalised address)`, base64url.
+     *
+     * A fingerprint because the only question asked of it is "when did we last mail *this*
+     * address", which a deterministic digest answers exactly as well as the address would.
+     * Unlike `pendingOptIns.email` there is nothing downstream that needs the address back,
+     * so holding it would be holding an unconsented address for no reader — which is the
+     * thing ADR 0010's "only keep the minimum amount of information needed" rules out.
+     */
+    emailHash: text("email_hash").notNull(),
+    sentAt: integer("sent_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [
+    // The global ceiling reads a time range; the cooldown reads one address inside one.
+    index("opt_in_mails_sent_at_idx").on(table.sentAt),
+    index("opt_in_mails_email_idx").on(table.emailHash, table.sentAt),
+  ],
+);
+
+/**
+ * A one-way fingerprint of an address that reported us as spam, kept forever so the signup
+ * form can refuse it (`CONTEXT.md`, *Do-Not-Contact*).
+ *
+ * [ADR 0010](../../docs/adr/0010-subscriber-data-retention.md) is the whole of this table,
+ * and its central point is that the digest is an **HMAC and not a hash**: matching requires
+ * deterministic digests, which rules out per-record salting, and "email address space is
+ * small enough to enumerate, so a bare `sha256(address)` protects nobody". The remedy the
+ * ICO gives is a pepper "stored separately from hashes in a secure environment", which is
+ * precisely a keyed MAC — `DO_NOT_CONTACT_PEPPER`, and it is a secret of its own rather than
+ * a domain-separated use of `SUBSCRIBER_SECRET` because the two fail in opposite directions.
+ * See `web/src/lib/subscriber/crypto.ts`.
+ *
+ * The residue of a Retirement that outlives the subscriber it belonged to: it answers whether
+ * an address is refused and nothing else, because it holds no address to read. There is
+ * "no automatic right for people to have their information on such a list deleted", so
+ * nothing purges it.
+ */
+export const doNotContact = sqliteTable("do_not_contact", {
+  /**
+   * `HMAC-SHA256(DO_NOT_CONTACT_PEPPER, "dnc:" || normalised address)`, base64url.
+   *
+   * The primary key, which is the lookup: the signup form computes the same digest over what
+   * was typed and refuses on a match — silently, because the refusal is a fact about the
+   * address and saying it out loud is the enumeration oracle the whole signup path is built
+   * to close.
+   */
+  digest: text("digest").primaryKey(),
+  /**
+   * Why the entry exists. ADR 0010 keeps "a reason and a date" and nothing else.
+   *
+   * `complaint` is the only real one, and deliberately: a hard bounce is self-healing —
+   * opt-in completes only if the mailbox works — and Resend re-suppresses bounces
+   * account-wide anyway, so a bounce earns no entry here.
+   *
+   * `canary` is not an address at all. ADR 0010 requires that a wrong or lost pepper "fails
+   * loudly and immediately" rather than silently matching nobody, and this is where that
+   * check is kept: one entry over a fixed string, compared on every signup. It shares the
+   * table because the check is then the same point lookup as the refusal itself, and because
+   * a second table holding one row is a worse answer than a second reason. Its subject is
+   * `canary@pawster.invalid`, in a TLD reserved by RFC 2606, so nobody can type it.
+   */
+  reason: text("reason", { enum: ["complaint", "canary"] }).notNull(),
+  recordedAt: integer("recorded_at", { mode: "timestamp_ms" }).notNull(),
+});
 
 /**
  * A shelter's in-progress work assembling an animal's photos before the animal exists
@@ -634,6 +1003,11 @@ export const storageMeasurements = sqliteTable(
 export type Shelter = typeof shelters.$inferSelect;
 export type Animal = typeof animals.$inferSelect;
 export type Subscriber = typeof subscribers.$inferSelect;
+export type Verification = typeof verifications.$inferSelect;
+export type Subscription = typeof subscriptions.$inferSelect;
+export type PendingOptIn = typeof pendingOptIns.$inferSelect;
+export type OptInMail = typeof optInMails.$inferSelect;
+export type DoNotContactEntry = typeof doNotContact.$inferSelect;
 export type ShelterContactPoint = typeof shelterContactPoints.$inferSelect;
 export type ContactPointKind = ShelterContactPoint["kind"];
 export type OneTimeCode = typeof oneTimeCodes.$inferSelect;

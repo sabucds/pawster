@@ -89,11 +89,29 @@ const anythingVisible =
   facts !== null && isListed({ availability: "Available" }, facts);
 
 /**
+ * A shelter that has had an answer is told something different from one still waiting,
+ * because the pending copy makes a promise that has already been kept: "te respondemos en
+ * tres días" to a shelter that has had its answer is a lie the platform tells itself. That
+ * mail invited a reply, so this points back at it rather than restating the reason — the
+ * reason is a conversation with a person (issue #45), not a line on a page.
+ *
+ * Narrowed to the two outcomes that are *against* the shelter rather than written as "has an
+ * outcome at all". A `Verified` shelter can still fail `anythingVisible` — it has no contact
+ * points, which `isListed()` also requires — and pointing that shelter at an email nobody
+ * sent would be the same lie in the other direction. It gets its own line below.
+ */
+const decided = facts?.latestVerificationOutcome ?? null;
+const answered = decided === "Refused" || decided === "Revoked";
+const unreachable = facts !== null && facts.contactPointCount === 0;
+
+/**
  * The shelter's own animals, newest first.
  *
- * Here because without it a published animal would be unreachable. The public page is gated on
- * `isListed()` and every shelter is awaiting verification until issue #53, so the only route to
- * an animal is this list — and the animal's own page is the only place its edit form lives.
+ * Here because this is the only route to a published animal: the public page is gated on
+ * `isListed()`, so an animal is unreachable there until its shelter is verified *and* offers a
+ * contact point — and the animal's own page is the only place its edit form lives. Now that
+ * issue #53 has landed the verification log, that gate can open, and this list is still what a
+ * shelter navigates by.
  *
  * Every availability is shown, including adopted ones: an adopted animal is still the shelter's,
  * and hiding it would read as the row having been lost.
@@ -116,12 +134,28 @@ const animals = await listShelterAnimals(db, session.shelterId);
       <p data-testid="visibility">
         Tu refugio está verificado. Los animales que publiques se ven en el sitio.
       </p>
+    ) : answered ? (
+      <p data-testid="visibility">
+        <strong>Todavía no se ve nada de lo tuyo en el sitio.</strong> Te escribimos al
+        correo del refugio sobre esto. Respóndele a ese correo y lo revisa una persona: no se
+        perdió nada de lo que publicaste y se puede arreglar.
+      </p>
     ) : (
       <p data-testid="visibility">
         <strong>Todavía no se ve nada de lo tuyo en el sitio.</strong> Puedes publicar
         animales desde ya y no se pierde nada de lo que hagas: aparece completo el día que
         quede verificado el refugio. Te respondemos en tres días o menos, y si pasan tres
         días sin respuesta, escríbenos.
+      </p>
+    )
+  }
+
+  {
+    unreachable && (
+      <p data-testid="no-contact-points">
+        <strong>No tienes ninguna forma de contacto.</strong> Sin al menos una, tus animales
+        no le aparecen a nadie aunque el refugio esté verificado, porque no habría manera de
+        escribirte por ellos.
       </p>
     )
   }

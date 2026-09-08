@@ -26,18 +26,28 @@ export type Species = "dog" | "cat";
 /**
  * The species vocabulary as data as well as a type, and there is no `Other`.
  *
- * Every list in this file is exported as a `const` tuple beside its type for one reason:
- * **a closed vocabulary is only closed if something can reject a value at runtime.** The
- * types alone close nothing at the edge of the system — a publishing form receives strings
- * from a browser, and a string that TypeScript has been told is a `Species` is still
- * whatever arrived. So each list below comes with a guard, and the guard is what a form,
- * the filter index builder and the digest matcher all narrow through.
+ * **Two independent reasons the list is data, and both now have callers.**
  *
- * That matters more here than it looks. `CONTEXT.md` makes every axis vocabulary
- * platform-owned "and never extended by a shelter", and the cost of letting one through is
- * not a validation message: a shelter-invented value is one no subscription can match, so
- * it silently costs the shelter the reach it was publishing for. A silent loss is the
- * failure mode a runtime guard exists to convert into a refusal.
+ * The first is rejection. A closed vocabulary is only closed if something can reject a value
+ * at runtime: the types close nothing at the edge of the system, because a publishing form
+ * receives strings from a browser and a string TypeScript has been told is a `Species` is
+ * still whatever arrived. So each list here comes with a guard, and the guard is what a
+ * publishing form, the filter index builder and the digest matcher all narrow through.
+ * `CONTEXT.md` makes every axis vocabulary platform-owned "and never extended by a shelter",
+ * and the cost of letting one through is not a validation message: a shelter-invented value
+ * is one no subscription can match, so it silently costs the shelter the reach it was
+ * publishing for. A silent loss is what a runtime guard converts into a refusal.
+ *
+ * The second is iteration, for the reason {@link GOOD_WITH_AXES} gives: three surfaces read
+ * the list rather than naming its members. The signup form renders a checkbox per value
+ * (#61), `parseCriteria` validates submitted values against it, and the filter panel (#56)
+ * will do both.
+ *
+ * **The order is the canonical order**, and that is load-bearing. `parseCriteria` sorts a
+ * stored criteria set by position in these lists, so the order here is the order a subscriber
+ * reads their own saved search back in. Alphabetical order was the alternative and it is
+ * wrong for {@link SIZES} and for `AGE_BANDS` — a life stage and a body size both have an
+ * order of their own, and sorting their English identifiers destroys it.
  */
 export const SPECIES = ["dog", "cat"] as const satisfies readonly Species[];
 
@@ -65,12 +75,8 @@ export type Region = string;
  */
 export type Size = "Small" | "Medium" | "Large" | "Giant";
 
-export const SIZES = [
-  "Small",
-  "Medium",
-  "Large",
-  "Giant",
-] as const satisfies readonly Size[];
+/** Smallest first, which is the order a size list is read in and the canonical order. */
+export const SIZES = ["Small", "Medium", "Large", "Giant"] as const satisfies readonly Size[];
 
 export function isSize(value: string): value is Size {
   return (SIZES as readonly string[]).includes(value);
@@ -120,11 +126,19 @@ export function sizeApplies(species: Species): boolean {
 /** `Unknown` is a recorded absence, not a missing field: it is shown and labelled. */
 export type Sex = "Male" | "Female" | "Unknown";
 
-export const SEXES = [
-  "Male",
-  "Female",
-  "Unknown",
-] as const satisfies readonly Sex[];
+/**
+ * `Unknown` is in the vocabulary and so is offered as a criterion, which is the point of
+ * it being a first-class value rather than a `null`: a subscriber can ask to be shown the
+ * animals whose sex was never recorded, instead of having them silently excluded by a
+ * filter they did not know they had set.
+ *
+ * **Female first**, and the order is #61's rather than either ticket's convenience:
+ * `parseCriteria` sorts a stored criteria set by position in this list, so this is the order
+ * a subscriber reads their own saved search back in. #55 originally wrote `Male` first, which
+ * was arbitrary; nothing in publishing depends on the order, and something in subscribing
+ * does.
+ */
+export const SEXES = ["Female", "Male", "Unknown"] as const satisfies readonly Sex[];
 
 export function isSex(value: string): value is Sex {
   return (SEXES as readonly string[]).includes(value);

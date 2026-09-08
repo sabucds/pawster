@@ -1,7 +1,8 @@
-import { createDb, shelters } from "@pawster/db";
+import { createDb, shelterContactPoints, shelters } from "@pawster/db";
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { clearAnimalTables, seedAnimal } from "./support/animal.ts";
+import { seedAnimal } from "./support/animal.ts";
+import { clearShelterTables, verifyShelter } from "./support/shelter.ts";
 
 /**
  * The `web/` end of the test seam: one request that never reaches Worker code, and one
@@ -27,13 +28,29 @@ async function seedShelterWithAnimal(): Promise<void> {
     countryCode: "VE",
     createdAt: new Date("2026-01-01"),
   });
+  /**
+   * One contact point, because `isListed()` requires one: without it the animal would be
+   * withheld for a second reason and the verification tests below could not tell which clause
+   * they were observing.
+   */
+  await createDb(env.DB).insert(shelterContactPoints).values({
+    id: "contact-1",
+    shelterId: "shelter-1",
+    kind: "whatsapp",
+    value: "+58 412 5550001",
+    position: 0,
+    createdAt: new Date("2026-01-01"),
+  });
   await seedAnimal({ shelterId: "shelter-1" });
 }
 
-beforeEach(async () => {
-  await clearAnimalTables();
-  await env.DB.exec("DELETE FROM shelters");
-});
+/**
+ * Through the shared helper rather than two deletes of its own. A shelter now owns contact
+ * points and verification entries as well as animals, and this suite writes all three — a
+ * local `DELETE FROM shelters` fails on the foreign keys, and the version that listed the
+ * tables by hand would have to be updated by every ticket that adds one.
+ */
+beforeEach(clearShelterTables);
 
 describe("the prerendered listing page", () => {
   it("exists as a static asset, which is what lets the asset router answer it", async () => {
@@ -78,10 +95,10 @@ describe("the server-rendered animal detail page", () => {
    * adds the log. So no animal on the platform is publicly reachable yet, and that is issue
    * #55's last acceptance criterion holding rather than a regression.
    *
-   * The render coverage this block used to carry — the row read from a real D1, the age band
-   * derived at read time — moved to `animals.test.ts`, against the shelter's own authenticated
-   * page. **When #53 lands, a verified shelter's animal belongs back here**, asserting the 200
-   * and the joined display name.
+   * **Issue #53 has since landed the log**, so the positive side is assertable again and is
+   * asserted below: a verified shelter's animal renders, joining its display name. The
+   * shelter-facing render coverage stays in `animals.test.ts`, where it also belongs — that page
+   * is reachable whether or not the shelter is verified.
    */
   it("404s an animal whose shelter is not verified", async () => {
     await seedShelterWithAnimal();
@@ -95,6 +112,27 @@ describe("the server-rendered animal detail page", () => {
     expect(await response.text()).not.toContain("Canela");
   });
 
+  it("renders a verified shelter's animal, joining its display name", async () => {
+    await seedShelterWithAnimal();
+    await verifyShelter("shelter-1", "Refugio Los Teques");
+
+    const response = await get("/animales/animal-1");
+    const html = await response.text();
+
+    /**
+     * The one thing that changed is a row in an append-only log — nothing was written to the
+     * animal, and no `listed` column exists to write. So this is `isListed()` opening, observed
+     * from outside, and it is the assertion that would catch the gate being wired to something
+     * other than the verification log.
+     */
+    expect(response.status).toBe(200);
+    expect(html).toContain('data-testid="animal-name">Canela');
+    expect(html).toContain('data-testid="shelter-name">Refugio Los Teques');
+    expect(html).toContain('data-testid="region">Miranda');
+    // Derived at read time and rendered in es-VE, never stored (ADR 0004, ADR 0018).
+    expect(html).toContain('data-testid="age-band">Joven');
+  });
+
   it("404s for an animal that does not exist", async () => {
     const response = await get("/animales/nope");
     expect(response.status).toBe(404);
@@ -103,12 +141,11 @@ describe("the server-rendered animal detail page", () => {
   it("builds its Drizzle client per request, so a second request works too", async () => {
     await seedShelterWithAnimal();
 
-    /**
-     * Both requests reach the Worker, build a client and query D1 — the 404 comes from the
-     * listing gate, *after* two reads. A module-scope client would fail the second request with
-     * a 500 rather than a 404, which is the regression this test exists to catch.
-     */
-    expect((await get("/animales/animal-1")).status).toBe(404);
-    expect((await get("/animales/animal-1")).status).toBe(404);
+    await verifyShelter("shelter-1", "Refugio Los Teques");
+
+    // A module-scope client would fail the second request with a 500 — the regression this
+    // exists to catch — so both are asserted, not just the first.
+    expect((await get("/animales/animal-1")).status).toBe(200);
+    expect((await get("/animales/animal-1")).status).toBe(200);
   });
 });

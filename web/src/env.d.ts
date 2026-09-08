@@ -4,11 +4,10 @@
  *
  * That file is generated — its header says so, and `wrangler types` rewrites it from
  * `dist/server/wrangler.json` — so anything written into it survives exactly until the next
- * build. The two `vars` below *would* be regenerated, since they are in the committed
- * Wrangler config; the three secrets never will be, because a secret is not in that config
- * and must not be (`wrangler secret put`, not a committed `var`). Declaring all five in one
- * place keeps the Env type honest without depending on which half a generator happens to
- * know about.
+ * build. The `vars` below *would* be regenerated, since they are in the committed Wrangler
+ * config; the secrets never will be, because a secret is not in that config and must not be
+ * (`wrangler secret put`, not a committed `var`). Declaring all of them in one place keeps
+ * the Env type honest without depending on which half a generator happens to know about.
  */
 
 declare namespace Cloudflare {
@@ -69,7 +68,67 @@ declare namespace Cloudflare {
      * complaint about the digest cannot take the sign-in sender's reputation with it.
      */
     SIGN_IN_FROM_ADDRESS: string;
-    /** Where Pawster answers, for the plain-text origin the code email tells a shelter to type. */
+    /**
+     * Signs every admin capability: the decision link a registration mails, the pending-list
+     * link, and the revocation token only a terminal mints
+     * (`web/src/lib/verification/link.ts`).
+     *
+     * A key of its own on the same test `ORIGINAL_SECRET` passed — blast radius on rotation.
+     * Rotating this invalidates the admin's own outstanding links and costs one command;
+     * rotating `SIGN_IN_SECRET` invalidates One-Time Codes already sitting in forty inboxes.
+     * The emergency that rotates one — a link forwarded out of the admin's inbox — must not be
+     * an emergency for the other.
+     */
+    ADMIN_LINK_SECRET: string;
+    /**
+     * The one address a signed admin link is ever sent to, and therefore the whole of who the
+     * Platform Admin is (ADR 0002; `CONTEXT.md` — "identified only by the email address a
+     * signed link was sent to").
+     *
+     * A `var` and not a secret: it is a destination rather than a credential, and the
+     * credential is the signature over the link. It is also the `reply_to` on a refusal, which
+     * is the address a shelter answers to reach a human.
+     *
+     * Changing it does not rewrite history: `verifications.decided_by` is read out of the link
+     * that authorised the decision, so entries stay attributed to the inbox that made them.
+     */
+    ADMIN_EMAIL: string;
+    /**
+     * Who verification mail comes from, in both directions.
+     *
+     * Distinct from `SIGN_IN_FROM_ADDRESS` for the reason that field gives about the digest: a
+     * refusal is the message on this platform most likely to be marked as spam by the person
+     * receiving it, and letting that land on the address that carries login codes would put
+     * sign-in's deliverability at the mercy of the platform's least welcome mail.
+     */
+    VERIFICATION_FROM_ADDRESS: string;
+    /**
+     * Keys the opt-in token hash, the signup IP fingerprints and the opt-in mail ledger's
+     * address fingerprints, domain-separated by purpose inside `auth/crypto.ts`'s labels
+     * table.
+     *
+     * Rotatable, and everything it protects fails **closed** when it is: outstanding opt-in
+     * links stop verifying, IP buckets empty and cooldowns reset, none of which mails anybody
+     * who should not be mailed, and all of which self-heal inside the seven-day link lifetime.
+     * That is the whole reason it is not the same secret as the pepper below.
+     */
+    SUBSCRIBER_SECRET: string;
+    /**
+     * Keys the Do-Not-Contact list, and nothing else (ADR 0010).
+     *
+     * **Never rotate this.** Losing or changing it fails *open*: every entry silently stops
+     * matching and the platform resumes mailing people who reported it as spam, against the
+     * one obligation in the design that has no sunset. `subscriber/store.ts` holds the canary
+     * that turns that silence into an immediate 500; `subscriber/crypto.ts` holds the argument
+     * for it being a key of its own.
+     */
+    DO_NOT_CONTACT_PEPPER: string;
+    /**
+     * Who the opt-in link comes from — the same sender the digest uses, because that mail is
+     * the first message of the digest relationship rather than a credential.
+     */
+    DIGEST_FROM_ADDRESS: string;
+    /** Where Pawster answers: the origin the code email tells a shelter to type, and the one the opt-in link is built on. */
     SITE_ORIGIN: string;
   }
 }

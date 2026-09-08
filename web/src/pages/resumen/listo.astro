@@ -1,0 +1,64 @@
+---
+import Resumen from "../../layouts/Resumen.astro";
+import { SEND_DAY_LABELS } from "../../lib/subscriber/labels.ts";
+import { MAX_SUBSCRIPTIONS_PER_SUBSCRIBER } from "../../lib/subscriber/policy.ts";
+
+export const prerender = false;
+
+/**
+ * The search is active, and here is the day it arrives.
+ *
+ * Server-rendered for one reason — the send day — and the day is worth a Worker invocation
+ * once per subscription. `CONTEXT.md` makes the day "fixed at opt-in and the same every
+ * week", so this is the only moment a subscriber is told a fact they will rely on every week
+ * afterwards, and a vague "soon" is what turns a digest that silently stopped arriving into
+ * something nobody notices.
+ *
+ * The day comes through the redirect rather than being re-read from the database, which needs
+ * saying because it looks like the weaker choice. Re-reading would need the subscriber's
+ * identity, and this page has none: there is no session, no cookie and no token by design —
+ * the capability was spent on the `POST` that got here. So the alternative is not a better
+ * lookup, it is a reason to keep a token alive past its single use.
+ *
+ * Nothing turns on the number, which is what makes carrying it in a query string harmless: a
+ * visitor who edits it reads a different weekday on a page that is about somebody else's
+ * subscription, and no state anywhere has moved. An out-of-range value falls back rather than
+ * throwing, because a 500 on a success page is a worse answer than a missing weekday.
+ */
+const raw = Number(Astro.url.searchParams.get("dia"));
+const day = Number.isInteger(raw) && raw >= 0 && raw <= 6 ? raw : null;
+---
+
+<Resumen title="Listo" heading="Listo, tu búsqueda quedó activa">
+  {
+    day === null ? (
+      <p data-testid="active">
+        Tu búsqueda quedó activa. El resumen te va a llegar una vez por semana.
+      </p>
+    ) : (
+      <p data-testid="send-day">
+        Tu resumen te llega los <strong>{SEND_DAY_LABELS[day]}</strong>, una vez por semana.
+      </p>
+    )
+  }
+
+  <p>
+    Solo trae los animales que aparecieron y no te habíamos mandado antes. Si una semana no
+    hay ninguno que te calce, no te llega nada — así el correo siempre tiene algo dentro.
+  </p>
+
+  <p>
+    Puedes guardar hasta {MAX_SUBSCRIPTIONS_PER_SUBSCRIBER} búsquedas con el mismo correo.
+    <a href="/resumen">Agregar otra</a>.
+  </p>
+
+  <p data-testid="unsubscribe-notice">
+    <!--
+      Said here because it is the one place a subscriber is looking. ADR 0010 makes the digest
+      footer the guaranteed live link — the manage page (#62) does not exist yet, so this
+      points at the mail rather than at a route that would 404.
+    -->
+    Cada resumen trae al final un enlace para cambiar tus búsquedas o para darte de baja, sin
+    contraseña y sin tener que escribirle a nadie.
+  </p>
+</Resumen>
