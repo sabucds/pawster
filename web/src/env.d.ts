@@ -69,7 +69,33 @@ declare namespace Cloudflare {
      * complaint about the digest cannot take the sign-in sender's reputation with it.
      */
     SIGN_IN_FROM_ADDRESS: string;
-    /** Where Pawster answers, for the plain-text origin the code email tells a shelter to type. */
+    /**
+     * Keys the opt-in token hash, the signup IP fingerprints and the opt-in mail ledger's
+     * address fingerprints, domain-separated by purpose inside `auth/crypto.ts`'s labels
+     * table.
+     *
+     * Rotatable, and everything it protects fails **closed** when it is: outstanding opt-in
+     * links stop verifying, IP buckets empty and cooldowns reset, none of which mails anybody
+     * who should not be mailed, and all of which self-heal inside the seven-day link lifetime.
+     * That is the whole reason it is not the same secret as the pepper below.
+     */
+    SUBSCRIBER_SECRET: string;
+    /**
+     * Keys the Do-Not-Contact list, and nothing else (ADR 0010).
+     *
+     * **Never rotate this.** Losing or changing it fails *open*: every entry silently stops
+     * matching and the platform resumes mailing people who reported it as spam, against the
+     * one obligation in the design that has no sunset. `subscriber/store.ts` holds the canary
+     * that turns that silence into an immediate 500; `subscriber/crypto.ts` holds the argument
+     * for it being a key of its own.
+     */
+    DO_NOT_CONTACT_PEPPER: string;
+    /**
+     * Who the opt-in link comes from — the same sender the digest uses, because that mail is
+     * the first message of the digest relationship rather than a credential.
+     */
+    DIGEST_FROM_ADDRESS: string;
+    /** Where Pawster answers: the origin the code email tells a shelter to type, and the one the opt-in link is built on. */
     SITE_ORIGIN: string;
   }
 }
