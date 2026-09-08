@@ -1,0 +1,38 @@
+---
+import Refugios from "../../../layouts/Refugios.astro";
+
+/**
+ * Where a shelter lands after changing its account email.
+ *
+ * **Prerendered**, which it can be because it says nothing about the shelter — and it must
+ * be, because by the time it renders the shelter has no session left to render it under.
+ * A server-rendered page here would have to either read a row it can no longer prove it owns
+ * or redirect the shelter to the sign-in form, and neither of those tells it what just
+ * happened.
+ *
+ * It deliberately does **not** repeat the new address back. There is no session, so there is
+ * nothing to read it from that a stranger arriving at this URL could not read too; and the
+ * shelter's next act is to ask for a code, which is where a wrong address announces itself
+ * honestly rather than being confirmed by a page anyone can load.
+ *
+ * No `prerender` export, matching every other prerendered page in the project: `output:
+ * "static"` is the posture and a route opts *out* (ADR 0007), so saying `true` here would
+ * imply there was a choice to make.
+ */
+---
+
+<Refugios title="Cambiaste el correo del refugio" heading="Cambiaste el correo del refugio">
+  <p>Ya está. Se cerró la sesión en todos lados, aquí incluido.</p>
+
+  <p>
+    Para entrar otra vez, pide un código con el correo nuevo. Si habías pedido un código
+    antes de cambiarlo, ese ya no sirve.
+  </p>
+
+  <p><a href="/refugios/entrar">Entrar con el correo nuevo</a></p>
+
+  <p>
+    Si el correo nuevo quedó mal escrito y no te llega nada, escríbenos: desde aquí no se
+    puede arreglar.
+  </p>
+</Refugios>

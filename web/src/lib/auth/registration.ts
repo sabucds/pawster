@@ -1,5 +1,6 @@
 /**
- * Reading a registration form, and refusing one that cannot become a shelter.
+ * Reading a registration form, and refusing one that cannot become a shelter — plus the two
+ * much thinner parsers the sign-in path needs.
  *
  * Pure: it takes `FormData` and returns either an input for `registerShelter()` or a list
  * of reasons. No database, no clock. That is what lets the one rule worth testing here —
@@ -12,22 +13,29 @@
  * and invisible for a reason the shelter has no way to see, because nothing on its own
  * publishing screen is missing. The cheapest place to make that impossible is the form that
  * creates the shelter.
+ *
+ * **The field rules themselves live in `../shelter/fields.ts`**, not here, because the
+ * profile form edits the same fields (issue #52) and a display-name bound that held on one
+ * form and not the other would be a shelter that can exist and cannot be saved. What stays
+ * in this file is what is true of registration alone: which fields it asks for, and that an
+ * empty contact list at *creation* is described as animals that would never appear rather
+ * than as animals about to disappear.
  */
 
-import type { ContactPointKind } from "@pawster/db";
-import type { ContactPointInput, RegistrationInput } from "./store.ts";
+import type { ContactPointInput } from "../shelter/fields.ts";
+import {
+  looksLikeEmail,
+  readAccountEmail,
+  readBaseRegion,
+  readContactPoints,
+  readCountryCode,
+  readDisplayName,
+  trimmedField,
+} from "../shelter/fields.ts";
+import type { RegistrationInput } from "./store.ts";
 
-/**
- * The four channels an adopter reaches a shelter through (`CONTEXT.md`, *Contact Point*).
- * Data as well as a type, because the parser validates against it and the form renders
- * from it — one list, so a fifth channel cannot be accepted by one and unknown to the other.
- */
-export const CONTACT_POINT_KINDS = [
-  "whatsapp",
-  "instagram",
-  "email",
-  "phone",
-] as const satisfies readonly ContactPointKind[];
+export type { ContactPointInput };
+export { CONTACT_POINT_KINDS } from "../shelter/fields.ts";
 
 /** Rendered as one message each; the field name is the form control to point at. */
 export interface RegistrationError {
@@ -45,95 +53,15 @@ export type RegistrationParse =
   | { readonly ok: false; readonly errors: readonly RegistrationError[] };
 
 /**
- * Bounds rather than a judgement about names. Long enough for
- * `Fundación Protectora de Animales del Estado Miranda`, short enough that the value cannot
- * be used as free storage.
- */
-const MAX_DISPLAY_NAME = 120;
-const MAX_FIELD = 200;
-
-/**
- * Deliberately permissive: something, an `@`, something with a dot in it, and no spaces.
+ * What a shelter is told when it submits a registration with no contact point.
  *
- * A stricter regex is the classic mistake here. The address is the shelter's **whole
- * credential** (ADR 0013), so a false rejection is not a validation message, it is a
- * shelter that cannot join the platform — and the real check happens anyway, the first time
- * a code is sent to it and someone has to read it. This exists to catch a typo like a
- * missing `@`, not to adjudicate RFC 5322.
+ * Conditional, unlike the profile form's version: nothing of this shelter's exists yet, so
+ * the loss being described is hypothetical. The profile form is describing animals that are
+ * visible right now, and says so — see `LAST_CONTACT_POINT_REASON`.
  */
-const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-/**
- * One text field, trimmed, with a missing or non-string value reported as `""`.
- *
- * Collapsing absent and empty is deliberate: a browser submits an empty control rather than
- * omitting it, so the two are the same event, and every caller below treats `""` as "not
- * given". A `File` value — which `FormData.get` can also return — is not a text field and is
- * refused the same way.
- */
-function trimmedField(form: FormData, name: string): string {
-  const value = form.get(name);
-  return typeof value === "string" ? value.trim() : "";
-}
-
-/**
- * Parse the contact points out of the repeated `contactKind` / `contactValue` pairs.
- *
- * Positional pairing, which is what an HTML form gives: the browser submits the controls in
- * document order, so the nth kind belongs to the nth value. A row whose value is blank is
- * **dropped rather than rejected** — the form renders several empty rows and a shelter
- * filling in one of them has not made a mistake. A row with a value but an unknown kind is
- * rejected, because that can only come from a hand-made request.
- */
-function parseContactPoints(form: FormData): {
-  points: ContactPointInput[];
-  errors: RegistrationError[];
-} {
-  const kinds = form.getAll("contactKind");
-  const values = form.getAll("contactValue");
-  const points: ContactPointInput[] = [];
-  const errors: RegistrationError[] = [];
-
-  for (const [index, rawValue] of values.entries()) {
-    const value = typeof rawValue === "string" ? rawValue.trim() : "";
-    if (value.length === 0) continue;
-
-    if (value.length > MAX_FIELD) {
-      errors.push({
-        field: "contactPoints",
-        reason: `Una forma de contacto no puede pasar de ${MAX_FIELD} caracteres.`,
-      });
-      continue;
-    }
-
-    const rawKind = kinds[index];
-    const kind = typeof rawKind === "string" ? rawKind : "";
-    if (!isContactPointKind(kind)) {
-      errors.push({
-        field: "contactPoints",
-        reason: "Escoge de qué tipo es cada forma de contacto.",
-      });
-      continue;
-    }
-
-    points.push({ kind, value });
-  }
-
-  if (points.length === 0 && errors.length === 0) {
-    errors.push({
-      field: "contactPoints",
-      reason:
-        "Hace falta al menos una forma de contacto: sin ninguna, tus animales no le " +
-        "aparecerían a nadie.",
-    });
-  }
-
-  return { points, errors };
-}
-
-function isContactPointKind(value: string): value is ContactPointKind {
-  return (CONTACT_POINT_KINDS as readonly string[]).includes(value);
-}
+const NO_CONTACT_POINT_REASON =
+  "Hace falta al menos una forma de contacto: sin ninguna, tus animales no le " +
+  "aparecerían a nadie.";
 
 /**
  * Every problem at once rather than the first one.
@@ -145,65 +73,41 @@ function isContactPointKind(value: string): value is ContactPointKind {
 export function parseRegistration(form: FormData): RegistrationParse {
   const errors: RegistrationError[] = [];
 
-  const displayName = trimmedField(form, "displayName");
-  if (displayName.length === 0) {
-    errors.push({ field: "displayName", reason: "Escribe el nombre del refugio." });
-  } else if (displayName.length > MAX_DISPLAY_NAME) {
-    errors.push({
-      field: "displayName",
-      reason: `El nombre no puede pasar de ${MAX_DISPLAY_NAME} caracteres.`,
-    });
+  const displayName = readDisplayName(form);
+  if (displayName.reason) {
+    errors.push({ field: "displayName", reason: displayName.reason });
   }
 
-  /**
-   * Lower-cased here, which is the *only* place either path normalises it, so registration
-   * and sign-in cannot disagree about what "the same inbox" means. The column is unique, so
-   * a shelter that registered `Hola@Refugio.example` and later typed
-   * `hola@refugio.example` has to find its own row.
-   */
-  const accountEmail = trimmedField(form, "accountEmail").toLowerCase();
-  if (accountEmail.length === 0) {
-    errors.push({
-      field: "accountEmail",
-      reason: "Escribe el correo del refugio.",
-    });
-  } else if (accountEmail.length > MAX_FIELD || !EMAIL_SHAPE.test(accountEmail)) {
-    errors.push({
-      field: "accountEmail",
-      reason: "Ese correo no parece completo. Revísalo.",
-    });
+  const accountEmail = readAccountEmail(form);
+  if (accountEmail.reason) {
+    errors.push({ field: "accountEmail", reason: accountEmail.reason });
   }
 
-  const baseRegion = trimmedField(form, "baseRegion");
-  if (baseRegion.length === 0) {
-    errors.push({ field: "baseRegion", reason: "Escoge dónde está el refugio." });
-  } else if (baseRegion.length > MAX_FIELD) {
-    errors.push({ field: "baseRegion", reason: "Ese nombre es demasiado largo." });
+  const baseRegion = readBaseRegion(form);
+  if (baseRegion.reason) {
+    errors.push({ field: "baseRegion", reason: baseRegion.reason });
   }
 
-  /**
-   * Two letters, upper-cased. ADR 0005 puts regions inside a country and `CONTEXT.md` has
-   * an animal inherit its country from its shelter, so this is the root of that inheritance
-   * and an ISO 3166-1 alpha-2 code is the least the reference data can be keyed by.
-   */
-  const countryCode = trimmedField(form, "countryCode").toUpperCase();
-  if (!/^[A-Z]{2}$/.test(countryCode)) {
-    errors.push({ field: "countryCode", reason: "Escoge el país." });
+  const countryCode = readCountryCode(form);
+  if (countryCode.reason) {
+    errors.push({ field: "countryCode", reason: countryCode.reason });
   }
 
-  const { points, errors: contactErrors } = parseContactPoints(form);
-  errors.push(...contactErrors);
+  const contacts = readContactPoints(form, NO_CONTACT_POINT_REASON);
+  for (const reason of contacts.reasons) {
+    errors.push({ field: "contactPoints", reason });
+  }
 
   if (errors.length > 0) return { ok: false, errors };
 
   return {
     ok: true,
     value: {
-      displayName,
-      accountEmail,
-      baseRegion,
-      countryCode,
-      contactPoints: points,
+      displayName: displayName.value,
+      accountEmail: accountEmail.value,
+      baseRegion: baseRegion.value,
+      countryCode: countryCode.value,
+      contactPoints: contacts.points,
     },
   };
 }
@@ -214,13 +118,12 @@ export function parseRegistration(form: FormData): RegistrationParse {
  * Separate from {@link parseRegistration} and much thinner on purpose: the sign-in form has
  * one field and must not report anything about it. `null` here becomes the same response a
  * perfectly valid unregistered address gets, so a malformed address cannot be told from a
- * well-formed stranger either.
+ * well-formed stranger either — which is why this reads the shape directly rather than
+ * through `readAccountEmail`, whose whole job is to produce a reason to show.
  */
 export function parseCodeRequest(form: FormData): string | null {
   const accountEmail = trimmedField(form, "accountEmail").toLowerCase();
-  if (accountEmail.length === 0 || accountEmail.length > MAX_FIELD) return null;
-  if (!EMAIL_SHAPE.test(accountEmail)) return null;
-  return accountEmail;
+  return looksLikeEmail(accountEmail) ? accountEmail : null;
 }
 
 /**

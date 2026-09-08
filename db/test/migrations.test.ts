@@ -44,6 +44,31 @@ beforeAll(async () => {
   // The statement under test. Before the SQL was corrected by hand, this threw
   // `Cannot add a NOT NULL column with default value NULL` and every test below failed here.
   await applyD1Migrations(env.MIGRATION_DB, [migrations[1]!]);
+
+  /**
+   * Two contact points for the same shelter and one for another, inserted while
+   * `position` does not exist yet — which is the only state in which 0002's backfill has
+   * anything to do. Inserted in the order a registration form would have submitted them.
+   */
+  await env.MIGRATION_DB.prepare(
+    "INSERT INTO shelters (id, slug, display_name, account_email, base_region, country_code, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+  )
+    .bind("legacy-2", "legacy-2", "Otro Refugio", "otro@refugio.example", "Zulia", "VE", 0)
+    .run();
+
+  for (const [id, shelterId, kind, value] of [
+    ["cp-1", "legacy-1", "whatsapp", "+58 412 5550001"],
+    ["cp-2", "legacy-1", "instagram", "@refugio"],
+    ["cp-3", "legacy-2", "email", "otro@contacto.example"],
+  ] as const) {
+    await env.MIGRATION_DB.prepare(
+      "INSERT INTO shelter_contact_points (id, shelter_id, kind, value, created_at) VALUES (?, ?, ?, ?, ?)",
+    )
+      .bind(id, shelterId, kind, value, 0)
+      .run();
+  }
+
+  await applyD1Migrations(env.MIGRATION_DB, [migrations[2]!]);
 });
 
 describe("migration 0001", () => {
@@ -90,5 +115,37 @@ describe("migration 0001", () => {
         .bind("orphan", "no-such-shelter", "Canela", "dog", 0, "Miranda", 0)
         .run(),
     ).rejects.toThrow();
+  });
+});
+
+/**
+ * That migration 0002 numbers a pre-existing shelter's contact points **per shelter**, in
+ * insertion order, rather than leaving them all on the column default.
+ *
+ * The same hand-correction 0001 needed, and the same reason for a test: drizzle-kit
+ * generated `ADD position integer NOT NULL` with no default, which fails the moment the
+ * table holds a row. But `DEFAULT 0` alone would have been a second, quieter bug — every
+ * point of a shelter claiming position 0 means three channels each claiming to be the one
+ * an adopter is offered, with the tie broken by whatever order SQLite returns. So the
+ * assertion here is about the numbering and not merely about the migration applying.
+ */
+describe("migration 0002", () => {
+  it("is the migration this test thinks it is", () => {
+    expect(migrations.length).toBeGreaterThanOrEqual(3);
+    expect(migrations[2]!.name).toContain("0002");
+  });
+
+  it("numbers each shelter's contact points from 0 in insertion order", async () => {
+    const { results } = await env.MIGRATION_DB.prepare(
+      "SELECT id, shelter_id, position FROM shelter_contact_points ORDER BY shelter_id, position",
+    ).all<{ id: string; shelter_id: string; position: number }>();
+
+    expect(results).toEqual([
+      { id: "cp-1", shelter_id: "legacy-1", position: 0 },
+      { id: "cp-2", shelter_id: "legacy-1", position: 1 },
+      // Numbered from 0 again, because the count is scoped to the shelter. A global
+      // numbering would have made this 2 and given the second shelter no primary at all.
+      { id: "cp-3", shelter_id: "legacy-2", position: 0 },
+    ]);
   });
 });

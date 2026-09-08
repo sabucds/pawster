@@ -102,6 +102,16 @@ const anythingVisible =
     )
   }
 
+  <p>
+    <!--
+      The link that keeps a new phone number from being a support request (issue #52).
+      Everything on the other side of it stays editable for as long as the shelter exists,
+      before and after verification, which is why this link is here rather than gated on the
+      visibility notice above.
+    -->
+    <a href="/refugios/perfil">Cambiar los datos del refugio</a>
+  </p>
+
   <form method="post" action="/api/refugios/salir">
     <button type="submit">Salir</button>
   </form>
