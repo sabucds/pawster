@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "2d4f21bf-6a19-4374-90b9-1a2791e042c6",
-  "prevId": "c60cd65f-f251-4d90-90d2-d1db65ed7c7f",
+  "id": "ff4e05e8-f8fe-4596-a9d6-fdec86a0b18a",
+  "prevId": "2d4f21bf-6a19-4374-90b9-1a2791e042c6",
   "tables": {
     "animals": {
       "name": "animals",
@@ -919,6 +919,102 @@
         "upload_sessions_shelter_id_shelters_id_fk": {
           "name": "upload_sessions_shelter_id_shelters_id_fk",
           "tableFrom": "upload_sessions",
+          "tableTo": "shelters",
+          "columnsFrom": [
+            "shelter_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "verifications": {
+      "name": "verifications",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "shelter_id": {
+          "name": "shelter_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "outcome": {
+          "name": "outcome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "methods": {
+          "name": "methods",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "evidence": {
+          "name": "evidence",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "decided_at": {
+          "name": "decided_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "decided_by": {
+          "name": "decided_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "cited_display_name": {
+          "name": "cited_display_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "cited_contact_points": {
+          "name": "cited_contact_points",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "verifications_shelter_idx": {
+          "name": "verifications_shelter_idx",
+          "columns": [
+            "shelter_id",
+            "id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "verifications_shelter_id_shelters_id_fk": {
+          "name": "verifications_shelter_id_shelters_id_fk",
+          "tableFrom": "verifications",
           "tableTo": "shelters",
           "columnsFrom": [
             "shelter_id"

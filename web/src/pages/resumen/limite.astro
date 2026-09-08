@@ -1,0 +1,47 @@
+---
+import Resumen from "../../layouts/Resumen.astro";
+import { MAX_SUBSCRIPTIONS_PER_SUBSCRIBER } from "../../lib/subscriber/policy.ts";
+
+/**
+ * The link was good and the account is full.
+ *
+ * **This page is only ever reached by somebody holding a live link out of their own inbox**,
+ * which is what makes it safe to say something the signup form may not. The form refuses a
+ * capped address silently, behind the identical response, because "this address already holds
+ * three searches" is a fact about the address and saying it to whoever typed it is the
+ * enumeration oracle. Here the address has just proved it is theirs.
+ *
+ * A subscriber can reach it despite `refuseSignup()` having checked the cap a moment before
+ * the mail went out: up to seven days pass in between, and somebody who signed up four times
+ * in a week gets four links. The fourth finds a full account, and that is not a failure — it
+ * is the cap doing its job at the only moment it can be enforced for certain.
+ *
+ * `CONTEXT.md` gives the reason the cap exists at all, and it is worth repeating to the
+ * person hitting it: three searches is what keeps "dogs in Caracas" and "cats in Maracay"
+ * from being two inboxes.
+ */
+---
+
+<Resumen title="Ya tienes tres búsquedas" heading="Ya tienes tres búsquedas guardadas">
+  <p data-testid="subscription-cap">
+    Con un mismo correo se pueden guardar {MAX_SUBSCRIPTIONS_PER_SUBSCRIBER} búsquedas, y ya
+    las tienes todas. Esta no la pudimos agregar.
+  </p>
+
+  <p>
+    Tus {MAX_SUBSCRIPTIONS_PER_SUBSCRIBER} búsquedas siguen igual y el resumen te llega como
+    siempre. Si quieres cambiar una por esta, el enlace para manejarlas viene al final de cada
+    resumen que te mandamos.
+  </p>
+
+  <p>
+    <!--
+      The manage page is issue #62 and does not exist yet, so this points at the digest footer
+      rather than at a route that would 404. ADR 0010 already makes that footer the guaranteed
+      live link for a subscriber who holds nothing else.
+    -->
+    El tope existe para que el resumen siga siendo un solo correo a la semana en vez de varios.
+  </p>
+
+  <p><a href="/resumen">Volver al formulario</a></p>
+</Resumen>

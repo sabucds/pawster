@@ -22,14 +22,13 @@
  * than as animals about to disappear.
  */
 
+import { looksLikeEmail, trimmedField } from "../form-fields.ts";
 import {
-  looksLikeEmail,
   readAccountEmail,
   readBaseRegion,
   readContactPoints,
   readCountryCode,
   readDisplayName,
-  trimmedField,
 } from "../shelter/fields.ts";
 import type { RegistrationInput } from "./store.ts";
 

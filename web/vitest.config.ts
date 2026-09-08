@@ -18,7 +18,7 @@ export default defineConfig({
         bindings: {
           TEST_MIGRATIONS: migrations,
           /**
-           * The four secrets `web/wrangler.jsonc` deliberately does not carry, supplied
+           * The six secrets `web/wrangler.jsonc` deliberately does not carry, supplied
            * here as fixed values so the suite still needs no credentials — the same thing
            * `digest/`'s seam does for `UNSUBSCRIBE_SECRET`.
            *
@@ -31,9 +31,11 @@ export default defineConfig({
           SIGN_IN_SECRET: "test-sign-in-secret-not-a-real-key",
           ORIGINAL_SECRET: "test-media-secret-not-a-real-key",
           ADMIN_LINK_SECRET: "test-admin-link-secret-not-a-real-key",
+          SUBSCRIBER_SECRET: "test-subscriber-secret-not-a-real-key",
+          DO_NOT_CONTACT_PEPPER: "test-do-not-contact-pepper-not-a-real-key",
           RESEND_API_KEY: "re_test_not_a_real_key",
           /**
-           * Also supplied here, even though both are real `vars` in `web/wrangler.jsonc`.
+           * Also supplied here, even though these are all real `vars` in `web/wrangler.jsonc`.
            * The seam reads `dist/server/wrangler.json`, which `@astrojs/cloudflare`
            * generates, and depending on a generator to forward our `vars` would make the
            * suite fail on an adapter upgrade for a reason unrelated to anything under test.
@@ -41,6 +43,7 @@ export default defineConfig({
           SIGN_IN_FROM_ADDRESS: "entrar@pawster.test",
           ADMIN_EMAIL: "admin@pawster.test",
           VERIFICATION_FROM_ADDRESS: "verificacion@pawster.test",
+          DIGEST_FROM_ADDRESS: "digest@pawster.test",
           SITE_ORIGIN: "https://pawster.test",
         },
       },

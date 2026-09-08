@@ -150,3 +150,130 @@ describe("migration 0002", () => {
     ]);
   });
 });
+
+/**
+ * Migration 0004, and the two assertions that are about the *cap* rather than about the
+ * migration applying.
+ *
+ * `subscriptions.slot` plus its unique index is what actually refuses a fourth subscription
+ * — `web/src/lib/subscriber/policy.ts`'s constant is a count read and acted on a moment
+ * later, which two links redeemed in the same second race straight through. So the cap is
+ * two database constraints and it is worth asserting that both of them fire, because either
+ * one alone bounds nothing: the unique index admits slot 7, and the `CHECK` admits three
+ * rows all claiming slot 0.
+ *
+ * The `CHECK` in particular is drizzle-kit's rendering of `check()`, which emits a
+ * table-qualified column reference inside the constraint. That is the kind of generated SQL
+ * this file already exists to keep an eye on.
+ */
+describe("migration 0004", () => {
+  const subscriber = async (id: string) => {
+    await env.MIGRATION_DB.prepare(
+      "INSERT INTO subscribers (id, email, send_day, opted_in_at) VALUES (?, ?, ?, ?)",
+    )
+      .bind(id, `${id}@adoptante.example`, 0, 0)
+      .run();
+  };
+
+  const subscription = async (id: string, subscriberId: string, slot: number) =>
+    await env.MIGRATION_DB.prepare(
+      "INSERT INTO subscriptions (id, subscriber_id, slot, criteria, created_at) VALUES (?, ?, ?, ?, ?)",
+    )
+      .bind(id, subscriberId, slot, "{}", 0)
+      .run();
+
+  beforeAll(async () => {
+    expect(migrations.length).toBeGreaterThanOrEqual(5);
+    expect(migrations[4]!.name).toContain("0004");
+    await applyD1Migrations(env.MIGRATION_DB, [migrations[4]!]);
+  });
+
+  it("gives a subscriber that predates the column the default locale", async () => {
+    /**
+     * The 0001 lesson, which is why the column carries `DEFAULT 'es'` rather than being
+     * added bare: `ADD locale text NOT NULL` with no default fails outright on a table that
+     * holds a row. The default is also the right *value* rather than merely a legal one —
+     * ADR 0007 makes es-VE the default locale and English the translation.
+     */
+    await subscriber("legacy-sub");
+
+    const row = await env.MIGRATION_DB.prepare(
+      "SELECT locale FROM subscribers WHERE id = ?",
+    )
+      .bind("legacy-sub")
+      .first<{ locale: string }>();
+
+    expect(row!.locale).toBe("es");
+  });
+
+  it("refuses a slot outside 0-2", async () => {
+    await subscriber("capped");
+    await subscription("sub-0", "capped", 0);
+    await subscription("sub-1", "capped", 1);
+    await subscription("sub-2", "capped", 2);
+
+    // The fourth subscription has nowhere to go, which is the cap.
+    await expect(subscription("sub-3", "capped", 3)).rejects.toThrow();
+    await expect(subscription("sub-neg", "capped", -1)).rejects.toThrow();
+  });
+
+  it("refuses a second subscription in a slot one already holds", async () => {
+    await subscriber("doubled");
+    await subscription("dup-a", "doubled", 0);
+
+    await expect(subscription("dup-b", "doubled", 0)).rejects.toThrow();
+
+    // And the same slot is free for a different subscriber, so the index is scoped.
+    await subscriber("other");
+    await expect(subscription("dup-c", "other", 0)).resolves.toBeDefined();
+  });
+});
+
+/**
+ * That an IP lives on exactly one subscriber-facing table.
+ *
+ * Issue #61's eighth acceptance criterion — "IP is stored on no other record" — and
+ * [ADR 0010](../../docs/adr/0010-subscriber-data-retention.md)'s reason for it: "IP is
+ * recorded only on the *unconfirmed* row, where it serves rate limiting, and dies with the
+ * seven-day purge. Confirmed subscribers carry no IP at all."
+ *
+ * **Asserted against the live schema rather than promised in a comment**, because the
+ * criterion is satisfiable by accident. Before 0004 it was true only because no `ip` column
+ * existed anywhere in the subscriber model, and a ledger row keyed on a caller — the obvious
+ * shape for a per-IP rate limit, and the shape `sign_in_requests` uses on the shelter side —
+ * would break it while every other test stayed green.
+ *
+ * Scoped to the subscriber model on purpose. `sign_in_requests.ip_hash` is shelter sign-in
+ * under ADR 0013, a different concern with a different retention story, and a rule that
+ * covered it would be a rule about the wrong thing.
+ */
+describe("the subscriber model's IP", () => {
+  const SUBSCRIBER_TABLES = [
+    "subscribers",
+    "subscriptions",
+    "pending_opt_ins",
+    "opt_in_mails",
+    "do_not_contact",
+  ] as const;
+
+  it("appears on pending_opt_ins and on no other subscriber table", async () => {
+    const holdsIp: string[] = [];
+
+    for (const table of SUBSCRIBER_TABLES) {
+      const { results } = await env.MIGRATION_DB.prepare(
+        `SELECT name FROM pragma_table_info(?)`,
+      )
+        .bind(table)
+        .all<{ name: string }>();
+
+      // The table has to exist, or the loop would silently prove nothing about it.
+      expect(results.length, `${table} should exist`).toBeGreaterThan(0);
+
+      if (results.some((column) => /(^|_)ip(_|$)/.test(column.name))) {
+        holdsIp.push(table);
+      }
+    }
+
+    expect(holdsIp).toEqual(["pending_opt_ins"]);
+  });
+});

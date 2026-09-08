@@ -49,6 +49,8 @@ import {
   readMailBudgetUsage,
   recordSignInRequest,
 } from "../../../lib/auth/store.ts";
+import { clientIp } from "../../../lib/client-ip.ts";
+import { seeOther } from "../../../lib/see-other.ts";
 
 export const prerender = false;
 
@@ -89,39 +91,15 @@ function codeFormResponse(requestToken: string): Response {
 /**
  * The refusal, which is deliberately *not* address-specific.
  *
- * Only the global ceiling and the IP limit reach here, and neither is a fact about the
- * submitted address: the ceiling is platform-wide state, and the IP limit is a fact about
- * the caller. A per-address refusal must never land here — telling a caller it is inside a
- * five-minute cooldown confirms the address exists, which is the whole thing this endpoint
- * is built not to do. Those two are refused silently, with the success response.
+ * Only the global ceiling and the IP limit reach `seeOther` on this path, and neither is a
+ * fact about the submitted address: the ceiling is platform-wide state, and the IP limit is a
+ * fact about the caller. A per-address refusal must never be spoken — telling a caller it is
+ * inside a five-minute cooldown confirms the address exists, which is the whole thing this
+ * endpoint is built not to do. Those two are refused silently, with the success response.
  *
- * The two that do reach here take *different* pages, because they are different facts and
- * one page cannot be honest about both. See {@link TOO_MANY}.
+ * The two that are spoken take *different* pages, because they are different facts and one
+ * page cannot be honest about both. See {@link TOO_MANY}.
  */
-function refusalResponse(location: string): Response {
-  return new Response(null, { status: 303, headers: { location } });
-}
-
-/**
- * The caller's address, as a bucket key rather than as an identity.
- *
- * Read from the header directly instead of through `Astro.clientAddress`, which throws when
- * the adapter cannot supply one — an exception on the sign-in path is a worse failure than a
- * coarse bucket. The fallback lumps every request with no `CF-Connecting-IP` into one
- * bucket, which is the conservative direction: unattributable traffic shares a single
- * allowance rather than each getting a fresh one.
- *
- * **The bucket is the whole address, which an IPv6 caller can walk out of.** A residential
- * IPv6 allocation is typically a /64, so rotating the low 64 bits gives a caller a fresh
- * `SIGN_IN_IP_REQUEST_LIMIT` as often as it likes. Bucketing IPv6 by its /64 would close
- * that, and is not done here because the limit it backs is the *cheap* one — the per-address
- * caps and the global ceiling are what actually protect the mail budget, and none of them
- * can be walked out of this way. What an IPv6 rotator gets is unbounded D1 writes, which is
- * a cost worth naming and the reason this is a note rather than a shrug.
- */
-function clientIp(request: Request): string {
-  return request.headers.get("cf-connecting-ip") ?? "unattributed";
-}
 
 export const POST: APIRoute = async ({ request }) => {
   const db = createDb(env.DB);
@@ -135,7 +113,7 @@ export const POST: APIRoute = async ({ request }) => {
    * to D1 without limit. Over the limit, the cost of a request is one indexed `COUNT(*)`.
    */
   if ((await countIpRequests(db, ipHash, now)) >= SIGN_IN_IP_REQUEST_LIMIT) {
-    return refusalResponse(TOO_MANY);
+    return seeOther(TOO_MANY);
   }
 
   const accountEmail = parseCodeRequest(await request.formData());
@@ -164,7 +142,7 @@ export const POST: APIRoute = async ({ request }) => {
       { shelterId: shelter?.id ?? null, ipHash, mailSent: false },
       now,
     );
-    return refusalResponse(TRY_LATER);
+    return seeOther(TRY_LATER);
   }
 
   if (shelter === null || refusal !== null) {

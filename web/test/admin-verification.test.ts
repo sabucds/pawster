@@ -11,14 +11,11 @@ import {
   DECISION_LINK_TTL_MS,
   PENDING_LIST_LINK_TTL_MS,
 } from "../src/lib/verification/policy.ts";
+import { ORIGIN, cookieFrom, get, post } from "./support/http.ts";
 import {
-  clearShelterTables,
-  cookieFrom,
-  get,
-  ORIGIN,
-  post,
-  register,
   REGISTRATION,
+  clearShelterTables,
+  register,
   signIn,
 } from "./support/shelter.ts";
 

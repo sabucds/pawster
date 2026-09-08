@@ -15,13 +15,15 @@ import { encodeSession } from "../src/lib/auth/session.ts";
 import { readShelterFacts } from "../src/lib/auth/store.ts";
 import {
   ORIGIN,
+  cookieFrom,
+  get,
+  post,
+} from "./support/http.ts";
+import {
   REGISTRATION,
   adminMails,
   ageMailLedger,
   clearShelterTables,
-  cookieFrom,
-  get,
-  post,
   register,
   requestCode,
   signIn,
@@ -622,12 +624,16 @@ describe("the session", () => {
     expect(tables).toEqual([
       "animals",
       "d1_migrations",
+      "do_not_contact",
       "one_time_codes",
+      "opt_in_mails",
+      "pending_opt_ins",
       "shelter_contact_points",
       "shelters",
       "sign_in_requests",
       "storage_measurements",
       "subscribers",
+      "subscriptions",
       "transformation_spends",
       "upload_session_photos",
       "upload_sessions",

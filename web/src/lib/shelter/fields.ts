@@ -20,6 +20,7 @@
  * that is not on the page.
  */
 
+import { MAX_FIELD, isEmailShaped, trimmedField } from "../form-fields.ts";
 import type { ContactPointKind } from "@pawster/db";
 
 /**
@@ -68,19 +69,13 @@ export interface ContactPointInput {
  * be used as free storage.
  */
 export const MAX_DISPLAY_NAME = 120;
-export const MAX_FIELD = 200;
 
 /**
- * Deliberately permissive: something, an `@`, something with a dot in it, and no spaces.
- *
- * A stricter regex is the classic mistake here. The address is the shelter's **whole
- * credential** (ADR 0013), so a false rejection is not a validation message, it is a
- * shelter that cannot join the platform — or, on the profile form, one that cannot hand its
- * account to a successor. The real check happens anyway, the first time a code is sent to it
- * and someone has to read it. This exists to catch a typo like a missing `@`, not to
- * adjudicate RFC 5322.
+ * Re-exported because three shelter-facing surfaces already name it in their own error
+ * messages, and because `MAX_FIELD` reads as a property of a form field rather than of the
+ * module that happens to declare it.
  */
-const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+export { MAX_FIELD } from "../form-fields.ts";
 
 /**
  * A value and the reason it cannot be used, or `null` when it can.
@@ -91,19 +86,6 @@ const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export interface ReadField {
   readonly value: string;
   readonly reason: string | null;
-}
-
-/**
- * One text field, trimmed, with a missing or non-string value reported as `""`.
- *
- * Collapsing absent and empty is deliberate: a browser submits an empty control rather than
- * omitting it, so the two are the same event, and every caller below treats `""` as "not
- * given". A `File` value — which `FormData.get` can also return — is not a text field and is
- * refused the same way.
- */
-export function trimmedField(form: FormData, name: string): string {
-  const value = form.get(name);
-  return typeof value === "string" ? value.trim() : "";
 }
 
 export function readDisplayName(form: FormData): ReadField {
@@ -144,15 +126,10 @@ export function readAccountEmail(form: FormData, name = "accountEmail"): ReadFie
   if (value.length === 0) {
     return { value, reason: "Escribe el correo del refugio." };
   }
-  if (value.length > MAX_FIELD || !EMAIL_SHAPE.test(value)) {
+  if (!isEmailShaped(value)) {
     return { value, reason: "Ese correo no parece completo. Revísalo." };
   }
   return { value, reason: null };
-}
-
-/** Whether a string is a usable address, for the paths that must report nothing at all. */
-export function looksLikeEmail(value: string): boolean {
-  return value.length > 0 && value.length <= MAX_FIELD && EMAIL_SHAPE.test(value);
 }
 
 /**

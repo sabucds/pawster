@@ -24,6 +24,20 @@
 export type Species = "dog" | "cat";
 
 /**
+ * The species vocabulary as data as well as a type, for the reason {@link GOOD_WITH_AXES}
+ * is: three surfaces now iterate it rather than only naming its members. The signup form
+ * renders a checkbox per value (#61), `parseCriteria` validates submitted values against
+ * it, and the filter panel (#56) will do both.
+ *
+ * **The order is the canonical order**, and that is the load-bearing part. `parseCriteria`
+ * sorts a stored criteria set by position in these lists, so the order here is the order a
+ * subscriber reads their own saved search back in. Alphabetical order was the alternative
+ * and it is wrong for {@link SIZES} and for `AGE_BANDS` — a life stage and a body size both
+ * have an order of their own, and sorting their English identifiers destroys it.
+ */
+export const SPECIES = ["dog", "cat"] as const satisfies readonly Species[];
+
+/**
  * The sub-national area an animal is located in, as an opaque identifier. Regions follow
  * a country's administrative divisions
  * ([ADR 0005](../../docs/adr/0005-region-follows-administrative-divisions.md)), so the
@@ -43,8 +57,19 @@ export type Region = string;
  */
 export type Size = "Small" | "Medium" | "Large" | "Giant";
 
+/** Smallest first, which is the order a size list is read in and the canonical order. */
+export const SIZES = ["Small", "Medium", "Large", "Giant"] as const satisfies readonly Size[];
+
 /** `Unknown` is a recorded absence, not a missing field: it is shown and labelled. */
 export type Sex = "Male" | "Female" | "Unknown";
+
+/**
+ * `Unknown` is in the vocabulary and so is offered as a criterion, which is the point of
+ * it being a first-class value rather than a `null`: a subscriber can ask to be shown the
+ * animals whose sex was never recorded, instead of having them silently excluded by a
+ * filter they did not know they had set.
+ */
+export const SEXES = ["Female", "Male", "Unknown"] as const satisfies readonly Sex[];
 
 /**
  * What is known about an animal's tolerance on one axis — "each one yes, no, or not known"

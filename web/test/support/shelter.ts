@@ -1,8 +1,10 @@
 import { createDb, shelters } from "@pawster/db";
-import { env, SELF } from "cloudflare:test";
+import { env } from "cloudflare:test";
 import { eq } from "drizzle-orm";
 import { expect } from "vitest";
 import { outbound } from "../../../test/outbound.ts";
+import { ORIGIN, cookieFrom, post } from "./http.ts";
+import type { PostOptions } from "./http.ts";
 
 /**
  * Getting a shelter registered and signed in, through the Worker's own front door.
@@ -16,73 +18,9 @@ import { outbound } from "../../../test/outbound.ts";
  *
  * Every request goes through `SELF.fetch()` — the whole Worker, asset router included —
  * against a real local D1 with the real migrations applied, and every email leaves through
- * the single outbound interceptor.
+ * the single outbound interceptor. The transport itself is `http.ts`, which every suite
+ * shares.
  */
-
-export const ORIGIN = "https://pawster.test";
-
-/** A distinct IP per call, so the per-IP request limit cannot leak between tests. */
-let ip = 0;
-const nextIp = () => `203.0.113.${++ip % 250}`;
-
-export interface PostOptions {
-  cookie?: string;
-  ip?: string;
-  /** Overridden only by the test that checks a cross-site post is refused. */
-  origin?: string;
-}
-
-/**
- * `redirect: "manual"` throughout, because the redirect *is* the response under test: which
- * page a code request sends you to is the whole of ADR 0008's identical-response rule, and
- * whether a profile save answers 303 or 200 is how a refusal is told from a success.
- */
-export function post(
-  path: string,
-  fields: Record<string, string | readonly string[]>,
-  options: PostOptions = {},
-): Promise<Response> {
-  const body = new FormData();
-  for (const [name, value] of Object.entries(fields)) {
-    for (const item of Array.isArray(value) ? value : [value as string]) {
-      body.append(name, item);
-    }
-  }
-  /**
-   * `Origin` is sent because a browser sends it on a form post, and Astro's built-in
-   * `security.checkOrigin` refuses a same-site form submission without it with a 403. That
-   * check is a CSRF defence worth keeping on these endpoints, so the tests match what a
-   * browser does rather than turning it off.
-   */
-  const headers = new Headers({
-    "cf-connecting-ip": options.ip ?? nextIp(),
-    origin: options.origin ?? ORIGIN,
-  });
-  if (options.cookie) headers.set("cookie", options.cookie);
-
-  return SELF.fetch(`${ORIGIN}${path}`, {
-    method: "POST",
-    body,
-    headers,
-    redirect: "manual",
-  });
-}
-
-export function get(path: string, cookie?: string): Promise<Response> {
-  return SELF.fetch(`${ORIGIN}${path}`, {
-    headers: cookie ? { cookie } : undefined,
-    redirect: "manual",
-  });
-}
-
-/** One `Set-Cookie` off a response, reduced to its `name=value` for sending back. */
-export function cookieFrom(response: Response, name: string): string | null {
-  for (const header of response.headers.getSetCookie()) {
-    const [pair] = header.split(";");
-    if (pair?.startsWith(`${name}=`)) return pair;
-  }
-  return null;
-}
 
 export const REGISTRATION = {
   displayName: "Refugio Los Teques",

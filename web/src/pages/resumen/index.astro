@@ -1,0 +1,135 @@
+---
+import Resumen from "../../layouts/Resumen.astro";
+import {
+  LABELLED_AXES,
+  REGION_HEADING,
+} from "../../lib/subscriber/labels.ts";
+import {
+  DEFAULT_SUBSCRIBER_LOCALE,
+  MAX_SUBSCRIPTIONS_PER_SUBSCRIBER,
+} from "../../lib/subscriber/policy.ts";
+import {
+  MAX_CRITERIA_VALUES_PER_AXIS,
+  MAX_REGION_LENGTH,
+} from "@pawster/domain";
+
+/**
+ * Save a search.
+ *
+ * **Prerendered, and it has to be.** ADR 0007's rule is that the Worker runs as rarely as
+ * possible, and this is the page every link to Pawster's digest points at — a server-rendered
+ * one would spend an invocation per visit to show a form that never varies. It is also the
+ * cheapest way to satisfy the identical-response rule: a static form renders nothing about the
+ * address it is given, so there is no server-side branch here to get wrong.
+ *
+ * The checkboxes are generated from `domain/`'s vocabularies through `labels.ts`, so an axis
+ * value added there appears here without an edit — and cannot appear without a Spanish word,
+ * because the label records are `satisfies Record<...>` and a missing one fails the build.
+ *
+ * The one axis rendered as free text is region, and ADR 0005 is why: the vocabulary is
+ * per-country reference data rather than a union this repository closes, so there is no list
+ * to offer until #56's filter panel has the data behind it.
+ */
+---
+
+<Resumen
+  title="Recibe el resumen"
+  heading="Recibe animales en adopción por correo"
+  indexable={true}
+>
+  <p>
+    Dinos qué estás buscando y te mandamos un resumen por correo, una vez por semana, con los
+    animales que aparecieron y te calzan. Sin cuenta y sin contraseña.
+  </p>
+
+  <form method="post" action="/api/resumen/suscribir">
+    <p>
+      <label for="email">Tu correo</label><br />
+      <input
+        id="email"
+        name="email"
+        type="email"
+        required
+        maxlength="200"
+        autocomplete="email"
+      />
+    </p>
+
+    {
+      LABELLED_AXES.map((axis) => (
+        <fieldset>
+          <legend>{axis.heading}</legend>
+          {axis.values.map((item) => (
+            <p>
+              <label>
+                <input type="checkbox" name={axis.field} value={item.value} />
+                {item.label}
+              </label>
+            </p>
+          ))}
+        </fieldset>
+      ))
+    }
+
+    <fieldset>
+      <legend>{REGION_HEADING}</legend>
+      <p>
+        <label for="regions">Estados, separados por comas</label><br />
+        <!--
+          `maxlength` is derived from the two constants that actually bound this axis rather
+          than picked: the parser keeps up to `MAX_CRITERIA_VALUES_PER_AXIS` regions of up to
+          `MAX_REGION_LENGTH` each, so anything shorter than their product would truncate a
+          submission the parser would have accepted — and "a subscription can name several
+          regions" is one of the ticket's own acceptance criteria. The `+ 2` per value is the
+          comma and the space between them.
+        -->
+        <input
+          id="regions"
+          name="regions"
+          type="text"
+          maxlength={(MAX_REGION_LENGTH + 2) * MAX_CRITERIA_VALUES_PER_AXIS}
+          placeholder="Miranda, Distrito Capital, Aragua"
+        />
+      </p>
+      <p>
+        <!--
+          Named as the reason it is a text box rather than a list, because a subscriber typing
+          a state that matches nothing gets silence and would otherwise have no way to guess
+          why. ADR 0005: a typo in a region matches no animal instead of failing to save.
+        -->
+        Escríbelos como se llaman. Si escribes uno que no existe, simplemente no te va a
+        calzar ningún animal.
+      </p>
+    </fieldset>
+
+    <!--
+      The locale the subscriber is reading in, carried so it can be stored with them: the
+      resumen is the one thing Pawster sends that has no URL to read a language off (ADR 0018).
+      A hidden field the platform's own page sets, never anything the visitor chooses, which is
+      why `parseLocale()` falls back instead of refusing.
+    -->
+    <input type="hidden" name="locale" value={DEFAULT_SUBSCRIBER_LOCALE} />
+
+    <p data-testid="everything-notice">
+      Si no marcas nada, te mandamos <strong>todos</strong> los animales que aparezcan.
+    </p>
+
+    <p><button type="submit">Mándame el resumen</button></p>
+  </form>
+
+  <p data-testid="opt-in-notice">
+    <!--
+      That the first mail is a link to activate, said before it arrives. An adopter who
+      expects animals and receives one line with a link is an adopter who reports it as spam,
+      and a complaint costs a Do-Not-Contact entry that outlives everything else we hold
+      (ADR 0010).
+    -->
+    Te va a llegar un correo con un enlace para activarla. Hasta que lo abras no te mandamos
+    nada más: así nadie puede anotar el correo de otra persona.
+  </p>
+
+  <p>
+    Puedes guardar hasta {MAX_SUBSCRIPTIONS_PER_SUBSCRIBER} búsquedas distintas con el mismo
+    correo, y llegan todas en el mismo resumen.
+  </p>
+</Resumen>

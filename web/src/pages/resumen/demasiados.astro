@@ -1,0 +1,32 @@
+---
+import Resumen from "../../layouts/Resumen.astro";
+
+/**
+ * The caller is the one asking too often.
+ *
+ * A separate page from `espera.astro`, for the reason `refugios/entrar/demasiados.astro` is a
+ * separate page from `espera.astro`: they are different facts, and the ceiling page's words
+ * are false about this one — it says the platform's daily mail is gone and that the caller
+ * did nothing, and neither is true here.
+ *
+ * Both reveal nothing about any address, which is what lets either be spoken at all. This one
+ * is a fact about the caller and the other is a fact about the platform;
+ * `SPEAKABLE_REFUSALS` is that division as data.
+ *
+ * **It does not name the limit or the window.** Numbers here would only be useful to somebody
+ * pacing themselves against it, and the person this page is actually for — a volunteer
+ * walking several visitors through the form on one phone — needs to know it will pass, not
+ * how to time it.
+ */
+---
+
+<Resumen title="Demasiadas solicitudes" heading="Espera un momento">
+  <p data-testid="ip-rate-limited">
+    Llegaron muchas solicitudes desde tu conexión en poco tiempo, así que esta no la
+    procesamos. No es nada del correo que escribiste.
+  </p>
+
+  <p>Vuelve a intentarlo dentro de un rato y va a pasar sin problema.</p>
+
+  <p><a href="/resumen">Volver</a></p>
+</Resumen>

@@ -7,24 +7,27 @@
  * and ADR 0013 calls it "cheap enough to ignore the CPU ceiling", unlike the password
  * hashing that ceiling ruled out.
  *
- * ## Why five labels over four secrets
+ * ## One labels table, several keys
  *
- * `SIGN_IN_SECRET` keys the code hash and the IP fingerprint; `SESSION_SECRET` signs the
- * cookie. Two secrets for three purposes, because every additional secret is another thing
- * `wrangler secret put` has to be told about and another way a deploy can be half-configured.
+ * `SIGN_IN_SECRET` keys the code hash and the sign-in IP fingerprint; `SESSION_SECRET` signs
+ * the cookie. Two rather than four on the shelter path, because every additional secret is
+ * another thing `wrangler secret put` has to be told about and another way a deploy can be
+ * half-configured — and a key earns its own existence only by having a different blast
+ * radius, which `ORIGINAL_SECRET` (ADR 0012), `ADMIN_LINK_SECRET` (ADR 0019) and
+ * `DO_NOT_CONTACT_PEPPER` (ADR 0010) all do and each of their own files argues.
  *
  * Reusing one key for two purposes is only safe if the two message spaces cannot overlap,
  * so every message here is **domain-separated by a literal label** — `code:`, `ip:`,
- * `session:`, `original:`, `admin:` — that no caller chooses. Without it, a value that could
- * be read as either kind of message would produce a hash valid for both, and the labels are
- * what makes that impossible rather than merely unlikely.
+ * `session:` — that no caller chooses. Without it, a value that could be read as either
+ * kind of message would produce a hash valid for both, and the labels are what makes that
+ * impossible rather than merely unlikely.
  *
- * Two of the five labels have keys of their own, and each earned it on the same test —
- * what a rotation costs. `ORIGINAL_SECRET` because its token leaves the platform
- * (`../photos/capability.ts`); `ADMIN_LINK_SECRET` because it is rotated in response to a
- * link leaking out of one inbox, an emergency that must not also invalidate every
- * outstanding One-Time Code (`../verification/link.ts`). The labels still apply to both:
- * separate keys make cross-purpose replay impossible twice over rather than once.
+ * **The labels table below spans every key in the platform, deliberately.** The property
+ * worth guaranteeing is that no two messages anywhere can be read as each other, and a
+ * single list is what makes that checkable by reading one screen; a labels table per feature
+ * would let two of them collide with nobody in a position to notice. Which secret keys a
+ * given label is recorded on the label itself, and the wrapper that calls {@link sign} lives
+ * in the feature's own module rather than here.
  */
 
 import { ONE_TIME_CODE_DIGITS, ONE_TIME_CODE_SPACE } from "./policy.ts";
@@ -45,11 +48,31 @@ const LABELS = {
   /**
    * An admin capability: a decision link, a pending-list link, or the revocation token that
    * only a terminal mints (`../verification/link.ts`). Keyed by `ADMIN_LINK_SECRET`, which
-   * earns being the platform's fourth secret for the reason that file gives — it is rotated
-   * *because a link leaked out of the admin's inbox*, and that emergency must not also
-   * invalidate every One-Time Code sitting in a shelter's inbox.
+   * earns a key of its own for the reason that file gives — it is rotated *because a link
+   * leaked out of the admin's inbox*, and that emergency must not also invalidate every
+   * One-Time Code sitting in a shelter's inbox.
    */
   admin: "admin:",
+  /**
+   * An opt-in link's token. Keyed by `SUBSCRIBER_SECRET`.
+   *
+   * The four labels below are the subscriber path's, and they live here rather than in a
+   * second labels table for the reason this one exists at all: the guarantee is that no two
+   * *messages* in the platform can be read as each other, and one table is what makes that
+   * checkable by reading a single list. `original:` already sets the precedent that a label
+   * here need not be keyed by a secret named in this file's own comment.
+   */
+  optIn: "optin:",
+  /** A signup caller's IP fingerprint. Keyed by `SUBSCRIBER_SECRET`. */
+  signupIp: "signup-ip:",
+  /** A subscriber address's fingerprint in the opt-in mail ledger. Keyed by `SUBSCRIBER_SECRET`. */
+  subscriber: "subscriber:",
+  /**
+   * A Do-Not-Contact entry. Keyed by `DO_NOT_CONTACT_PEPPER` and by nothing else — ADR 0010
+   * requires a pepper that never rotates, and `web/src/lib/subscriber/crypto.ts` records why
+   * that makes it a secret of its own rather than a fifth use of `SUBSCRIBER_SECRET`.
+   */
+  doNotContact: "dnc:",
 } as const;
 
 type Purpose = keyof typeof LABELS;
