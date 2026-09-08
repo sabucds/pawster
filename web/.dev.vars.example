@@ -1,0 +1,31 @@
+# ---------------------------------------------------------------------------
+# web/ — local Worker secrets and overrides.
+#
+# Read by `astro dev` through the adapter's `platformProxy`, which loads this
+# file the way `wrangler dev` does. In production these three secrets are set
+# with `wrangler secret put`, never as a committed `var` — a plaintext var for
+# either of the first two would put a shelter's whole credential in the repo.
+#
+# Copy to `web/.dev.vars` and fill in. The `.dev.vars` file is gitignored.
+# ---------------------------------------------------------------------------
+
+# Signs the Session cookie. Any random string locally; the only thing standing
+# between a hand-written cookie and a shelter's publishing area in production.
+#   openssl rand -base64 32
+SESSION_SECRET=
+
+# Keys the One-Time Code hash and the sign-in ledger's IP fingerprints.
+# Separate from SESSION_SECRET so rotating codes does not sign everyone out.
+#   openssl rand -base64 32
+SIGN_IN_SECRET=
+
+# Shared with digest/, same key under the same name. From resend.com/api-keys.
+# Leave blank to develop everything except actually sending sign-in mail — the
+# code is logged by Resend's failure path, not delivered.
+RESEND_API_KEY=
+
+# Overrides of the `vars` in web/wrangler.jsonc, for local dev only.
+# SITE_ORIGIN is the origin the sign-in email tells a shelter to type, so it has
+# to be the dev server's, not production's.
+SIGN_IN_FROM_ADDRESS=entrar@pawster.test
+SITE_ORIGIN=http://localhost:4321

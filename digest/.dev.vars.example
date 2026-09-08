@@ -1,0 +1,23 @@
+# ---------------------------------------------------------------------------
+# digest/ — local Worker secrets and overrides.
+#
+# Read by `wrangler dev` in this directory. In production UNSUBSCRIBE_SECRET and
+# RESEND_API_KEY are set with `wrangler secret put`, never as committed vars.
+#
+# Copy to `digest/.dev.vars` and fill in. The `.dev.vars` file is gitignored.
+# ---------------------------------------------------------------------------
+
+# The same Resend key web/ holds. Blank is fine until you want real delivery.
+RESEND_API_KEY=
+
+# Signs unsubscribe links. In production this is PAWSTER_LINK_SIGNING_KEY from
+# the root .env; locally any random string will do.
+#   openssl rand -base64 32
+UNSUBSCRIBE_SECRET=
+
+# Overrides of the `vars` in digest/wrangler.jsonc, for local dev only.
+# Point HEALTHCHECK_URL at a throwaway check (or leave the placeholder) so a
+# local run does not resolve your real production check.
+HEALTHCHECK_URL=https://hc-ping.com/00000000-0000-0000-0000-000000000000
+DIGEST_FROM_ADDRESS=digest@pawster.test
+SITE_ORIGIN=http://localhost:4321
