@@ -20,12 +20,30 @@
     }
   ],
 
-  // `SESSION_SECRET`, `SIGN_IN_SECRET` and `RESEND_API_KEY` are deliberately absent. The
-  // first signs the Session cookie, the second keys the One-Time Code hash, and a committed
-  // plaintext `var` for either would put a shelter's whole credential in the repository —
-  // the same rule `digest/wrangler.jsonc` follows for `UNSUBSCRIBE_SECRET`. They are set
-  // with `wrangler secret put`, and the test seam supplies fixed ones, so the suite still
-  // needs no credentials.
+  // The two buckets ADR 0012 splits the pipeline across, both provisioned already
+  // (`docs/provisioning-record.md`).
+  //
+  // `pawster-originals` is confirmed private and carries the `expire-originals-7d`
+  // lifecycle rule, and it must stay that way: a retained original still holds the EXIF —
+  // a foster home's GPS coordinates among it — that every derivative discards. Cloudflare's
+  // image pipeline reaches into it through the token-gated route at
+  // `/api/originales/[...key]`, never through a public URL.
+  //
+  // `pawster-media` holds derivatives under `d/` and, later, the filter index under `i/`.
+  // ADR 0016 makes the nightly sweep list `d/` only, so the prefix is load-bearing rather
+  // than decorative.
+  "r2_buckets": [
+    { "binding": "MEDIA", "bucket_name": "pawster-media" },
+    { "binding": "ORIGINALS", "bucket_name": "pawster-originals" }
+  ],
+
+  // `SESSION_SECRET`, `SIGN_IN_SECRET`, `MEDIA_SECRET` and `RESEND_API_KEY` are deliberately
+  // absent. The first signs the Session cookie, the second keys the One-Time Code hash, the
+  // third signs the capability handed to the image pipeline, and a committed plaintext `var`
+  // for any of them would put a credential in the repository — the same rule
+  // `digest/wrangler.jsonc` follows for `UNSUBSCRIBE_SECRET`. They are set with
+  // `wrangler secret put`, and the test seam supplies fixed ones, so the suite still needs
+  // no credentials.
   "vars": {
     // A different sender from the digest's, so a shelter's mail client and Postmaster Tools
     // can tell a credential from a newsletter, and so a spam complaint about the digest

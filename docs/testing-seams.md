@@ -163,6 +163,25 @@ from spelled several of these differently.
   `db/migrations/0001_worried_the_spike.sql` — and 0002 needed the same hand-correction plus
   a backfill, because a `DEFAULT 0` on `shelter_contact_points.position` would have left
   every one of a shelter's points claiming to be the one an adopter is offered.
+- **`crypto.DigestStream` is bound on `crypto` and declared as a global, and the two do not
+  meet.** `@cloudflare/workers-types` declares `class DigestStream` in the global scope;
+  `workerd` binds it on `crypto`, which is the form Cloudflare's own docs use. Writing the
+  global compiles and throws `ReferenceError: DigestStream is not defined` at runtime;
+  writing `crypto.DigestStream` runs and does not compile, because `astro/tsconfigs/strict`
+  pulls in the DOM `lib` and `crypto` types as the DOM's `Crypto`. `web/src/lib/photos/pipeline.ts`
+  bridges the two in one place, with the reason next to it. This one was found by a green
+  test suite running a stale bundle — the source had been changed to the global, the build
+  had not been re-run, and 27 tests passed against the old bytes. `npm test` in `web/`
+  builds first for exactly this reason.
+- **`R2.put` will not accept a stream of unknown length.** It needs a request/response body
+  or the readable half of a `FixedLengthStream`. This is why the upload route answers `411
+  Length Required` to a body with no `Content-Length` rather than buffering it: the
+  alternative is holding 12 MB in the isolate to discover a number the client already knew.
+  It also makes the declared length self-enforcing — a body that sends more or less than it
+  promised fails the write instead of quietly storing something else.
+- **A `Uint8Array` body gets a `Content-Length` whether you want one or not**, so the only
+  way for a test to send a body without one is a `ReadableStream` and `duplex: "half"`.
+  Worth knowing before writing a test for the 411 above and watching it get a 201.
 - **SQLite accepts `ALTER TABLE ... ADD <col> NOT NULL` with no default only while the table
   is empty.** With one row present it fails with `Cannot add a NOT NULL column with default
   value NULL`. Measured both ways on SQLite 3.43.2. This matters because drizzle-kit
@@ -181,6 +200,17 @@ invocation. Neither does local `workerd`: every over-budget invocation returns
 `outcome: ok`. **No test in this suite can catch a CPU regression on an SSR route.** The
 only signal is `npm run check:ssr-cpu`, which reports and does not enforce — see
 [`measurements.md`](measurements.md).
+
+### Whether a derivative comes back upright
+
+`cf.image` is the interceptor's third vendor, so no transform runs locally and no test in
+this suite has ever seen a transformed image. The pipeline depends on Cloudflare applying a
+source's EXIF/`irot` orientation itself — which is why it never sends a `rotate`, since
+rotating an already-upright image is the same silent failure in the other direction. The
+suite pins our half (the transform carries a format and never a rotation; a rotated HEIC's
+stored dimensions are transposed) and can pin no more than that.
+[`measurements.md`](measurements.md#upright-derivatives-from-a-rotated-source--unverified-offline)
+records the claim and the one-photo experiment that would settle it.
 
 ### A module-scope Drizzle client is not caught either
 
@@ -205,17 +235,27 @@ So enforcement is structural, not behavioural:
 npm run check:source-rules
 ```
 
-`scripts/check-source-rules.mjs` fails the build on four things: a module-scope Drizzle
+`scripts/check-source-rules.mjs` fails the build on six things: a module-scope Drizzle
 client; `domain/` importing the database layer, a Node builtin, any package, or calling
-`fetch`; any query outside `registerShelter()` writing `shelters.slug`; and any file outside
-the two store modules naming the account-email column.
+`fetch`; any query outside `registerShelter()` writing `shelters.slug`; any file outside the
+two store modules naming the account-email column; the `env.IMAGES` binding; and S3
+credentials or presigned URLs.
 
-The last two are there because a per-route test would have to be written by whoever adds the
-route that breaks the rule. A slug is an address adopters and search engines already hold, so
-rewriting one breaks every URL to a shelter's archive pages (ADR 0015). An account email is a
-shelter's credential and must appear in no public response and in no filter index (issue
-#52) — and the filter index does not exist yet (issue #56), so there is nothing for a test to
-inspect. `panel.astro` had a select naming that column and the rule is what found it.
+Rules three and four are there because a per-route test would have to be written by whoever
+adds the route that breaks the rule. A slug is an address adopters and search engines already
+hold, so rewriting one breaks every URL to a shelter's archive pages (ADR 0015). An account
+email is a shelter's credential and must appear in no public response and in no filter index
+(issue #52) — and the filter index does not exist yet (issue #56), so there is nothing for a
+test to inspect. `panel.astro` had a select naming that column and the rule is what found it.
+
+Rules five and six are the two mechanisms ADR 0012 ruled out, and they are structural for a
+different reason: they **work**. The `IMAGES` binding transforms images correctly and passes
+any test written against its output, while spending 22–56 ms of Worker CPU against a 10 ms
+ceiling — and nothing available locally meters CPU, so there is no test that could fail.
+Presigned URLs and an S3 credential in the Worker work exactly as well as not having them,
+minus a credential that can leak. Both skip comment lines, because the repository has to be
+able to write *about* the decisions it forbids: `web/src/lib/images.ts` names the binding in
+its own module comment in order to rule it out.
 
 The module-scope rule catches **both** wrong forms, which matters because the second is the
 common one: a

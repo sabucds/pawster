@@ -21,7 +21,15 @@ export type {
 } from "./axes.ts";
 export { GOOD_WITH_AXES } from "./axes.ts";
 export type { DerivativeName, DerivativeSpec } from "./derivative.ts";
-export { DERIVATIVES } from "./derivative.ts";
+export {
+  DERIVATIVE_CACHE_CONTROL,
+  DERIVATIVE_PREFIX,
+  DERIVATIVES,
+  derivativeContentType,
+  derivativeKeyFor,
+  derivativeKeyMaterial,
+  derivativeSpecFingerprint,
+} from "./derivative.ts";
 export type { DigestPeriod } from "./digest.ts";
 export { DIGEST_DAILY_BUDGET, digestIdempotencyKey } from "./digest.ts";
 export type {
@@ -40,3 +48,36 @@ export type {
 export { ageBandsFor, goodWithFor, matches } from "./matching.ts";
 export type { StalenessBand } from "./staleness.ts";
 export { daysBetween, deriveStalenessBand } from "./staleness.ts";
+export type {
+  PhotoRole,
+  StorageMeasurement,
+  StorageMode,
+  UploadPreflight,
+  UploadRefusal,
+  UploadRefusalReason,
+  UploadSessionFacts,
+} from "./upload.ts";
+export {
+  ACCEPTED_ORIGINAL_TYPES,
+  MAX_ORIGINAL_BYTES,
+  MAX_ORIGINAL_DIMENSION,
+  MAX_ORIGINAL_PIXELS,
+  MAX_PHOTOS_PER_ANIMAL,
+  MIN_PHOTOS_PER_ANIMAL,
+  MONTHLY_TRANSFORMATION_BUDGET,
+  STORAGE_ALARM_BYTES,
+  STORAGE_DEGRADE_BYTES,
+  STORAGE_MEASUREMENT_MAX_AGE_MS,
+  STORAGE_REFUSE_BYTES,
+  UPLOAD_SESSION_TTL_MS,
+  derivativesFor,
+  deriveStorageMode,
+  isAbandoned,
+  isResumable,
+  photoLimitFor,
+  refuseImage,
+  refuseUpload,
+  transformationMonthStart,
+  transformationsFor,
+  transformationsForAnimal,
+} from "./upload.ts";

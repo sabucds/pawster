@@ -1,16 +1,20 @@
 #!/usr/bin/env node
 /**
- * Four structural rules that no test can enforce, checked over the source instead.
+ * Six structural rules that no test can enforce, checked over the source instead.
  *
- * All four exist because the thing they forbid *passes* at runtime. A module-scope Drizzle
+ * All six exist because the thing they forbid *passes* at runtime. A module-scope Drizzle
  * client runs fine locally and breaks in production; a `db/` import inside `domain/` is just
  * an import; a query that rewrites a shelter's slug succeeds and quietly breaks every URL an
  * adopter already held; a query that selects a shelter's account email into something public
- * succeeds and publishes a credential.
+ * succeeds and publishes a credential; the `env.IMAGES` binding transforms images correctly
+ * while spending five times the Worker's CPU budget; and S3 credentials in the Worker work
+ * exactly as well as not having them, minus the credential that can leak.
  *
- * None has a failing test to point at, and the last two share a reason for that worth naming:
- * they could each have a test *per route*, which is the problem, because the route that breaks
- * them is the one nobody has written yet.
+ * None has a failing test to point at. Three of them share a sharper reason for that, worth
+ * naming: the slug and account-email rules could each have a test *per route*, which is the
+ * problem, because the route that breaks them is the one nobody has written yet — and the
+ * `IMAGES` rule could have no test at all, because nothing available locally meters CPU
+ * (`docs/testing-seams.md`).
  *
  *   node scripts/check-source-rules.mjs
  *
@@ -258,6 +262,16 @@ for (const file of files) {
     const lineNumber = index + 1;
 
     /**
+     * Whether this line is prose rather than code.
+     *
+     * A line-level heuristic and not a parse: everything here is Prettier-formatted, so a
+     * block comment's continuation lines begin with `*` and nothing else does. It is used
+     * only by the two rules below, which forbid things this repository also has to be able
+     * to *write about* — the rules above forbid shapes that never appear in prose.
+     */
+    const isComment = /^\s*(?:\/\/|\/?\*)/.test(line);
+
+    /**
      * Rule 1: no Drizzle client at module scope (ADR 0007).
      *
      * Two shapes, because the fixture demonstrates two and calls the second the more
@@ -308,6 +322,68 @@ for (const file of files) {
       );
     }
 
+    /**
+     * Rule 5: the image pipeline is `cf.image`, and the `IMAGES` binding is ruled out
+     * (ADR 0012).
+     *
+     * This is here rather than in a test because the binding *works*. It transforms images
+     * correctly, returns the right bytes and passes any test written against its output —
+     * while running its encode inside our isolate at 22–56 ms of CPU at the median against
+     * a 10 ms ceiling, with single invocations measured at 78 ms, where `cf.image` costs
+     * 0–2 ms for identical work (issue #34). The distributions do not overlap at any
+     * sample. And nothing catches it: `docs/testing-seams.md` records that neither
+     * `@cloudflare/vitest-plugin` nor local `workerd` meters CPU, and that every over-budget
+     * invocation returns `outcome: ok`. So a reintroduction would be invisible in local
+     * development, invisible in CI, and would surface in production as a Worker Cloudflare
+     * terminates for "hitting the limit consistently" — which a steady upload path is
+     * precisely.
+     *
+     * Comment lines are skipped, and they have to be: the decision is *documented* in this
+     * repository more often than it could ever be violated, and `web/src/lib/images.ts`'s
+     * own module comment names the binding in order to rule it out. A rule that fired on
+     * prose would be a rule that made the reasoning unwritable, and the reasoning is the
+     * more valuable half. The heuristic is Prettier's formatting, the same assumption rule 1
+     * makes about column 0.
+     */
+    if (!isComment && /\b(?:env|locals\.runtime\.env)\s*\.\s*IMAGES\b|(?<!\w)["']IMAGES["']\s*:/.test(line)) {
+      fail(
+        file,
+        lineNumber,
+        "the IMAGES binding is ruled out",
+        "Transform through `cf.image` (web/src/lib/images.ts). The binding's encode runs " +
+          "in our isolate at 22-56 ms of CPU against a 10 ms ceiling; `cf.image` costs " +
+          "0-2 ms. ADR 0012, measured in issue #34. No test can catch this — nothing " +
+          "local meters CPU.",
+      );
+    }
+
+    /**
+     * Rule 6: no S3 credentials and no presigned URLs.
+     *
+     * ADR 0012 removed both deliberately — "presigned S3 URLs, their CORS policy and their
+     * credentials in the Worker are all unnecessary complexity here", since the body limit
+     * is 100 MB, HTTP duration is unlimited and streaming to `R2.put()` is I/O rather than
+     * CPU. The rule is not about taste: a credential in the Worker is a credential that can
+     * leak, and a CORS policy on a bucket is a second access-control surface for a bucket
+     * ADR 0012 requires to be private. Reintroducing either would work, which is exactly
+     * why it needs a check rather than a review.
+     */
+    const s3 = isComment
+      ? null
+      : line.match(
+          /@aws-sdk\/|AWS_ACCESS_KEY|AWS_SECRET_ACCESS_KEY|R2_ACCESS_KEY|getSignedUrl\s*\(|createPresigned/,
+        );
+    if (s3) {
+      fail(
+        file,
+        lineNumber,
+        "S3 credentials and presigned URLs are ruled out",
+        `${s3[0]} — photos stream browser to Worker to R2 through the binding (ADR 0012). ` +
+          "A credential in the Worker is one that can leak, and a bucket CORS policy is a " +
+          "second access-control surface on a bucket that must stay private.",
+      );
+    }
+
     if (!inDomain) return;
 
     // Rule 2: `domain/` is pure — no I/O, and no `db/`.
@@ -352,5 +428,6 @@ if (failures.length > 0) {
 
 console.log(
   `source rules ok — ${files.length} files checked for module-scope Drizzle clients, ` +
-    "domain/ purity, writes to shelters.slug and reads of the account-email column",
+    "domain/ purity, writes to shelters.slug, reads of the account-email column, " +
+    "the IMAGES binding and S3 credentials",
 );

@@ -80,3 +80,102 @@ export const DERIVATIVES: Readonly<Record<DerivativeName, DerivativeSpec>> = {
   },
 };
 
+/**
+ * The prefix every derivative object lives under in `pawster-media`, and reclamation's
+ * entire scope.
+ *
+ * [ADR 0016](../../docs/adr/0016-unreferenced-derivatives-are-reclaimed-by-reconciliation.md)
+ * makes the nightly sweep list `d/` and never the bucket root, so that anything added to
+ * the bucket later — the filter index under `i/`, whatever comes after it — is invisible to
+ * reclamation until it is deliberately opted in. A denylist would have deleted every one of
+ * them by default.
+ */
+export const DERIVATIVE_PREFIX = "d/";
+
+/**
+ * The file extension each output format is stored under. Cosmetic to R2, which is
+ * indifferent to a key's shape, and not cosmetic to a human reading a bucket listing or a
+ * browser handed the URL directly.
+ */
+const EXTENSIONS: Readonly<Record<DerivativeSpec["format"], string>> = {
+  jpeg: "jpg",
+  webp: "webp",
+};
+
+/**
+ * A derivative spec as a short, stable string — the "plus the derivative spec" half of
+ * ADR 0012's content-addressed key.
+ *
+ * It has to cover **every** field that changes the bytes, or two different derivatives of
+ * one photo would collide on one key and the second would silently serve the first. Reading
+ * the fields off the spec rather than hard-coding a string per derivative is what keeps that
+ * true when a spec is edited: change 1280 to 1600 and every key changes with it, which is
+ * the correct behaviour — a new spec is a new object, not an overwrite of an immutable one.
+ *
+ * The name is *not* in the fingerprint, on purpose. Two derivatives that asked for
+ * identical bytes should be one object; naming them apart would store the same image twice.
+ */
+export function derivativeSpecFingerprint(name: DerivativeName): string {
+  const spec = DERIVATIVES[name];
+  return [
+    spec.width,
+    spec.height,
+    spec.fit,
+    spec.format,
+    spec.gravity ?? "none",
+  ].join("-");
+}
+
+/**
+ * What a derivative's key is hashed over: the source bytes' digest, then the spec.
+ *
+ * Returned as material for the caller to hash rather than hashed here, because hashing is
+ * `crypto.subtle` and this package holds no I/O and no globals it did not import — see
+ * `docs/testing-seams.md` on why `domain/` is the one workspace that needs neither seam.
+ * `web/src/lib/photos/keys.ts` does the hashing.
+ *
+ * The separator matters more than it looks: without it, a digest ending in `1` followed by
+ * a fingerprint starting `44x144...` would be the same string as a different digest and a
+ * different fingerprint. `:` cannot occur in either half — one is hex, the other is built
+ * from the fixed vocabulary above.
+ */
+export function derivativeKeyMaterial(
+  sourceDigest: string,
+  name: DerivativeName,
+): string {
+  return `${sourceDigest}:${derivativeSpecFingerprint(name)}`;
+}
+
+/**
+ * The object key for a derivative whose key material has been hashed.
+ *
+ * Immutable and opaque, which is what makes ADR 0007's regenerate-the-index-on-publish safe
+ * rather than racy and what removes cache purging from the publish path entirely: an
+ * adopter reading mid-write gets a coherent *old* index, never a new one pointing at an
+ * object that does not exist yet.
+ *
+ * The consequence is the one ADR 0016 is about: two animals photographed in one shot share
+ * one object, so "this key is dead" is never a fact about a key.
+ */
+export function derivativeKeyFor(
+  keyDigest: string,
+  name: DerivativeName,
+): string {
+  return `${DERIVATIVE_PREFIX}${keyDigest}.${EXTENSIONS[DERIVATIVES[name].format]}`;
+}
+
+/**
+ * What a derivative is served as: the format's media type, and `immutable` forever.
+ *
+ * A year is the longest `max-age` any cache is required to honour, and `immutable` is what
+ * tells a revalidating browser not to bother asking. Both are safe to the point of being
+ * uninteresting *because* the key is the content — the bytes behind this key cannot change,
+ * so there is nothing a stale cache could be stale about.
+ */
+export const DERIVATIVE_CACHE_CONTROL = "public, max-age=31536000, immutable";
+
+/** The media type a derivative is stored and served with. */
+export function derivativeContentType(name: DerivativeName): string {
+  return `image/${DERIVATIVES[name].format}`;
+}
+

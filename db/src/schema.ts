@@ -1,4 +1,10 @@
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import {
+  index,
+  integer,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 
 /**
  * The skeleton's schema plus shelter access. The rest of the model — verification entries,
@@ -320,6 +326,182 @@ export const subscribers = sqliteTable(
   (table) => [index("subscribers_send_day_idx").on(table.sendDay)],
 );
 
+/**
+ * A shelter's in-progress work assembling an animal's photos before the animal exists
+ * (`CONTEXT.md`, *Upload Session*).
+ *
+ * **There is no status column, and its absence is the decision.**
+ * [ADR 0016](../../docs/adr/0016-unreferenced-derivatives-are-reclaimed-by-reconciliation.md):
+ * "an upload session gains no `Abandoned` state and no writer to set one; it is abandoned
+ * iff it is older than 24 hours with no committed animal". A stored state would need a
+ * writer, and there is none — no code is running at the moment a session dies. So
+ * abandonment is derived by `domain/`'s `isAbandoned` from these two columns and the
+ * absence of an animal, on the same reasoning that derives age bands and staleness.
+ *
+ * **There is no reference to an animal here either**, and that direction is deliberate.
+ * The animal row is written *last* (ADR 0012), so it is the animal that names the session
+ * it was assembled from and never the other way round — a column here would have to be
+ * back-filled by the animal's own writer, which is a second write that can fail after the
+ * first has succeeded. Issue #55 adds the column on `animals`.
+ */
+export const uploadSessions = sqliteTable(
+  "upload_sessions",
+  {
+    id: text("id").primaryKey(),
+    shelterId: text("shelter_id")
+      .notNull()
+      .references(() => shelters.id),
+    /**
+     * The whole clock. Resumable for 24 hours from here, abandoned after — one timestamp,
+     * because two (a `createdAt` and an `expiresAt`) would be two facts that can disagree
+     * about the same moment.
+     */
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [index("upload_sessions_shelter_idx").on(table.shelterId)],
+);
+
+/**
+ * One accepted photo, staged under a session and belonging to no animal yet.
+ *
+ * **The derivative keys are absent on purpose.** A derivative's key is a hash of the source
+ * bytes plus the spec (ADR 0012), so every key this row implies is recomputable from
+ * `sourceDigest` and `position` — storing them would be storing a derived value that could
+ * disagree with the function that derives it, which is the drift ADR 0004 avoids for age
+ * bands. It also matters to the sweep: reclamation asks "does a live session hold this
+ * key", and it can only ask that if the keys come from one place.
+ */
+export const uploadSessionPhotos = sqliteTable(
+  "upload_session_photos",
+  {
+    id: text("id").primaryKey(),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => uploadSessions.id),
+    /**
+     * Zero-based, in the order the shelter uploaded. **Position 0 is the primary photo**,
+     * which is what makes "the first photo in an animal's order" a fact about the order
+     * rather than an `isPrimary` column that could be true of two rows at once.
+     *
+     * It is also what decides which derivatives this photo has: position 0 carries all
+     * four, everything else carries the two that apply to every photo.
+     */
+    position: integer("position").notNull(),
+    /**
+     * The SHA-256 of the original's bytes, hex. The `d/` keys are derived from it, so two
+     * shelters uploading the same photograph produce one set of objects.
+     */
+    sourceDigest: text("source_digest").notNull(),
+    /**
+     * Where the original is in `pawster-originals` until the 7-day lifecycle rule takes
+     * it. **Not content-addressed**, unlike the derivatives: the key has to be chosen
+     * before the bytes have been read, because the bytes are streamed straight to R2 and
+     * the digest only exists once the stream has finished. Two uploads of one photograph
+     * therefore store two originals and one set of derivatives, which costs a few
+     * megabytes for seven days and saves buffering 12 MB in the isolate.
+     */
+    originalKey: text("original_key").notNull(),
+    /** As the shelter sent it, and one of `domain/`'s `ACCEPTED_ORIGINAL_TYPES`. */
+    contentType: text("content_type").notNull(),
+    /** The bytes actually stored, counted while streaming — never the declared length. */
+    byteSize: integer("byte_size").notNull(),
+    /**
+     * The image's dimensions **as displayed**, which for a photo carrying a rotation tag
+     * is not what its header says: an iPhone writes a 4032x3024 frame and an orientation
+     * of 6, and the upright image is 3024x4032. Stored the way an adopter will see it,
+     * because that is the only version that will exist once the original expires.
+     */
+    width: integer("width").notNull(),
+    height: integer("height").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [
+    /**
+     * Unique, which is what makes "position 0 is the primary" a fact the database keeps
+     * rather than a convention every writer has to remember. An `isPrimary` column could be
+     * true of two rows at once; two rows cannot both be first.
+     */
+    uniqueIndex("upload_session_photos_session_idx").on(
+      table.sessionId,
+      table.position,
+    ),
+    // Reclamation asks whether any live session holds a given source digest.
+    index("upload_session_photos_digest_idx").on(table.sourceDigest),
+  ],
+);
+
+/**
+ * The ledger the month's image transformations are spent from.
+ *
+ * Cloudflare meters 5,000 unique transformations per calendar month against the account and
+ * offers no way to read the counter cheaply from a Worker, so the platform keeps its own —
+ * and exhaustion is the one failure ADR 0012 will not tolerate discovering late, because
+ * error 9422 arrives *mid-upload* and leaves a shelter with a half-built animal.
+ *
+ * A ledger rather than a counter, for the reason `signInRequests` is one: every limit is
+ * then a query over the same rows, with no denormalised total that can disagree with the
+ * history it summarises. The grain is one row per photo that actually spent anything, so a
+ * month is a `SUM` over a few hundred rows rather than a few thousand.
+ *
+ * Rows are never deleted by a photo's deletion. A transformation spent is spent, whatever
+ * became of what it produced.
+ */
+export const transformationSpends = sqliteTable(
+  "transformation_spends",
+  {
+    id: text("id").primaryKey(),
+    /**
+     * How many of the month's 5,000 this spent: four for a primary, two otherwise — and
+     * fewer where a derivative already existed, because a content-addressed key that is
+     * already in the bucket costs no transformation at all.
+     */
+    transformations: integer("transformations").notNull(),
+    spentAt: integer("spent_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [index("transformation_spends_spent_at_idx").on(table.spentAt)],
+);
+
+/**
+ * What ADR 0016's nightly reconciliation measured, and the row the upload path reads to
+ * decide how much it may still accept.
+ *
+ * **Written by issue #66, read here.** Until that job has ever run there is no row, and
+ * `domain/`'s `deriveStorageMode` treats its absence exactly as it treats a stale one: it
+ * degrades to one photo per animal. That is the cautious direction, and the asymmetry is
+ * the argument — degrading costs a shelter five photos it can add later, and trusting a
+ * sweep that has died costs the platform a bill it cannot pay.
+ *
+ * It replaces ADR 0012's animal-count proxy, which "is sound only if every stored byte
+ * belongs to an animal that exists" and so was blind by construction to the unreferenced
+ * bytes it was meant to catch.
+ */
+export const storageMeasurements = sqliteTable(
+  "storage_measurements",
+  {
+    id: text("id").primaryKey(),
+    /**
+     * Actual bytes across **both** buckets. R2's 10 GB is per account, so
+     * `pawster-originals` counts — seven days of retained originals is nearer 1 GB than
+     * the 0.3 GB ADR 0012 assumed.
+     */
+    totalBytes: integer("total_bytes").notNull(),
+    /**
+     * The mode the sweep concluded, for the admin mail and the run summary.
+     *
+     * **The upload path does not read this**; it derives the mode from `totalBytes` in the
+     * same row, so the number and the mode cannot disagree in the direction that matters.
+     * Kept because ADR 0016 specifies the row as "measured bytes, timestamp, resulting
+     * mode", and because what the sweep *concluded* is the thing an admin needs when
+     * asking why a mail arrived.
+     */
+    mode: text("mode", {
+      enum: ["normal", "alarming", "degraded", "refusing"],
+    }).notNull(),
+    measuredAt: integer("measured_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [index("storage_measurements_measured_at_idx").on(table.measuredAt)],
+);
+
 export type Shelter = typeof shelters.$inferSelect;
 export type Animal = typeof animals.$inferSelect;
 export type Subscriber = typeof subscribers.$inferSelect;
@@ -327,3 +509,7 @@ export type ShelterContactPoint = typeof shelterContactPoints.$inferSelect;
 export type ContactPointKind = ShelterContactPoint["kind"];
 export type OneTimeCode = typeof oneTimeCodes.$inferSelect;
 export type SignInRequest = typeof signInRequests.$inferSelect;
+export type UploadSession = typeof uploadSessions.$inferSelect;
+export type UploadSessionPhoto = typeof uploadSessionPhotos.$inferSelect;
+export type TransformationSpend = typeof transformationSpends.$inferSelect;
+export type StorageMeasurementRow = typeof storageMeasurements.$inferSelect;

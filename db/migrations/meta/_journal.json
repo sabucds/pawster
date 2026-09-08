@@ -22,6 +22,13 @@
       "when": 1788877698839,
       "tag": "0002_ordinary_rick_jones",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1788880620671,
+      "tag": "0003_upload_sessions_and_the_storage_ledgers",
+      "breakpoints": true
     }
   ]
 }

@@ -31,6 +31,23 @@ them. For scale, the OpenNext/Next.js bundle that ruled Next out of the running 
 2,295.89 KiB gzipped against the same 3 MB: `web/` at 173 KiB has roughly **17×** the
 headroom that option would have had on its first day.
 
+### Recorded 2026-09-08, after the photo pipeline (#54)
+
+| Worker | Raw | Gzipped | Of the 3 MB limit |
+|---|---|---|---|
+| `web` | 886.50 KiB | **228.32 KiB** | 7.4% |
+| `digest` | 194.00 KiB | 40.62 KiB | 1.3% |
+
+`web/` grew by **54 KiB gzipped** for three routes, the media library and four new tables'
+worth of Drizzle. That is the largest single-ticket jump so far and it is recorded rather
+than waved through, because the ceiling is a cliff rather than a slope: a Worker over 3 MB
+does not deploy at all. At 7.4% there is still roughly 13× headroom, so this is a data
+point and not yet a problem — the number to watch is the *rate*, not the total.
+
+The increase was not decomposed into its parts. Doing so honestly needs a build of the
+parent commit to subtract, and the figure above is enough to answer the only question being
+asked of it today.
+
 ## Per-request SSR CPU
 
 ```sh
@@ -78,3 +95,33 @@ real measurement can overturn.
 
 The honest reading: about a millisecond leaves room, and nothing automated will tell us
 when it stops doing so.
+
+## Upright derivatives from a rotated source — unverified offline
+
+Not a measurement yet, and recorded here rather than left implicit because the upload path
+**depends** on it and the suite cannot check it. Issue #54 built the pipeline against this
+claim:
+
+> Cloudflare's image transformation applies the source's own EXIF/`irot` orientation and
+> then discards the metadata — WebP and PNG outputs carry none at all — so a transformed
+> image comes back upright without being asked.
+
+Everything downstream is built on that being true. `web/src/lib/photos/dimensions.ts` reads
+the orientation tag **only to know what size the result will be**, and deliberately never
+asks `cf.image` for a `rotate`: if the pipeline auto-orients and we rotate as well, the
+image is turned twice, and the result is the sideways dog ADR 0012 rejected browser-side
+resizing to avoid. The two failure modes are symmetrical and both silent, which is why the
+claim is written down instead of assumed.
+
+**What the suite does check**, in `web/test/upload.test.ts`: that a rotated HEIC is accepted,
+that its stored dimensions are transposed, that every transform names an explicit output
+format, and that **no transform ever carries a `rotate`**. That pins our half of the
+contract. It cannot pin Cloudflare's, because `cf.image` is the outbound interceptor's third
+vendor and no transform runs locally — the same reason
+[`testing-seams.md`](testing-seams.md) gives for the CPU ceiling.
+
+**How to settle it**, when there is a deployed Worker to settle it against: upload one
+iPhone HEIC with `Orientation=6`, fetch its detail derivative, and check that the returned
+WebP is portrait. One photo, one request, and the answer is unambiguous either way. Until
+then this is a dependency, not a fact — and its failure mode is a shelter publishing a
+sideways animal and never being told.
