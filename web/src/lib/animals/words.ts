@@ -34,7 +34,12 @@ import type {
   Species,
   Sterilisation,
 } from "@pawster/domain";
-import { SIZE_ADULT_KILOGRAMS } from "@pawster/domain";
+import {
+  SIZE_ADULT_KILOGRAMS,
+  daysBetween,
+  monthsBetween,
+} from "@pawster/domain";
+import type { ArchiveReason } from "./visibility.ts";
 
 /**
  * One word in both genders, masculine first.
@@ -382,3 +387,223 @@ export function describeAnimal(animal: AnimalWords, band: AgeBand): string {
 
   return sentence(parts);
 }
+
+/* ------------------------------------------------------------------------------------- *
+ * The animal page's own phrases (issue #57).
+ *
+ * Everything above describes an animal's *attributes*. Everything below describes what the
+ * platform knows and how well it knows it — when the shelter last vouched for the animal, how
+ * the age was arrived at, and what happened to an animal that has left the listing. They sit
+ * in the same file because they inflect on the same fact — the animal's sex — and ADR 0018's
+ * whole mechanism is that {@link agree} and {@link sentence} are the only places that happens.
+ * ------------------------------------------------------------------------------------- */
+
+/** `Confirmado / Confirmada` — it agrees with the animal, not with the confirmation. */
+export const CONFIRMED_WORDS: Gendered = { m: "Confirmado", f: "Confirmada" };
+
+/**
+ * Who did the confirming, said out loud.
+ *
+ * Load-bearing rather than filler: without it the line reads as Pawster's own assurance, and
+ * the platform has verified nothing about this animal. A Confirmation is *"a shelter's
+ * deliberate write"* (`CONTEXT.md`), and the sentence has to name whose word it is.
+ */
+export const BY_THE_SHELTER = "por el refugio";
+
+/**
+ * The consequence — the sentence the animal page says and the listing card must not.
+ *
+ * The public-listing prototype settled that split: *"the card states a fact, the page states
+ * the consequence"*, and it works *"because the page is where an adopter is about to spend a
+ * message, not where they are scanning twelve animals"*. A card carrying this on every animal
+ * would talk twelve adopters out of twelve enquiries at once.
+ */
+export const MAYBE_GONE = "Puede que ya no esté disponible";
+
+/**
+ * How long ago, in the words a person uses. Days, then weeks, then months.
+ *
+ * The unit coarsens as the number grows because that is how the number is read: `hace 3 días`
+ * is a fact and `hace 47 días` is arithmetic the reader has to do. The thresholds are the
+ * prototype's — under a week in days, under five weeks in weeks, months after that — which is
+ * where the rounding stops being visible.
+ *
+ * A confirmation dated in the future (clock skew, or a shelter's device) reads as `hoy` rather
+ * than throwing, the same forgiveness `deriveStalenessBand` extends for the same reason:
+ * refusing to render the page is worse than rendering the kindest answer.
+ */
+export function agoPhrase(days: number): string {
+  if (days <= 0) return "hoy";
+  if (days === 1) return "ayer";
+  if (days < 7) return `hace ${days} días`;
+  if (days < 35) {
+    const weeks = Math.round(days / 7);
+    return weeks === 1 ? "hace 1 semana" : `hace ${weeks} semanas`;
+  }
+  const months = Math.round(days / 30);
+  return months === 1 ? "hace 1 mes" : `hace ${months} meses`;
+}
+
+/**
+ * The provenance line, with its consequence — `Confirmada hace 4 meses por el refugio. Puede
+ * que ya no esté disponible.`
+ *
+ * ## The consequence is unconditional, and the prototype's was not
+ *
+ * `prototypes/public-listing/index.html` appends the second sentence only past the fresh band.
+ * This does not, and the divergence is deliberate. Pawster does not know whether an animal
+ * confirmed yesterday is still available — no shelter has told it anything since — so the
+ * sentence is exactly as true at one day as at four months, and printing it only when the
+ * platform has grown *nervous* makes its presence the warning. That is the failure the
+ * prototype itself named, resolved there for the card ("a uniform line, fresh included") and
+ * left conditional on the page by habit.
+ *
+ * What varies instead is emphasis: the page styles the line amber past the fresh band, so a
+ * stale animal still reads differently without the sentence appearing and disappearing. The
+ * escalation is the colour, and the honesty is the sentence.
+ *
+ * Carries no `sexo no registrado` note of its own — {@link describeAnimal} renders above it and
+ * discloses an assumed gender once for the whole page, which is the rule {@link ageBandLabel}
+ * already follows and the reason both are safe to call {@link agree} directly.
+ */
+export function confirmationSentence(
+  sex: Sex,
+  lastConfirmedAt: Date,
+  asOf: Date,
+): string {
+  const confirmed = agree(CONFIRMED_WORDS, sex).word;
+  const ago = agoPhrase(daysBetween(lastConfirmedAt, asOf));
+  return `${confirmed} ${ago} ${BY_THE_SHELTER}. ${MAYBE_GONE}.`;
+}
+
+/**
+ * How the age was arrived at, as the parenthetical that follows it — `(estimada por el
+ * refugio)`.
+ *
+ * **A second table for the same three values, and it earns being second.** The one above,
+ * {@link AGE_BASIS_LABELS}, answers a question a form asks a shelter — `¿Cómo saben la edad?`
+ * → `Lo estima el refugio` — in the second person and the active voice. This one modifies a
+ * noun an adopter is reading: `unos 10 meses (estimada por el refugio)`. Putting `Lo estima el
+ * refugio` in those brackets would be a clause where a phrase belongs, and rewriting the form's
+ * options into this register would leave the form answering its own question with a fragment.
+ *
+ * They agree with different things and that is the tell that they are different strings: these
+ * agree with `la edad`, feminine, which is why every one of them is `estimada` regardless of
+ * the animal's sex.
+ */
+export const AGE_BASIS_NOTES: Record<AgeEstimateBasis, string> = {
+  Documented: "según documentos",
+  VetEstimate: "estimada por veterinario",
+  ShelterGuess: "estimada por el refugio",
+};
+
+/**
+ * The animal's age as a phrase — `10 meses`, `unos 3 años`.
+ *
+ * Months below eighteen and years above, because `unos 26 meses` is a number nobody says and
+ * `unos 2 años` is what a shelter would have written. Never `0 meses`: an animal born this
+ * month is `1 mes`, since a zero would read as missing data rather than as newborn.
+ *
+ * **`unos` appears for every basis but `Documented`**, and that hedge is the acceptance
+ * criterion in one word. A shelter that ticked `ShelterGuess` said it was guessing, and
+ * `3 años` renders that guess as a fact about the animal; `unos 3 años` renders it as what it
+ * is. The parenthetical from {@link AGE_BASIS_NOTES} then says who guessed.
+ */
+export function ageText(
+  estimatedBirthDate: Date,
+  basis: AgeEstimateBasis,
+  asOf: Date,
+): string {
+  const months = monthsBetween(estimatedBirthDate, asOf);
+  const magnitude =
+    months < 18
+      ? pluralised(Math.max(1, months), "mes", "meses")
+      : pluralised(Math.round(months / 12), "año", "años");
+  return basis === "Documented" ? magnitude : `unos ${magnitude}`;
+}
+
+function pluralised(count: number, singular: string, plural: string): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+/** The age and its basis as one value — `unos 10 meses (estimada por el refugio)`. */
+export function ageWithBasis(
+  estimatedBirthDate: Date,
+  basis: AgeEstimateBasis,
+  asOf: Date,
+): string {
+  return `${ageText(estimatedBirthDate, basis, asOf)} (${AGE_BASIS_NOTES[basis]})`;
+}
+
+/**
+ * What an archive page says happened, in the animal's own gender.
+ *
+ * `CONTEXT.md` left the Archive row *unsettled*, marked as belonging to "the issue that builds
+ * the archive page", and this is it. The concept is **never named to an adopter**: there is no
+ * `archivo` heading and no "this listing is archived", because the adopter did not come to read
+ * a filing status — they came to find out what happened to an animal. So the noun is absent
+ * and the page states the event, which is the same shape `CONTEXT.md`'s *Staleness* and
+ * *Session* rows already take.
+ *
+ * `Adopted` is the one that gets a whole sentence and a happy one. It is the outcome the
+ * platform exists to produce, and an adopter who arrives late at a WhatsApp forward learns that
+ * the animal she was about to write about found a home — which is the difference between a dead
+ * link and a good ending.
+ */
+export const ARCHIVE_HEADLINES: Record<ArchiveReason, Gendered> = {
+  Adopted: { m: "Encontró casa", f: "Encontró casa" },
+  NoLongerAvailable: { m: "Ya no está disponible", f: "Ya no está disponible" },
+  ShelterDeparted: { m: "Ya no está disponible", f: "Ya no está disponible" },
+  ShelterUnreachable: { m: "Ya no está disponible", f: "Ya no está disponible" },
+};
+
+/**
+ * The sentence under the headline, which is where the four reasons actually differ.
+ *
+ * Three of them share a headline above and are told apart here, because what an adopter needs
+ * is not a category but the answer to "so what happened": the shelter said she is gone, the
+ * shelter itself left Pawster, or — the case with no story — there is currently no way to reach
+ * anyone about her.
+ *
+ * `Adopted` is worded so it cannot be misread as the platform's claim. `El refugio dice` is
+ * doing the same work `por el refugio` does in the provenance line: this is a shelter's word,
+ * reported, and Pawster witnessed no adoption.
+ */
+export const ARCHIVE_EXPLANATIONS: Record<ArchiveReason, Gendered> = {
+  Adopted: {
+    m: "El refugio dice que este animal ya fue adoptado. Gracias por venir a verlo.",
+    f: "El refugio dice que esta animal ya fue adoptada. Gracias por venir a verla.",
+  },
+  NoLongerAvailable: {
+    m: "El refugio dice que este animal ya no está disponible para adopción.",
+    f: "El refugio dice que esta animal ya no está disponible para adopción.",
+  },
+  ShelterDeparted: {
+    m: "El refugio que lo publicó ya no está en Pawster, así que no podemos ponerte en contacto.",
+    f: "El refugio que la publicó ya no está en Pawster, así que no podemos ponerte en contacto.",
+  },
+  ShelterUnreachable: {
+    m: "Ahora mismo el refugio no tiene ninguna forma de contacto publicada, así que no podemos ponerte en contacto.",
+    f: "Ahora mismo el refugio no tiene ninguna forma de contacto publicada, así que no podemos ponerte en contacto.",
+  },
+};
+
+/**
+ * Said on every archive page, under the explanation.
+ *
+ * The page an adopter reached is a dead end for *this* animal and must not be a dead end for
+ * the adopter, so the archive says where else to look. It is also the honest framing of what
+ * the archive is: `CONTEXT.md` keeps the page reachable because "an animal is never deleted",
+ * not because the animal is still on offer.
+ */
+export const ARCHIVE_ELSEWHERE = "Hay más animales esperando en el listado.";
+
+/**
+ * Why an archive page can be photoless, told to the reader rather than left as a blank space.
+ *
+ * Photos are dropped on the ordinary twelve-month clock, so an old archive page has nothing to
+ * show and the alternative to this line is a page that looks broken. It says the absence was a
+ * decision.
+ */
+export const ARCHIVE_PHOTOS_DROPPED =
+  "Las fotos de este animal ya se borraron: no guardamos fotos de animales que salieron del listado.";

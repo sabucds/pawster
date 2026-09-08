@@ -63,6 +63,26 @@ const FALLBACK_STEM = "refugio";
  * becomes `u` by the same rule and is correct.
  */
 export function slugify(displayName: string): string {
+  const stem = slugSegment(displayName);
+  if (stem.length === 0) return FALLBACK_STEM;
+  return stem;
+}
+
+/**
+ * The same transliteration, but **empty where there was nothing to transliterate** — no
+ * fallback stem.
+ *
+ * The half of {@link slugify} that an animal's address needs (`../lib/animals/address.ts`).
+ * `/a/7f3k9mqp/luna` carries the animal's name as a decorative segment, and for a name that
+ * strips to nothing the honest answer is to omit the segment: `refugio` is the right fallback
+ * for the shelter slug this file was written for, and in an animal's URL it names the wrong
+ * thing entirely.
+ *
+ * Exported rather than inlined at that call site because the rules above — NFD decomposition
+ * over a character map, the deny-list of allowed characters, truncation at a word boundary —
+ * are a table test, and a second copy of them would be a second set of URLs to be wrong in.
+ */
+export function slugSegment(displayName: string): string {
   const stem = displayName
     .normalize("NFD")
     // Every combining mark, i.e. the accents NFD has just separated out. The Unicode
@@ -77,7 +97,7 @@ export function slugify(displayName: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
 
-  if (stem.length === 0) return FALLBACK_STEM;
+  if (stem.length === 0) return "";
   return truncateAtWordBoundary(stem, MAX_SLUG_LENGTH);
 }
 

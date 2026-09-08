@@ -130,5 +130,16 @@ declare namespace Cloudflare {
     DIGEST_FROM_ADDRESS: string;
     /** Where Pawster answers: the origin the code email tells a shelter to type, and the one the opt-in link is built on. */
     SITE_ORIGIN: string;
+    /**
+     * Where `pawster-media` is publicly readable — the `r2.dev` hostname in
+     * `docs/provisioning-record.md`, and the origin every photograph on an animal page is
+     * fetched from.
+     *
+     * Distinct from `SITE_ORIGIN` and it must stay distinct: no Worker is invoked for a
+     * photograph, which is the whole reason ADR 0014 could drop the R2 custom domain without
+     * spending the 100,000 requests/day cap. A build that pointed this at the site origin would
+     * turn every image view into a Worker invocation and nothing would fail visibly.
+     */
+    MEDIA_PUBLIC_ORIGIN: string;
   }
 }
