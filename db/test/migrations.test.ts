@@ -144,7 +144,8 @@ describe("migration 0002", () => {
       { id: "cp-1", shelter_id: "legacy-1", position: 0 },
       { id: "cp-2", shelter_id: "legacy-1", position: 1 },
       // Numbered from 0 again, because the count is scoped to the shelter. A global
-      // numbering would have made this 2 and given the second shelter no primary at all.
+      // numbering would have made this 2, leaving the second shelter with nothing at
+      // position 0 and so nothing to offer an adopter first.
       { id: "cp-3", shelter_id: "legacy-2", position: 0 },
     ]);
   });

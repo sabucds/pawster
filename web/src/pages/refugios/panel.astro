@@ -1,11 +1,11 @@
 ---
-import { createDb, shelters } from "@pawster/db";
+import { createDb } from "@pawster/db";
 import { isListed } from "@pawster/domain";
 import { env } from "cloudflare:workers";
-import { eq } from "drizzle-orm";
 import Refugios from "../../layouts/Refugios.astro";
 import { authenticate } from "../../lib/auth/guard.ts";
 import { readShelterFacts } from "../../lib/auth/store.ts";
+import { readShelterProfile } from "../../lib/shelter/store.ts";
 
 /**
  * The shelter's own area: the first authenticated route on the platform.
@@ -49,16 +49,22 @@ if (session.refreshedCookie) {
   Astro.response.headers.append("set-cookie", session.refreshedCookie);
 }
 
-const [shelter] = await db
-  .select({
-    displayName: shelters.displayName,
-    slug: shelters.slug,
-    accountEmail: shelters.accountEmail,
-    baseRegion: shelters.baseRegion,
-  })
-  .from(shelters)
-  .where(eq(shelters.id, session.shelterId))
-  .limit(1);
+/**
+ * Read through `readShelterProfile()` rather than with a select of its own.
+ *
+ * Two reasons, and the second is the load-bearing one. The obvious one is that this page
+ * wanted exactly the columns that function already returns, so the select here was a second
+ * copy. The other is that `scripts/check-source-rules.mjs` fences the account-email column to
+ * the two store modules: the address is a shelter's credential and issue #52 requires it to
+ * appear in no public response and in no filter index, and a fence that every page could step
+ * over by writing its own select would fence nothing. So the column is named in one layer and
+ * the pages receive a `ShelterProfile`.
+ *
+ * It costs one extra query — the contact points, which this page does not render. That is an
+ * indexed read of a handful of rows on a route that already makes three, for a platform
+ * expecting on the order of forty shelters.
+ */
+const shelter = await readShelterProfile(db, session.shelterId);
 
 // `authenticate()` already proved the row exists by reading its epoch. A miss here means it
 // was deleted between the two reads, which is a signed-out shelter rather than an error.

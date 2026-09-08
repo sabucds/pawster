@@ -18,11 +18,15 @@ import Refugios from "../../../layouts/Refugios.astro";
  * No `prerender` export, matching every other prerendered page in the project: `output:
  * "static"` is the posture and a route opts *out* (ADR 0007), so saying `true` here would
  * imply there was a choice to make.
+ *
+ * The copy says `Saliste` rather than naming a session, because `CONTEXT.md`'s *Session* row
+ * renders the concept as the act: the word a shelter would otherwise hear is `sesión`, and
+ * the thing it is doing is entering and leaving.
  */
 ---
 
 <Refugios title="Cambiaste el correo del refugio" heading="Cambiaste el correo del refugio">
-  <p>Ya está. Se cerró la sesión en todos lados, aquí incluido.</p>
+  <p>Ya está. Saliste de todos los teléfonos y computadoras, este incluido.</p>
 
   <p>
     Para entrar otra vez, pide un código con el correo nuevo. Si habías pedido un código

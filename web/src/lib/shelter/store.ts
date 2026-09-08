@@ -59,11 +59,18 @@ export async function readShelterProfile(
     .limit(1);
   if (!shelter) return null;
 
-  return { ...shelter, contactPoints: await readContactPoints(db, shelterId) };
+  return { ...shelter, contactPoints: await readStoredContactPoints(db, shelterId) };
 }
 
-/** A shelter's contact points, in its own order. `ORDER BY position` is the whole rule. */
-export async function readContactPoints(
+/**
+ * A shelter's contact points, in its own order. `ORDER BY position` is the whole rule.
+ *
+ * Named `Stored` to hold it apart from `fields.ts`'s `readContactPoints()`, which reads a
+ * *form*. Two exported functions in one module family sharing a name, differing only in
+ * whether their first argument is a `Database` or a `FormData`, is a name that reveals
+ * nothing about which one a call site means.
+ */
+export async function readStoredContactPoints(
   db: Database,
   shelterId: string,
 ): Promise<readonly StoredContactPoint[]> {

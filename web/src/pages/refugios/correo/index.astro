@@ -1,6 +1,7 @@
 ---
 import { createDb } from "@pawster/db";
 import { env } from "cloudflare:workers";
+import FormErrors from "../../../components/FormErrors.astro";
 import Refugios from "../../../layouts/Refugios.astro";
 import { authenticate, endSession } from "../../../lib/auth/guard.ts";
 import { MAX_FIELD } from "../../../lib/shelter/fields.ts";
@@ -27,6 +28,25 @@ import { changeAccountEmail, readShelterProfile } from "../../../lib/shelter/sto
  * Separating it from the profile form is also what keeps the profile form cheap to use. A
  * shelter fixing a typo in its own name must not be one mis-click from signing every
  * volunteer's phone out.
+ *
+ * ## The wording, which is a settled constraint rather than a choice
+ *
+ * `CONTEXT.md`'s *Session* row: the concept is rendered **as the act** — `Entra a tu
+ * refugio`, `Salir` — and "a shelter is never told it 'has a session', because the word it
+ * would hear is `sesión` and the thing it is doing is entering". So the consequences below
+ * say what the shelter will have to *do* (enter again, everywhere) rather than naming a thing
+ * it did not know it held, and the button says `salir`.
+ *
+ * The explanation lives here and not beside the markup for a duller reason: this route is
+ * server-rendered, and Astro emits template `<!-- -->` comments into the response — so a
+ * comment explaining why a word is avoided would ship that word to every shelter that opened
+ * the page, on the metered connection ADR 0007 is built around. Frontmatter comments are
+ * compiled away.
+ *
+ * The consequences are also stated **before** the form and in full, not after it. This is
+ * the act ADR 0013 answers a lost inbox for "not as a password reset but as a question of
+ * identity, answered out of band", so the shelter has to understand it is handing over the
+ * keys rather than editing a field.
  */
 export const prerender = false;
 
@@ -111,13 +131,7 @@ const priorValue = (field: string): string => {
   <div data-testid="consequences">
     <p><strong>Al cambiarlo pasa todo esto, de una vez:</strong></p>
     <ul>
-      <!--
-        Said in full and before the form, not after it. This is the act ADR 0013 answers a
-        lost inbox for "not as a password reset but as a question of identity, answered out of
-        band" — so the shelter has to understand it is handing over the keys, not editing a
-        field.
-      -->
-      <li>Se cierra la sesión en todos los teléfonos y computadoras, incluida esta.</li>
+      <li>Hay que volver a entrar en todos los teléfonos y computadoras, incluido este.</li>
       <li>El código que hayas pedido y no hayas usado deja de servir.</li>
       <li>
         Los correos del refugio empiezan a llegar al correo nuevo, y para volver a entrar
@@ -130,7 +144,7 @@ const priorValue = (field: string): string => {
     </p>
   </div>
 
-  {reason && <div role="alert" data-testid="errors"><p>{reason}</p></div>}
+  <FormErrors errors={reason ? [{ reason }] : []} />
 
   <form method="post" action="/refugios/correo">
     <p>
@@ -167,7 +181,7 @@ const priorValue = (field: string): string => {
       />
     </p>
 
-    <p><button type="submit">Cambiar el correo y cerrar la sesión</button></p>
+    <p><button type="submit">Cambiar el correo y salir de todos lados</button></p>
   </form>
 
   <p><a href="/refugios/perfil">Volver sin cambiar nada</a></p>

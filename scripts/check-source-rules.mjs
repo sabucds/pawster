@@ -1,13 +1,16 @@
 #!/usr/bin/env node
 /**
- * Three structural rules that no test can enforce, checked over the source instead.
+ * Four structural rules that no test can enforce, checked over the source instead.
  *
- * All three exist because the thing they forbid *passes* at runtime. A module-scope Drizzle
- * client runs fine locally and breaks in production; a `db/` import inside `domain/` is
- * just an import; a query that rewrites a shelter's slug succeeds and quietly breaks every
- * URL an adopter already held. None has a failing test to point at — the third could have
- * one per route, which is the problem, since the route that breaks it is the one nobody has
- * written yet — so this is the enforcement.
+ * All four exist because the thing they forbid *passes* at runtime. A module-scope Drizzle
+ * client runs fine locally and breaks in production; a `db/` import inside `domain/` is just
+ * an import; a query that rewrites a shelter's slug succeeds and quietly breaks every URL an
+ * adopter already held; a query that selects a shelter's account email into something public
+ * succeeds and publishes a credential.
+ *
+ * None has a failing test to point at, and the last two share a reason for that worth naming:
+ * they could each have a test *per route*, which is the problem, because the route that breaks
+ * them is the one nobody has written yet.
  *
  *   node scripts/check-source-rules.mjs
  *
@@ -168,6 +171,68 @@ function checkSlugWrites(file, relPath, source) {
   }
 }
 
+/**
+ * The only source files allowed to read `shelters.account_email`.
+ *
+ * `CONTEXT.md`, *Account Email*: "Never published — adopters reach a shelter through its
+ * contact points", and issue #52 requires it to appear "in no public response, in no page
+ * source, and in no filter index". The first two are testable and tested; **the third is not,
+ * because the filter index does not exist yet** (issue #56), and a requirement whose only
+ * enforcement is a test that cannot be written is a requirement that quietly lapses.
+ *
+ * So the column itself is fenced. `web/src/lib/auth/store.ts` reads it to find the shelter an
+ * address belongs to at sign-in; `web/src/lib/shelter/store.ts` reads it to render the
+ * shelter's own two authenticated pages and to move it. Nothing else has a reason to, and the
+ * point of the list being short is that adding to it is a deliberate edit rather than an
+ * import.
+ *
+ * **Every page is absent from the list on purpose**, including the three authenticated ones
+ * that display the address: they receive a `ShelterProfile` and never name the column. That
+ * is what makes the fence worth having — a page that could name it by writing its own select
+ * would fence nothing, and `panel.astro` had exactly such a select until this rule found it.
+ */
+const ACCOUNT_EMAIL_READERS = [
+  /** Declares the column. Defining it is not reading it, and something has to. */
+  "db/src/schema.ts",
+  /** `findShelterByEmail()`: which shelter an address belongs to, at sign-in. */
+  "web/src/lib/auth/store.ts",
+  /** `readShelterProfile()` renders it to the shelter; `changeAccountEmail()` moves it. */
+  "web/src/lib/shelter/store.ts",
+];
+
+/**
+ * Rule 4: only {@link ACCOUNT_EMAIL_READERS} may name the account-email column.
+ *
+ * Matches the Drizzle reference (`shelters.accountEmail`) and the raw column name
+ * (`account_email`), which between them are every way to reach it. Tests are exempt: a test
+ * asserting the address is *absent* from a public page has to name it to do so, and several
+ * do.
+ *
+ * A false positive here is a file that mentions the column without reading it, which is
+ * cheap to resolve — either it does not need to, or it is a reader and belongs on the list.
+ */
+function checkAccountEmailReaders(file, relPath, source) {
+  if (/\.test\.ts$/.test(relPath) || relPath.includes("/test/")) return;
+  if (ACCOUNT_EMAIL_READERS.includes(relPath)) return;
+
+  const lines = source.split("\n");
+  lines.forEach((line, index) => {
+    if (!/shelters\.accountEmail|\baccount_email\b/.test(line)) return;
+    fail(
+      file,
+      index + 1,
+      "reads shelters.account_email",
+      "The account email is a shelter's credential and is never published — not in a " +
+        "public response, not in a page source, not in the filter index (issue #52). If " +
+        `this file genuinely needs it, add it to ACCOUNT_EMAIL_READERS in ${relative(
+          ROOT,
+          fileURLToPath(import.meta.url),
+        )} and say why. If it needs a shelter's public identity, that is displayName and ` +
+        "its contact points.",
+    );
+  });
+}
+
 for (const file of files) {
   const relPath = relative(ROOT, file);
   const source = readFileSync(file, "utf8");
@@ -175,6 +240,7 @@ for (const file of files) {
   const inDomain = relPath.startsWith("domain/");
 
   checkSlugWrites(file, relPath, source);
+  checkAccountEmailReaders(file, relPath, source);
 
   /**
    * Every name declared at column 0 — the file's module scope. A client assigned to one of
@@ -286,5 +352,5 @@ if (failures.length > 0) {
 
 console.log(
   `source rules ok — ${files.length} files checked for module-scope Drizzle clients, ` +
-    "domain/ purity and writes to shelters.slug",
+    "domain/ purity, writes to shelters.slug and reads of the account-email column",
 );

@@ -363,6 +363,95 @@ describe("contact points", () => {
     expect((await storedShelter(shelterId)).displayName).toBe(REGISTRATION.displayName);
   });
 
+  it("keeps a reorder alive across a refusal, so fixing the other field does not undo it", async () => {
+    /**
+     * The bug this test exists for: the page used to decode the submitted rows itself,
+     * pairing the kinds and values but never reading `contactPosition`. A refused save handed
+     * the rows back in document order renumbered from 1, so a shelter that reordered its
+     * points *and* mistyped its own name would fix the name, save, and silently persist the
+     * **old** order — having watched the form show it the old order and believed it.
+     *
+     * Both the page and the parser now read `readContactRows()`, so the order on screen is the
+     * order that would be saved.
+     */
+    const { shelterId, cookie } = await signIn();
+
+    const reordered = {
+      ...PROFILE_FORM,
+      // Instagram moved to the front, and the display name emptied so the save is refused.
+      displayName: "",
+      contactPosition: ["2", "1"],
+      contactKind: ["whatsapp", "instagram"],
+      contactValue: ["+58 412 5550001", "@refugio"],
+    };
+
+    const refused = await post(PROFILE, reordered, { cookie });
+    expect(refused.status).toBe(200);
+
+    const body = await refused.text();
+    // Instagram's row is rendered before WhatsApp's, which is the order that would be stored.
+    expect(body.indexOf("@refugio")).toBeLessThan(body.indexOf("+58 412 5550001"));
+
+    /**
+     * And the order fields are renumbered contiguously from 1 down the page, so what the
+     * shelter sees is submittable as-is: re-posting the form as rendered keeps the reorder
+     * rather than reverting it.
+     */
+    const numbers = [
+      ...body.matchAll(/name="contactPosition"[^>]*?value="(\d+)"/g),
+    ].map((match) => Number(match[1]));
+    // The two filled rows, then the two spares to add to.
+    expect(numbers).toEqual([1, 2, 3, 4]);
+
+    // Re-submitting what the page showed, with the name fixed, stores the reorder.
+    const fixed = await post(
+      PROFILE,
+      { ...reordered, displayName: "Refugio Los Teques" },
+      { cookie },
+    );
+    expect(fixed.status).toBe(303);
+    expect(await storedContactPoints(shelterId)).toEqual([
+      { kind: "instagram", value: "@refugio", position: 0 },
+      { kind: "whatsapp", value: "+58 412 5550001", position: 1 },
+    ]);
+  });
+
+  it("is the same size on every render, however many times it is refused", async () => {
+    /**
+     * The form echoes back what was submitted — which includes the spare blank rows — and then
+     * adds its own spares. Without dropping the trailing blanks first, each refusal grew the
+     * form by two rows, so a shelter that got it wrong twice was looking at six empty ones.
+     */
+    const { cookie } = await signIn();
+
+    const countRows = (html: string) =>
+      html.split('name="contactValue"').length - 1;
+
+    const first = await (await get(PROFILE, cookie)).text();
+    // One stored point plus two spares.
+    expect(countRows(first)).toBe(3);
+
+    const refusedOnce = await (
+      await post(PROFILE, { ...PROFILE_FORM, displayName: "" }, { cookie })
+    ).text();
+    expect(countRows(refusedOnce)).toBe(3);
+
+    const refusedTwice = await (
+      await post(
+        PROFILE,
+        {
+          ...PROFILE_FORM,
+          displayName: "",
+          contactPosition: ["1", "2", "3"],
+          contactKind: ["whatsapp", "whatsapp", "whatsapp"],
+          contactValue: [REGISTERED_CONTACT.value, "", ""],
+        },
+        { cookie },
+      )
+    ).text();
+    expect(countRows(refusedTwice)).toBe(3);
+  });
+
   it("keeps the shelter's other edits visible on the refused form", async () => {
     // Otherwise the refusal is destructive: a shelter that renamed itself *and* emptied its
     // last contact row would lose the rename to a rule about something else.
@@ -539,8 +628,15 @@ describe("changing the account email", () => {
     const { cookie } = await signIn();
 
     const body = await (await get(EMAIL_FORM, cookie)).text();
-    expect(body).toContain("Se cierra la sesión en todos los teléfonos");
+    expect(body).toContain("Hay que volver a entrar en todos los teléfonos");
     expect(body).toContain("deja de servir");
+    /**
+     * And it says it as the *act*, never as a noun. `CONTEXT.md`'s Session row: a shelter is
+     * never told it "has a session", because the word it would hear is `sesión` and the thing
+     * it is doing is entering. Asserted rather than trusted, because this is the page most
+     * tempted to reach for the word.
+     */
+    expect(body).not.toContain("sesión");
     expect(body).toContain('name="accountEmailAgain"');
   });
 
@@ -552,7 +648,9 @@ describe("changing the account email", () => {
      */
     const asset = await env.ASSETS.fetch("https://pawster.test/refugios/correo/listo");
     expect(asset.status).toBe(200);
-    expect(await asset.text()).toContain("Se cerró la sesión en todos lados");
+    const body = await asset.text();
+    expect(body).toContain("Saliste de todos los teléfonos");
+    expect(body).not.toContain("sesión");
   });
 });
 

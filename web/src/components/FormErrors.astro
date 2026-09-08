@@ -1,0 +1,47 @@
+---
+/**
+ * The refusal block the three shelter-facing forms share.
+ *
+ * Extracted because registration, the profile form and the account-email form had one copy
+ * each of the same markup down to the `data-testid`, and a fourth form would have made four.
+ * The tests assert on `data-testid="errors"`, so three copies were three things that had to
+ * keep agreeing about an attribute none of them owned.
+ *
+ * `role="alert"` rather than a styled box: these pages ship no stylesheet (see
+ * `layouts/Refugios.astro`), so what tells a shelter this is a refusal is the role and the
+ * words, not a colour.
+ *
+ * **One error is rendered as a sentence and several as a list**, because "Revisa lo
+ * siguiente:" above a single bullet reads as a form talking about itself. The account-email
+ * form only ever has one reason; registration and the profile form report every problem at
+ * once, which is the case the list is for.
+ */
+interface Props {
+  /** Every reason to show. An empty list renders nothing at all. */
+  errors: readonly { readonly reason: string }[];
+}
+
+const { errors } = Astro.props;
+const [only] = errors;
+---
+
+{
+  errors.length === 1 && (
+    <div role="alert" data-testid="errors">
+      <p>{only!.reason}</p>
+    </div>
+  )
+}
+
+{
+  errors.length > 1 && (
+    <div role="alert" data-testid="errors">
+      <p>Revisa lo siguiente:</p>
+      <ul>
+        {errors.map((error) => (
+          <li>{error.reason}</li>
+        ))}
+      </ul>
+    </div>
+  )
+}

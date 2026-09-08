@@ -22,7 +22,6 @@
  * than as animals about to disappear.
  */
 
-import type { ContactPointInput } from "../shelter/fields.ts";
 import {
   looksLikeEmail,
   readAccountEmail,
@@ -33,9 +32,6 @@ import {
   trimmedField,
 } from "../shelter/fields.ts";
 import type { RegistrationInput } from "./store.ts";
-
-export type { ContactPointInput };
-export { CONTACT_POINT_KINDS } from "../shelter/fields.ts";
 
 /** Rendered as one message each; the field name is the form control to point at. */
 export interface RegistrationError {

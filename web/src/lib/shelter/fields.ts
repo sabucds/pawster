@@ -173,18 +173,78 @@ export interface ReadContactPoints {
 }
 
 /**
- * The contact points, in the order the shelter put them in.
+ * The contact points worth storing, in the order the shelter put them in.
  *
- * ## Positional pairing, which is what an HTML form gives
+ * {@link readContactRows} below owns the wire format and the ordering; this adds the two
+ * judgements about a row's contents. A row whose value is blank is **dropped rather than
+ * rejected** — a form renders spare empty rows and a shelter filling in one of them has not
+ * made a mistake, and on the profile form emptying a row is how a contact point is deleted.
+ * A row with a value but an unknown kind is rejected, because that can only come from a
+ * hand-made request.
  *
- * The browser submits repeated controls in document order, so the nth `contactKind` belongs
- * to the nth `contactValue` and the nth `contactPosition`. A row whose value is blank is
- * **dropped rather than rejected** — a form renders spare empty rows and a shelter filling
- * in one of them has not made a mistake, and on the profile form emptying a row is how a
- * contact point is deleted. A row with a value but an unknown kind is rejected, because that
- * can only come from a hand-made request.
+ * @param emptyReason What to say when nothing is left. It differs by form: registration is
+ *   describing animals that would never appear, and the profile form is describing a shelter
+ *   about to delist animals that are visible right now.
+ */
+export function readContactPoints(
+  form: FormData,
+  emptyReason: string,
+): ReadContactPoints {
+  const points: ContactPointInput[] = [];
+  const reasons: string[] = [];
+
+  for (const row of readContactRows(form)) {
+    if (row.value.length === 0) continue;
+
+    if (row.value.length > MAX_FIELD) {
+      reasons.push(
+        `Una forma de contacto no puede pasar de ${MAX_FIELD} caracteres.`,
+      );
+      continue;
+    }
+
+    if (!isContactPointKind(row.kind)) {
+      reasons.push("Escoge de qué tipo es cada forma de contacto.");
+      continue;
+    }
+
+    points.push({ kind: row.kind, value: row.value });
+  }
+
+  if (points.length === 0 && reasons.length === 0) reasons.push(emptyReason);
+
+  return { points, reasons };
+}
+
+/**
+ * One submitted contact row, valid or not, exactly as the shelter left it.
  *
- * ## How the order is expressed, and why it is a typed number
+ * `kind` is a bare `string` and not a {@link ContactPointKind} on purpose: this is what
+ * arrived, and what arrived may be a channel the platform does not have. A form re-rendering
+ * a refusal has to show the row back rather than drop it.
+ */
+export interface SubmittedContactRow {
+  readonly kind: string;
+  readonly value: string;
+}
+
+/**
+ * Every submitted contact row, **in the shelter's chosen order**, blanks kept.
+ *
+ * This is the one place the contact-row wire format is decoded — the positional pairing of
+ * `contactKind`, `contactValue` and `contactPosition` — and the one place the ordering rule
+ * lives. It exists because two callers need that order and they must not derive it
+ * separately: {@link readContactPoints} above, which validates and stores, and the profile
+ * form, which re-renders a refusal.
+ *
+ * That second caller is the reason this is not private. Re-deriving the rows in the page was
+ * a bug rather than a duplication: the page read the kinds and values but not the positions,
+ * so a refused save handed the rows back in document order renumbered from 1 — and a shelter
+ * that reordered its points *and* mistyped its own name would fix the name, save, and
+ * silently persist the old order. The order the shelter typed has to survive a refusal for
+ * the same reason its display name does.
+ *
+ * ## The order, and why a typed number
  *
  * `contactPosition` is a number the shelter edits, one per row, and the rows are sorted by
  * it. Two alternatives were considered and both are worse here. Drag-and-drop needs
@@ -196,47 +256,24 @@ export interface ReadContactPoints {
  *
  * A typed number's failure mode is duplicates and gaps, and it is handled rather than
  * validated: the sort is **stable**, so equal numbers keep document order, and the position
- * actually stored is the index in this array. A shelter that types `1, 1, 5` gets exactly
+ * actually stored is the index in the result. A shelter that types `1, 1, 5` gets exactly
  * what it asked for and is never shown an error about numbering. A row with no
  * `contactPosition` at all — the registration form, which submits none — falls back to its
  * document position, so that form's rows stay in the order they appear on screen.
- *
- * @param emptyReason What to say when nothing is left. It differs by form: registration is
- *   describing animals that would never appear, and the profile form is describing a shelter
- *   about to delist animals that are visible right now.
  */
-export function readContactPoints(
-  form: FormData,
-  emptyReason: string,
-): ReadContactPoints {
+export function readContactRows(form: FormData): readonly SubmittedContactRow[] {
   const kinds = form.getAll("contactKind");
   const values = form.getAll("contactValue");
   const positions = form.getAll("contactPosition");
-  const rows: { point: ContactPointInput; order: number; index: number }[] = [];
-  const reasons: string[] = [];
 
-  for (const [index, rawValue] of values.entries()) {
-    const value = typeof rawValue === "string" ? rawValue.trim() : "";
-    if (value.length === 0) continue;
-
-    if (value.length > MAX_FIELD) {
-      reasons.push(
-        `Una forma de contacto no puede pasar de ${MAX_FIELD} caracteres.`,
-      );
-      continue;
-    }
-
-    const rawKind = kinds[index];
-    const kind = typeof rawKind === "string" ? rawKind : "";
-    if (!isContactPointKind(kind)) {
-      reasons.push("Escoge de qué tipo es cada forma de contacto.");
-      continue;
-    }
-
-    rows.push({ point: { kind, value }, order: readOrder(positions[index], index), index });
-  }
-
-  if (rows.length === 0 && reasons.length === 0) reasons.push(emptyReason);
+  const rows = values.map((rawValue, index) => ({
+    row: {
+      kind: typeof kinds[index] === "string" ? String(kinds[index]) : "",
+      value: typeof rawValue === "string" ? rawValue.trim() : "",
+    },
+    order: readOrder(positions[index], index),
+    index,
+  }));
 
   /**
    * Sorted by the typed number, ties broken by document order. `Array.prototype.sort` is
@@ -246,7 +283,7 @@ export function readContactPoints(
    */
   rows.sort((a, b) => a.order - b.order || a.index - b.index);
 
-  return { points: rows.map((row) => row.point), reasons };
+  return rows.map((entry) => entry.row);
 }
 
 /**

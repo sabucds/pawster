@@ -1,6 +1,7 @@
 ---
 import { createDb } from "@pawster/db";
 import { env } from "cloudflare:workers";
+import FormErrors from "../../components/FormErrors.astro";
 import Refugios from "../../layouts/Refugios.astro";
 import { authenticate } from "../../lib/auth/guard.ts";
 import {
@@ -8,6 +9,7 @@ import {
   CONTACT_POINT_LABELS,
   MAX_DISPLAY_NAME,
   MAX_FIELD,
+  readContactRows,
 } from "../../lib/shelter/fields.ts";
 import type { ProfileError } from "../../lib/shelter/profile.ts";
 import { parseProfile } from "../../lib/shelter/profile.ts";
@@ -104,24 +106,40 @@ const errorFor = (field: ProfileError["field"]): string | undefined =>
  * Reading the rows back off `submitted` is what makes a refused save non-destructive. Without
  * it, a shelter that emptied its last contact point would be shown the refusal *and* the
  * stored points, with its other edits silently gone.
+ *
+ * **Read through `readContactRows()`, which is also what the parser reads through.** The page
+ * decoding the rows itself was a bug and not a duplication: it paired the kinds and values but
+ * never looked at `contactPosition`, so a refused save handed the rows back in document order
+ * and renumbered them from 1 — and a shelter that reordered its points *and* mistyped its own
+ * name would fix the name, save, and silently persist the old order. Sharing the function is
+ * what makes the order on screen the order that would have been saved.
  */
-const typedKinds = submitted?.getAll("contactKind") ?? [];
-const typedValues = submitted?.getAll("contactValue") ?? [];
+const submittedRows = submitted ? readContactRows(submitted) : null;
+const storedRows = profile.contactPoints.map((point) => ({
+  kind: point.kind as string,
+  value: point.value,
+}));
 
-const typedRows: { kind: string; value: string }[] = submitted
-  ? typedValues.map((value, index) => ({
-      kind: typeof typedKinds[index] === "string" ? String(typedKinds[index]) : "whatsapp",
-      value: typeof value === "string" ? value : "",
-    }))
-  : profile.contactPoints.map((point) => ({ ...point }));
+/**
+ * Trailing blanks are dropped before the spares are added, so the form is the same size on
+ * every render. Without this each refusal echoed back the two spare rows *and* appended two
+ * more, and a shelter that got the form wrong twice was looking at six empty rows.
+ *
+ * Trailing only, never interior: a blank row between two filled ones is a contact point the
+ * shelter is in the middle of deleting, and removing it from the render would move the rows
+ * under a cursor.
+ */
+const base = submittedRows ?? storedRows;
+let filled = base.length;
+while (filled > 0 && base[filled - 1]!.value.length === 0) filled--;
 
+/**
+ * Two spare rows rather than one, so adding a channel does not take two round trips, and
+ * rather than many, so the form does not suggest a shelter is expected to fill them all in.
+ * A shelter needing a third saves once and comes back to two more.
+ */
 const rows = [
-  ...typedRows,
-  /**
-   * Two spare rows rather than one, so adding a channel does not take two round trips, and
-   * rather than many, so the form does not suggest a shelter is expected to fill them in.
-   * A shelter needing a third spare row saves once and comes back to two more.
-   */
+  ...base.slice(0, filled),
   { kind: "whatsapp", value: "" },
   { kind: "whatsapp", value: "" },
 ];
@@ -140,18 +158,7 @@ const priorValue = (field: string, fallback: string): string => {
     )
   }
 
-  {
-    errors.length > 0 && (
-      <div role="alert" data-testid="errors">
-        <p>Revisa lo siguiente:</p>
-        <ul>
-          {errors.map((error) => (
-            <li>{error.reason}</li>
-          ))}
-        </ul>
-      </div>
-    )
-  }
+  <FormErrors errors={errors} />
 
   <form method="post" action="/refugios/perfil">
     <p>

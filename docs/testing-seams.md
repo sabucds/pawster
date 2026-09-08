@@ -157,9 +157,12 @@ from spelled several of these differently.
   migration does to a table that already has rows in it. It records what it has applied in a
   `d1_migrations` table, so the database has to be one the suite's setup file has not already
   migrated: `db/test/fixture/wrangler.jsonc` binds a second, empty `MIGRATION_DB` for exactly
-  this, and `db/test/migrations.test.ts` applies 0000, seeds a row, then applies 0001. That
-  test exists because drizzle-kit's generated 0001 **would have failed** there — see the
-  comment in `db/migrations/0001_worried_the_spike.sql`.
+  this, and `db/test/migrations.test.ts` applies 0000, seeds a shelter, applies 0001, seeds
+  contact points, then applies 0002. That test exists because drizzle-kit's generated 0001
+  **would have failed** there — see the comment in
+  `db/migrations/0001_worried_the_spike.sql` — and 0002 needed the same hand-correction plus
+  a backfill, because a `DEFAULT 0` on `shelter_contact_points.position` would have left
+  every one of a shelter's points claiming to be the one an adopter is offered.
 - **SQLite accepts `ALTER TABLE ... ADD <col> NOT NULL` with no default only while the table
   is empty.** With one row present it fails with `Cannot add a NOT NULL column with default
   value NULL`. Measured both ways on SQLite 3.43.2. This matters because drizzle-kit
@@ -202,9 +205,20 @@ So enforcement is structural, not behavioural:
 npm run check:source-rules
 ```
 
-`scripts/check-source-rules.mjs` fails the build on a module-scope Drizzle client, and on
-`domain/` importing the database layer, a Node builtin, any package, or calling `fetch`.
-It catches **both** wrong forms, which matters because the second is the common one: a
+`scripts/check-source-rules.mjs` fails the build on four things: a module-scope Drizzle
+client; `domain/` importing the database layer, a Node builtin, any package, or calling
+`fetch`; any query outside `registerShelter()` writing `shelters.slug`; and any file outside
+the two store modules naming the account-email column.
+
+The last two are there because a per-route test would have to be written by whoever adds the
+route that breaks the rule. A slug is an address adopters and search engines already hold, so
+rewriting one breaks every URL to a shelter's archive pages (ADR 0015). An account email is a
+shelter's credential and must appear in no public response and in no filter index (issue
+#52) — and the filter index does not exist yet (issue #56), so there is nothing for a test to
+inspect. `panel.astro` had a select naming that column and the rule is what found it.
+
+The module-scope rule catches **both** wrong forms, which matters because the second is the
+common one: a
 column-0 `const db = createDb(...)`, and an assignment to a module-scope name at any
 indentation (`cachedDb ??= drizzle(env.DB)` inside a handler). Declarations are never
 confused for assignments, so a `const db = createDb(...)` *inside* a handler that shadows a
