@@ -123,7 +123,7 @@ async function gzip(text: string): Promise<ArrayBuffer> {
 async function putOnce(
   media: R2Bucket,
   key: string,
-  body: ArrayBuffer,
+  body: ArrayBuffer | string,
   httpMetadata: R2PutOptions["httpMetadata"],
 ): Promise<void> {
   try {
@@ -192,12 +192,16 @@ export async function regenerateIndex(
     cacheControl: INDEX_CACHE_CONTROL,
   });
 
+  /**
+   * The pointer gets the same one retry as the index, and it is the write that earns it most:
+   * an index object nobody points at is invisible, so a failure here loses exactly what the
+   * regeneration was for while leaving a 33 KB orphan behind for the prefix-keeping below to
+   * collect an hour later.
+   */
   const pointer: IndexPointer = { key, generatedAt: env.now.toISOString() };
-  await env.media.put(INDEX_POINTER_KEY, JSON.stringify(pointer), {
-    httpMetadata: {
-      contentType: INDEX_CONTENT_TYPE,
-      cacheControl: POINTER_CACHE_CONTROL,
-    },
+  await putOnce(env.media, INDEX_POINTER_KEY, JSON.stringify(pointer), {
+    contentType: INDEX_CONTENT_TYPE,
+    cacheControl: POINTER_CACHE_CONTROL,
   });
 
   return {

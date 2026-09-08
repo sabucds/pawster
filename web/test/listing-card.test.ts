@@ -275,6 +275,17 @@ describe("what the markup does with shelter-authored text", () => {
     expect(html).toContain("&lt;img src=x onerror=&quot;alert(1)&quot;&gt;");
   });
 
+  /**
+   * Both quote forms, even though every attribute written here is double-quoted: the day
+   * somebody writes one with single quotes, nothing would complain.
+   */
+  it("escapes both quote forms in a name", () => {
+    const html = renderCard(card({ name: `Coco "el gato" d'Aragua` }));
+
+    expect(html).toContain("&quot;el gato&quot;");
+    expect(html).toContain("d&#39;Aragua");
+  });
+
   it("escapes an ampersand in a region without double-escaping it", () => {
     const html = renderCard(card({ region: "Bolívar & Sucre" }));
 

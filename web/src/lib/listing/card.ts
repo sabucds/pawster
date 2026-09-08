@@ -157,19 +157,28 @@ export function cardModel(
 /**
  * Interpolated into HTML, so every value goes through here first.
  *
- * The names, regions and urgency notes in the index are shelter-authored text, and the index
- * arrives over the network — so this is untrusted input being written into a document. It is
- * escaped rather than assigned through `textContent` because the card is built as a string:
- * one `innerHTML` for the whole grid is one reflow, where twelve cards' worth of
- * `createElement` is a few hundred DOM operations on the cheapest phone the platform is built
- * for.
+ * The names and regions in the index are shelter-authored text, and the index arrives over the
+ * network — so this is untrusted input being written into a document. It is escaped rather
+ * than assigned through `textContent` because the card is built as a string: one `innerHTML`
+ * for the whole grid is one reflow, where twelve cards' worth of `createElement` is a few
+ * hundred DOM operations on the cheapest phone the platform is built for.
+ *
+ * Exported because `./island.ts` writes the region checkboxes the same way and out of the same
+ * data. Two escapers in one folder is one of them being weaker than the other, and the weaker
+ * one is the one somebody reaches for.
+ *
+ * Both quote forms are escaped, not only the double. Every attribute this module and the island
+ * write is double-quoted, so `'` cannot break out of one today — which is exactly why omitting
+ * it is the kind of assumption that stops holding the first time someone writes an attribute
+ * with single quotes and nothing complains.
  */
-function escape(value: string): string {
+export function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 /**
@@ -194,36 +203,36 @@ export function renderCard(card: CardModel): string {
   const warnings = card.convivencia.warnings
     .map(
       (warning) =>
-        `<li class="convivencia-no">${escape(warning)}</li>`,
+        `<li class="convivencia-no">${escapeHtml(warning)}</li>`,
     )
     .join("");
   const positives = card.convivencia.positives
-    ? `<li class="convivencia-si">${escape(card.convivencia.positives)}</li>`
+    ? `<li class="convivencia-si">${escapeHtml(card.convivencia.positives)}</li>`
     : "";
   const unknown = card.convivencia.unknown
-    ? `<li class="convivencia-sin">${escape(card.convivencia.unknown)}</li>`
+    ? `<li class="convivencia-sin">${escapeHtml(card.convivencia.unknown)}</li>`
     : "";
 
-  return `<li class="card" data-testid="card" data-animal-id="${escape(card.id)}">
-  <a class="card-link" href="${escape(card.href)}">
+  return `<li class="card" data-testid="card" data-animal-id="${escapeHtml(card.id)}">
+  <a class="card-link" href="${escapeHtml(card.href)}">
     <img
       class="card-photo"
-      src="${escape(card.photo.src)}"
+      src="${escapeHtml(card.photo.src)}"
       width="${card.photo.width}"
       height="${card.photo.height}"
-      alt="${escape(card.photo.alt)}"
+      alt="${escapeHtml(card.photo.alt)}"
       loading="lazy"
       decoding="async"
     />
-    <h2 class="card-name">${escape(card.name)}${
+    <h2 class="card-name">${escapeHtml(card.name)}${
       card.urgent
         ? ' <span class="chip-urgent" data-testid="urgent-chip">Urgente</span>'
         : ""
     }</h2>
-    <p class="card-meta" data-testid="card-meta">${escape(card.meta)}</p>
+    <p class="card-meta" data-testid="card-meta">${escapeHtml(card.meta)}</p>
     <p class="card-provenance${
       card.provenanceAged ? " is-aged" : ""
-    }" data-testid="card-provenance">${escape(card.provenance)}</p>
+    }" data-testid="card-provenance">${escapeHtml(card.provenance)}</p>
     <ul class="card-convivencia" data-testid="card-convivencia">${warnings}${positives}${unknown}</ul>
   </a>
 </li>`;

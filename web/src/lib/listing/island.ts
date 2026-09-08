@@ -42,12 +42,19 @@ import {
   parseIndex,
   selectListed,
 } from "@pawster/domain";
-import { cardModel, renderCard } from "./card.ts";
+import { cardModel, escapeHtml, renderCard } from "./card.ts";
 import { criteriaFromForm, searchFromCriteria } from "./criteria.ts";
 
-/** What the page's shell gives the island, baked in at build time. */
+/**
+ * What the page's shell gives the island: the four elements it writes to, and the bucket's
+ * base URL baked in at build time.
+ *
+ * The shell's container element is deliberately **not** here. The page needs it to find these
+ * four and to read the base URL off its `dataset`, but nothing in this module touches it — and
+ * a parameter that exists only because a caller happens to have it is a parameter every future
+ * caller has to invent.
+ */
 interface ListingElements {
-  readonly root: HTMLElement;
   readonly form: HTMLFormElement;
   readonly grid: HTMLElement;
   readonly status: HTMLElement;
@@ -103,10 +110,6 @@ export function regionsIn(animals: readonly ListedAnimal[]): readonly Region[] {
   );
 }
 
-function escapeAttribute(value: string): string {
-  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
-}
-
 /**
  * The region checkboxes, which are the one part of the panel the page could not prerender.
  *
@@ -120,7 +123,7 @@ function renderRegions(
 ): void {
   container.innerHTML = regions
     .map((region) => {
-      const safe = escapeAttribute(region);
+      const safe = escapeHtml(region);
       /**
        * The control's value is the region **as the shelter typed it**, because it is also the
        * label an adopter reads, and `criteriaFromForm` normalises it on the way out. Whether
