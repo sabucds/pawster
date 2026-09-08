@@ -24,6 +24,7 @@
  */
 
 import type {
+  AgeBand,
   AgeEstimateBasis,
   Availability,
   GoodWithAxis,
@@ -108,18 +109,86 @@ export function sentence(parts: readonly Resolved[]): string {
 }
 
 /**
- * `Perro / Perra`, `Gato / Gata`.
+ * `Perro / Perra`, `Gato / Gata` — the species word alone.
  *
- * Not the age-band-aware headline: ADR 0018's replacement rule — where `Cachorra` and `Gatica`
- * name a species as well as a stage of life and so *replace* the species word — belongs with
- * whatever renders a band beside a species, and this ticket renders neither. Keeping the two
- * apart is deliberate: the ADR's whole point is that there is exactly one place a species word
- * and a band word meet, and this is not it. What is here is the species word alone.
+ * Read directly only by {@link speciesAndBand}, which is where the species word and a band word
+ * are allowed to meet. Every surface that describes an animal goes through that function instead,
+ * because for a puppy or a kitten the band word replaces this one rather than following it.
  */
 export const SPECIES_WORDS: Record<Species, Gendered> = {
   dog: { m: "Perro", f: "Perra" },
   cat: { m: "Gato", f: "Gata" },
 };
+
+/**
+ * The bands, as words. `CONTEXT.md`: `Cachorro / Cachorra`, `Gatico / Gatica`, `Joven`,
+ * `Adulto / Adulta`, `Senior`.
+ *
+ * The last three are stored **lower-case** because that is how they occur: they are adjectives
+ * following a noun, as in `Perra adulta`. {@link ageBandLabel} capitalises the first letter for
+ * the one surface that shows a band on its own.
+ *
+ * `Gatico` and not `Gatito`: es-VE takes `-ico` after a `t` stem (`gato → gatico`, as
+ * `rato → ratico`), which ADR 0018 settles against the prototype's spelling.
+ */
+export const AGE_BAND_WORDS: Record<AgeBand, Gendered> = {
+  Puppy: { m: "Cachorro", f: "Cachorra" },
+  Kitten: { m: "Gatico", f: "Gatica" },
+  Young: { m: "joven", f: "joven" },
+  Adult: { m: "adulto", f: "adulta" },
+  Senior: { m: "senior", f: "senior" },
+};
+
+/**
+ * The bands whose word **names a species as well as a stage of life**, and so replaces the
+ * species word instead of following it.
+ *
+ * ADR 0018's second constraint, and the one that produced `Gata gatica` on the first prototype
+ * render. Derived from the band rather than from a list of two names, so that a band added to
+ * `domain/`'s union has to be classified here rather than silently composing the wrong way.
+ */
+function bandReplacesSpecies(band: AgeBand): boolean {
+  return band === "Puppy" || band === "Kitten";
+}
+
+/**
+ * The species and the band as one agreed phrase — `Cachorra`, `Perra adulta`, `Gato joven`.
+ *
+ * **The one place in the codebase where a species word and a band word meet**, which is ADR
+ * 0018's whole point: the replacement rule is a fact about how two words combine, so it lives in
+ * one function with a test rather than being restated at every call site that renders both.
+ *
+ * The join is inside this function and nowhere else. Spanish puts the noun first and the
+ * adjective after it; English reverses that, which is the second reason this is a function
+ * rather than a template.
+ */
+export function speciesAndBand(
+  species: Species,
+  band: AgeBand,
+  sex: Sex,
+): Resolved {
+  if (bandReplacesSpecies(band)) return agree(AGE_BAND_WORDS[band], sex);
+
+  const noun = agree(SPECIES_WORDS[species], sex);
+  const adjective = agree(AGE_BAND_WORDS[band], sex);
+  return {
+    word: `${noun.word} ${adjective.word}`,
+    assumed: noun.assumed || adjective.assumed,
+  };
+}
+
+/**
+ * One band on its own, for the surface that lists it as a labelled attribute.
+ *
+ * Capitalised, because standing alone it opens a value rather than trailing a noun. **Carries no
+ * disclaimer**, and that is safe only because every page that renders this also renders
+ * {@link describeAnimal} above it, which discloses an assumed gender once for the whole page.
+ * A surface showing a band *without* the description would have to go through {@link sentence}.
+ */
+export function ageBandLabel(band: AgeBand, sex: Sex): string {
+  const { word } = agree(AGE_BAND_WORDS[band], sex);
+  return word.charAt(0).toUpperCase() + word.slice(1);
+}
 
 /** `Grande` and `Gigante` do not inflect; the first two do. */
 export const SIZE_WORDS: Record<Size, Gendered> = {
@@ -259,38 +328,51 @@ export const GOOD_WITH_UNKNOWN_IS_FREE_NOTE =
   "Responder «no se sabe» no le quita alcance: el animal igual aparece cuando alguien filtra " +
   "por esa convivencia. Responde solo lo que hayan visto.";
 
+/**
+ * A gendered pair as a form control offers it: the masculine, undisclosed.
+ *
+ * Derived from the pair rather than retyped beside it, so a word cannot be corrected in one
+ * table and left stale in the other. An option in a list names a category and describes no
+ * particular animal, so there is no sex to agree with and nothing to disclose — which is exactly
+ * why it is safe to read `.m` directly here and nowhere else.
+ */
+function optionLabels<Key extends string>(
+  words: Record<Key, Gendered>,
+): Record<Key, string> {
+  const labels = {} as Record<Key, string>;
+  for (const key of Object.keys(words) as Key[]) labels[key] = words[key].m;
+  return labels;
+}
+
 /** The species as the publishing form offers it — the word alone, unmarked. */
-export const SPECIES_OPTION_LABELS: Record<Species, string> = {
-  dog: "Perro",
-  cat: "Gato",
-};
+export const SPECIES_OPTION_LABELS = optionLabels(SPECIES_WORDS);
 
 /** The three sterilisation answers as the form offers them, masculine and unmarked. */
-export const STERILISATION_OPTION_LABELS: Record<Sterilisation, string> = {
-  Sterilised: "Esterilizado",
-  NotSterilised: "Sin esterilizar",
-  Unknown: "No se sabe",
-};
+export const STERILISATION_OPTION_LABELS = optionLabels(STERILISATION_WORDS);
 
 /** The three availabilities as the shelter's own edit form offers them. */
-export const AVAILABILITY_OPTION_LABELS: Record<Availability, string> = {
-  Available: "Disponible",
-  Adopted: "Adoptado",
-  NoLongerAvailable: "Ya no está disponible",
-};
+export const AVAILABILITY_OPTION_LABELS = optionLabels(AVAILABILITY_WORDS);
 
 /**
  * The animal's structured attributes as one meta line, agreed and disclosed.
  *
  * The single composition point for these words. Every part goes through {@link agree} and the
  * whole goes through {@link sentence}, so an animal of unrecorded sex carries
- * `{@link SEX_UNKNOWN_NOTE}` exactly once no matter how many of its words bent to the masculine.
+ * {@link SEX_UNKNOWN_NOTE} exactly once no matter how many of its words bent to the masculine.
+ *
+ * The band is composed with the species by {@link speciesAndBand} rather than added as a fourth
+ * part, because for a puppy or a kitten the band word *is* the species word — appending it would
+ * render `Gata gatica`, which is the failure ADR 0018 was written after seeing.
+ *
+ * The band is derived by `domain/`'s `deriveAgeBand()` and handed in, never stored (ADR 0004).
  *
  * Size is included only where it applies, which for a cat is never — the absence is the animal's
  * shape rather than a gap in what the shelter typed.
  */
-export function describeAnimal(animal: AnimalWords): string {
-  const parts: Resolved[] = [agree(SPECIES_WORDS[animal.species], animal.sex)];
+export function describeAnimal(animal: AnimalWords, band: AgeBand): string {
+  const parts: Resolved[] = [
+    speciesAndBand(animal.species, band, animal.sex),
+  ];
 
   if (animal.size !== null) {
     parts.push(agree(SIZE_WORDS[animal.size], animal.sex));

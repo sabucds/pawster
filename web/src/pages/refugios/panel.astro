@@ -6,7 +6,11 @@ import Refugios from "../../layouts/Refugios.astro";
 import { authenticate } from "../../lib/auth/guard.ts";
 import { readShelterFacts } from "../../lib/auth/store.ts";
 import { listShelterAnimals } from "../../lib/animals/store.ts";
-import { AVAILABILITY_OPTION_LABELS } from "../../lib/animals/words.ts";
+import {
+  AVAILABILITY_WORDS,
+  agree,
+  sentence,
+} from "../../lib/animals/words.ts";
 import { readShelterProfile } from "../../lib/shelter/store.ts";
 
 /**
@@ -135,8 +139,14 @@ const animals = await listShelterAnimals(db, session.shelterId);
           <li>
             <a href={`/refugios/animales/${animal.id}`}>{animal.name}</a>
             {" — "}
-            {AVAILABILITY_OPTION_LABELS[animal.availability]}
-            {animal.urgentReason !== null && " · urgente"}
+            {/*
+              Through `agree()` and `sentence()` rather than the option labels, because this
+              describes a *particular* animal: `Adoptada` for a female, and the disclaimer once
+              if her sex was never recorded. The option labels are for form controls, which
+              describe no animal and so have nothing to agree with.
+            */}
+            {sentence([agree(AVAILABILITY_WORDS[animal.availability], animal.sex)])}
+            {animal.urgentReason !== null && <strong> urgente</strong>}
           </li>
         ))}
       </ul>

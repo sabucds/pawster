@@ -172,6 +172,27 @@ export async function countUrgentAnimals(
 }
 
 /**
+ * The animal already written from this session, or `null` if the session is unconsumed.
+ *
+ * Exists because the unique index on `upload_session_id` is the *last* line of defence and a
+ * constraint violation is not an answer a shelter can act on. A double-click, or a back-button
+ * resubmit of the publishing form, would otherwise reach D1 and come back as a raw `UNIQUE`
+ * failure — a 500 where the honest response is "these photos are already published, here is the
+ * animal". The index stays: this makes the invariant *speak*, it does not replace it.
+ */
+export async function findAnimalIdForSession(
+  db: Database,
+  uploadSessionId: string,
+): Promise<string | null> {
+  const [row] = await db
+    .select({ id: animals.id })
+    .from(animals)
+    .where(eq(animals.uploadSessionId, uploadSessionId))
+    .limit(1);
+  return row?.id ?? null;
+}
+
+/**
  * One animal by id, or `null`.
  *
  * Not scoped to a shelter, for the reason `findUploadSession` gives: whether the animal belongs

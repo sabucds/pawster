@@ -184,9 +184,16 @@ const chose = (name: string, option: string): boolean => value(name) === option;
 <p>
   <label for="region">¿Dónde está?</label>
   <input id="region" name="region" type="text" value={value("region")} required />
+  <!--
+    Asks for the *estado*, the same granularity `perfil.astro` asks of the shelter's own region.
+    An earlier draft said "pon dónde queda esa casa", which invited a locality — and a locality
+    is a value no subscription filters on, so it would silently have cost the shelter the reach
+    it was publishing for. The vocabulary itself is still open text: `domain/src/axes.ts` leaves
+    the administrative-division reference data to a later ticket (ADR 0005).
+  -->
   <small>
-    Donde está el animal, que puede no ser donde está el refugio. Si está en una casa de acogida,
-    pon dónde queda esa casa.
+    El estado donde está el animal, que puede no ser el del refugio: a un perro en una casa de
+    acogida en Valencia lo busca alguien en Valencia.
   </small>
   {errorFor("region") && <span role="alert">{errorFor("region")}</span>}
 </p>

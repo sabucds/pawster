@@ -62,16 +62,21 @@ export interface SeededAnimal {
  * not yet (ADR 0012). Exported because the publish suite needs exactly this and building it by
  * hand there would be a second copy of the photo row's ten columns.
  *
- * `photoCount: 0` is a legitimate call — it is the abandoned session whose publish `domain/`
- * refuses — so the loop below is allowed to run zero times.
+ * `photoCount: 0` is a legitimate call — it is the empty session whose publish `domain/` refuses
+ * — so the loop below is allowed to run zero times.
+ *
+ * **`createdAt` defaults to now, and that matters.** A session is a 24-hour thing
+ * (`UPLOAD_SESSION_TTL_MS`), and publishing from one past that window is refused, so a fixture
+ * stamped with a fixed past date would make every publish in every suite fail as abandoned.
+ * Pass an explicit date only to test that refusal.
  */
 export async function seedUploadSession(
   shelterId: string,
   photoCount: number,
   sessionId = `session-for-${shelterId}`,
+  createdAt: Date = new Date(),
 ): Promise<string> {
   const db = createDb(env.DB);
-  const createdAt = new Date("2026-08-30");
 
   await db.insert(uploadSessions).values({ id: sessionId, shelterId, createdAt });
 
@@ -108,6 +113,7 @@ export async function seedAnimal(
       : species === "dog"
         ? "Medium"
         : null;
+  /** The animal's own clocks. Its session's clock is separate, and starts now — see above. */
   const createdAt = new Date("2026-08-30");
   const sessionId = await seedUploadSession(
     shelterId,

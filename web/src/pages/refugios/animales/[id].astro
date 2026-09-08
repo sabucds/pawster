@@ -1,6 +1,6 @@
 ---
 import { createDb } from "@pawster/db";
-import { deriveAgeBand, isListed } from "@pawster/domain";
+import { GOOD_WITH_AXES, deriveAgeBand, isListed } from "@pawster/domain";
 import { env } from "cloudflare:workers";
 import AnimalFields from "../../../components/AnimalFields.astro";
 import FormErrors from "../../../components/FormErrors.astro";
@@ -13,7 +13,11 @@ import {
   editAnimal,
   findAnimal,
 } from "../../../lib/animals/store.ts";
-import { describeAnimal } from "../../../lib/animals/words.ts";
+import {
+  ageBandLabel,
+  describeAnimal,
+  goodWithPhrase,
+} from "../../../lib/animals/words.ts";
 import { authenticate } from "../../../lib/auth/guard.ts";
 import { readShelterFacts } from "../../../lib/auth/store.ts";
 
@@ -164,11 +168,19 @@ const published = Astro.url.searchParams.has("publicado") && submitted === null;
     every part through `agree()` and the whole through `sentence()`, so an animal whose sex was
     never recorded is described in the masculine *and told so*, once — ADR 0018's rule.
   -->
-  <p data-testid="describe">{describeAnimal(animal)}</p>
+  <p data-testid="describe">{describeAnimal(animal, ageBand)}</p>
+
+  <ul data-testid="good-with-summary">
+    {
+      GOOD_WITH_AXES.map((axis) => (
+        <li>{goodWithPhrase(axis, animal.goodWith[axis])}</li>
+      ))
+    }
+  </ul>
 
   <dl>
     <dt>Etapa</dt>
-    <dd data-testid="age-band">{ageBand}</dd>
+    <dd data-testid="age-band">{ageBandLabel(ageBand, animal.sex)}</dd>
     <dt>Dónde está</dt>
     <dd data-testid="region">{animal.region}</dd>
     <dt>Última confirmación</dt>

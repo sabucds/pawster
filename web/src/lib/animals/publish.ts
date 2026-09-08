@@ -212,21 +212,18 @@ function readShared(form: FormData, now: Date) {
   const region = readAnimalRegion(form);
   if (region.reason) errors.push({ field: "region", reason: region.reason });
 
+  /**
+   * Every reader below reports its own missing-value sentence, so each of these is the same one
+   * line: `fields.ts` owns the words and this owns which control they hang off. The earlier
+   * shape — `x.reason ?? "…"` — put a second copy of five sentences here.
+   */
   const species = readSpecies(form);
-  if (species.reason || species.value === null) {
-    errors.push({
-      field: "species",
-      reason: species.reason ?? "Escoge si es perro o gato.",
-    });
+  if (species.reason) {
+    errors.push({ field: "species", reason: species.reason });
   }
 
   const sex = readSex(form);
-  if (sex.reason || sex.value === null) {
-    errors.push({
-      field: "sex",
-      reason: sex.reason ?? "Escoge el sexo del animal.",
-    });
-  }
+  if (sex.reason) errors.push({ field: "sex", reason: sex.reason });
 
   /**
    * Only the vocabulary is judged here. Whether *this* animal should carry a size is
@@ -242,11 +239,8 @@ function readShared(form: FormData, now: Date) {
   }
 
   const basis = readAgeEstimateBasis(form);
-  if (basis.reason || basis.value === null) {
-    errors.push({
-      field: "ageEstimateBasis",
-      reason: basis.reason ?? "Escoge cómo saben la edad.",
-    });
+  if (basis.reason) {
+    errors.push({ field: "ageEstimateBasis", reason: basis.reason });
   }
 
   const goodWith = readGoodWith(form);
@@ -265,11 +259,8 @@ function readShared(form: FormData, now: Date) {
   }
 
   const sterilisation = readSterilisation(form);
-  if (sterilisation.reason || sterilisation.value === null) {
-    errors.push({
-      field: "sterilisation",
-      reason: sterilisation.reason ?? "Escoge si está esterilizado.",
-    });
+  if (sterilisation.reason) {
+    errors.push({ field: "sterilisation", reason: sterilisation.reason });
   }
 
   const urgency = readUrgency(form);
@@ -401,12 +392,8 @@ export function parseEdit(form: FormData, facts: EditFacts): AnimalEditParse {
   ];
 
   const availability = readAvailability(form);
-  if (availability.reason || availability.value === null) {
-    errors.push({
-      field: "availability",
-      reason:
-        availability.reason ?? "Escoge en qué situación está el animal.",
-    });
+  if (availability.reason) {
+    errors.push({ field: "availability", reason: availability.reason });
   }
 
   if (errors.length > 0) return { ok: false, errors };

@@ -110,19 +110,28 @@ export interface ReadChoice<T> {
  * to "is this a real size", and the whole point of `CONTEXT.md` making every axis vocabulary
  * platform-owned is that there is one.
  *
- * A blank field yields `null` with **no reason**. Absence is not the same refusal as a bad
- * value, and only the caller knows whether this particular field is required — `size` is
- * legitimately absent for a cat, and `sterilisation` never is.
+ * Absence and a bad value are **different refusals**, so they take different messages, and
+ * `missingReason` is optional because only some of these fields are required: `size` is
+ * legitimately absent for a cat, and `sterilisation` never is. Omitting it makes a blank field
+ * yield `null` with no reason, which is the caller saying "this one may be empty".
+ *
+ * Each reader below supplies both of its sentences, so the parse layer never has to invent one.
+ * An earlier draft left the missing-value message to `publish.ts`, which meant five sentences
+ * existed twice — the kind of duplication that keeps agreeing right up until the ticket that
+ * changes one copy.
  */
 function readChoice<T extends string>(
   form: FormData,
   name: string,
   guard: (value: string) => value is T,
-  reason: string,
+  badReason: string,
+  missingReason?: string,
 ): ReadChoice<T> {
   const raw = trimmedField(form, name);
-  if (raw.length === 0) return { value: null, raw, reason: null };
-  if (!guard(raw)) return { value: null, raw, reason };
+  if (raw.length === 0) {
+    return { value: null, raw, reason: missingReason ?? null };
+  }
+  if (!guard(raw)) return { value: null, raw, reason: badReason };
   return { value: raw, raw, reason: null };
 }
 
@@ -245,16 +254,13 @@ export function readMedicalNeeds(form: FormData): {
 }
 
 export function readSpecies(form: FormData): ReadChoice<Species> {
-  return readChoice(
-    form,
-    "species",
-    isSpecies,
-    "Escoge si es perro o gato.",
-  );
+  const reason = "Escoge si es perro o gato.";
+  return readChoice(form, "species", isSpecies, reason, reason);
 }
 
 export function readSex(form: FormData): ReadChoice<Sex> {
-  return readChoice(form, "sex", isSex, "Escoge el sexo del animal.");
+  const reason = "Escoge el sexo del animal.";
+  return readChoice(form, "sex", isSex, reason, reason);
 }
 
 /**
@@ -271,21 +277,13 @@ export function readSize(form: FormData): ReadChoice<Size> {
 export function readAgeEstimateBasis(
   form: FormData,
 ): ReadChoice<AgeEstimateBasis> {
-  return readChoice(
-    form,
-    "ageEstimateBasis",
-    isAgeEstimateBasis,
-    "Escoge cómo saben la edad.",
-  );
+  const reason = "Escoge cómo saben la edad.";
+  return readChoice(form, "ageEstimateBasis", isAgeEstimateBasis, reason, reason);
 }
 
 export function readSterilisation(form: FormData): ReadChoice<Sterilisation> {
-  return readChoice(
-    form,
-    "sterilisation",
-    isSterilisation,
-    "Escoge si está esterilizado.",
-  );
+  const reason = "Escoge si está esterilizado.";
+  return readChoice(form, "sterilisation", isSterilisation, reason, reason);
 }
 
 /**
@@ -296,12 +294,8 @@ export function readSterilisation(form: FormData): ReadChoice<Sterilisation> {
  * listing nobody can see in order to record something the platform has no use for.
  */
 export function readAvailability(form: FormData): ReadChoice<Availability> {
-  return readChoice(
-    form,
-    "availability",
-    isAvailability,
-    "Escoge en qué situación está el animal.",
-  );
+  const reason = "Escoge en qué situación está el animal.";
+  return readChoice(form, "availability", isAvailability, reason, reason);
 }
 
 export interface ReadGoodWith {

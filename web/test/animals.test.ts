@@ -1,5 +1,5 @@
 import { animals, createDb } from "@pawster/db";
-import { MAX_URGENT_PER_SHELTER } from "@pawster/domain";
+import { MAX_URGENT_PER_SHELTER, UPLOAD_SESSION_TTL_MS } from "@pawster/domain";
 import { env } from "cloudflare:test";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -114,6 +114,25 @@ describe("reaching the publishing form", () => {
     );
 
     // Telling a stranger that an id exists is itself an answer.
+    expect(response.status).toBe(404);
+  });
+
+  it("404s a session older than the upload window", async () => {
+    const { shelterId, cookie } = await freshShelter();
+    /**
+     * A day-old session with no animal is abandoned, and the reclamation sweep (ADR 0016, issue
+     * #66) will delete its derivatives. Publishing from it would mint an animal whose
+     * photographs are already scheduled for deletion, leaving nothing for the primary photo to
+     * be — so the publish path refuses it, the same window the upload path refuses additions on.
+     */
+    const stale = new Date(Date.now() - UPLOAD_SESSION_TTL_MS - 1000);
+    const sessionId = await seedUploadSession(shelterId, 2, "session-stale", stale);
+
+    const response = await get(
+      `/refugios/animales/nuevo?sesion=${sessionId}`,
+      cookie,
+    );
+
     expect(response.status).toBe(404);
   });
 
@@ -244,6 +263,38 @@ describe("publishing an animal", () => {
     expect(html).toContain("Revisa lo siguiente:");
     expect(html).toContain("Escribe el nombre del animal.");
     expect(html).toContain("Escoge dónde está el animal.");
+  });
+
+  it("refuses a second publish from the same photos instead of crashing", async () => {
+    const { shelterId, cookie, path } = await readyToPublish();
+
+    const first = await post(path, PUBLISH_FORM, { cookie });
+    expect(first.status).toBe(303);
+
+    /**
+     * A double-click, or a back-and-resubmit. The unique index on `upload_session_id` is the
+     * invariant and it stays; without this pre-check it surfaces as a raw D1 `UNIQUE` violation,
+     * which is a 500 where the honest answer is a sentence and a link to the animal.
+     */
+    const second = await post(path, PUBLISH_FORM, { cookie });
+
+    expect(second.status).toBe(200);
+    const html = await second.text();
+    expect(html).toContain("Estas fotos ya se publicaron");
+    // And exactly one animal exists, not two and not zero.
+    expect(await storedAnimals(shelterId)).toHaveLength(1);
+  });
+
+  it("sends a shelter revisiting a used publish link to its animal", async () => {
+    const { cookie, path } = await readyToPublish();
+    const animalId = publishedId(await post(path, PUBLISH_FORM, { cookie }));
+
+    const response = await get(path, cookie);
+
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe(
+      `/refugios/animales/${animalId}`,
+    );
   });
 
   it("comes back filled in with what the shelter typed", async () => {
@@ -394,12 +445,16 @@ describe("the shelter's own page for one animal", () => {
     expect(html).toContain("Canela");
     expect(html).toContain("Valencia");
     /**
-     * Born 2025-01-01 and well past twelve months, so the dog has graduated out of Puppy on its
-     * own with nothing having written to the row (ADR 0004). This is the coverage that used to
-     * sit on the public page, which is now gated — see `routing.test.ts`.
+     * Born 2025-01-01 and well past twelve months, so the dog has graduated out of Cachorra on
+     * its own with nothing having written to the row (ADR 0004). This is the coverage that used
+     * to sit on the public page, which is now gated — see `routing.test.ts`.
+     *
+     * `Joven` and not `Young`: `deriveAgeBand()` returns the band as a domain value and
+     * `ageBandLabel()` is what puts it into es-VE, per CONTEXT.md's vocabulary table.
      */
-    expect(html).toContain('data-testid="age-band">Young');
-    expect(html).not.toContain("Puppy");
+    expect(html).toContain('data-testid="age-band">Joven');
+    expect(html).not.toContain("Young");
+    expect(html).not.toContain("Cachorra");
   });
 
   it("says why the animal is not public yet, not merely that it is not", async () => {
@@ -422,7 +477,7 @@ describe("the shelter's own page for one animal", () => {
      * because the masculine forms — `Esterilizado`, `Mediano` — are what a naive renderer would
      * have shown, and they would have been wrong without ever failing.
      */
-    expect(html).toContain("Perra");
+    expect(html).toContain("Perra joven");
     expect(html).toContain("Mediana");
     expect(html).toContain("Esterilizada");
     expect(html).not.toContain("sexo no registrado");
@@ -436,7 +491,7 @@ describe("the shelter's own page for one animal", () => {
     const html = await (await get(`/refugios/animales/${animalId}`, cookie)).text();
 
     // Spanish's unmarked form is masculine, so the resolution is disclosed rather than assumed.
-    expect(html).toContain("Perro");
+    expect(html).toContain("Perro joven");
     expect(html).toContain("sexo no registrado");
   });
 });
