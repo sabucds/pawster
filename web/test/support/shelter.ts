@@ -1,5 +1,9 @@
 import { createDb, shelters } from "@pawster/db";
+import type { VerificationOutcome } from "@pawster/domain";
 import { env } from "cloudflare:test";
+import { appendVerification } from "../../src/lib/verification/store.ts";
+import { readStoredContactPoints } from "../../src/lib/shelter/store.ts";
+import { clearAnimalTables } from "./animal.ts";
 import { eq } from "drizzle-orm";
 import { expect } from "vitest";
 import { outbound } from "../../../test/outbound.ts";
@@ -104,6 +108,52 @@ export async function signIn(
 }
 
 /**
+ * Put a `Verified` entry at the top of a shelter's verification log.
+ *
+ * Through `appendVerification()` — the real write path — rather than an insert of its own, so a
+ * suite that needs a verified shelter exercises the log `readShelterFacts()` actually reads
+ * instead of a fixture that merely agrees with it.
+ *
+ * Here rather than in `admin-verification.test.ts` because three suites need it now. That one
+ * tests the admin surface itself; `routing.test.ts` and `shelter-profile.test.ts` need a
+ * verified shelter because an animal is not publicly reachable until it is — `isListed()`'s
+ * four clauses, of which verification is the one issue #53 made satisfiable.
+ *
+ * The cited artefacts are read back rather than invented, so the snapshot is what the shelter
+ * actually looked like at the moment of the judgement (ADR 0019) and no drift is implied.
+ */
+export async function decideShelter(
+  shelterId: string,
+  outcome: VerificationOutcome,
+  displayName: string = REGISTRATION.displayName,
+): Promise<void> {
+  const db = createDb(env.DB);
+  await appendVerification(
+    db,
+    {
+      shelterId,
+      outcome,
+      methods: ["instagram"],
+      evidence: "instagram.com/refugio, active",
+      decidedBy: "admin@pawster.test",
+      cited: {
+        displayName,
+        contactPoints: await readStoredContactPoints(db, shelterId),
+      },
+    },
+    new Date(),
+  );
+}
+
+/** The common case, named for what a caller means by it. */
+export async function verifyShelter(
+  shelterId: string,
+  displayName: string = REGISTRATION.displayName,
+): Promise<void> {
+  await decideShelter(shelterId, "Verified", displayName);
+}
+
+/**
  * Move every ledger row further into the past, so the next request is outside the
  * five-minute per-address cooldown.
  *
@@ -123,7 +173,13 @@ export async function ageMailLedger(ms: number): Promise<void> {
 
 /** Every table a shelter's rows reach, children before parents. */
 export async function clearShelterTables(): Promise<void> {
-  await env.DB.exec("DELETE FROM animals");
+  /**
+   * Delegated rather than repeated. Since issue #55 an animal owns an upload session and its
+   * photos, and clearing the animals while leaving those behind would let the unique index on
+   * `upload_session_id` refuse the *next* suite's seed — a failure that surfaces in whichever
+   * test happened to run second rather than in the one that caused it.
+   */
+  await clearAnimalTables();
   await env.DB.exec("DELETE FROM verifications");
   await env.DB.exec("DELETE FROM one_time_codes");
   await env.DB.exec("DELETE FROM sign_in_requests");

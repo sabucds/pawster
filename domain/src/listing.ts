@@ -23,6 +23,31 @@
 export type Availability = "Available" | "Adopted" | "NoLongerAvailable";
 
 /**
+ * The three states as data, so that a form can reject a fourth.
+ *
+ * There is no `Draft` and no persisted `Stale`, and neither absence is an oversight. A
+ * `Draft` is ruled out by construction rather than by policy: an animal's row is written
+ * last, after its photos already exist ([ADR 0012](../../docs/adr/0012-derivatives-are-generated-once-at-upload.md)),
+ * so there is no moment at which a half-built animal is a row that needs a state to
+ * describe it — the half-built thing is an Upload Session, which is a different table.
+ * `Stale` is ruled out by ADR 0001: staleness is derived from `lastConfirmedAt` and changes
+ * how an animal is labelled and ordered, never whether it is listed, so storing it would be
+ * a second answer to a question `deriveStalenessBand` already answers.
+ *
+ * `Available` is deliberately first: it is what a published animal is, and the publish path
+ * reads it from here rather than writing the string again.
+ */
+export const AVAILABILITIES = [
+  "Available",
+  "Adopted",
+  "NoLongerAvailable",
+] as const satisfies readonly Availability[];
+
+export function isAvailability(value: string): value is Availability {
+  return (AVAILABILITIES as readonly string[]).includes(value);
+}
+
+/**
  * The outcome of one verification entry. Standing is an append-only log
  * ([ADR 0003](../../docs/adr/0003-verification-is-an-append-only-log.md)) and a shelter's
  * current standing is its latest entry, so this is *not* a status column — it is the

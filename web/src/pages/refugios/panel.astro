@@ -5,6 +5,12 @@ import { env } from "cloudflare:workers";
 import Refugios from "../../layouts/Refugios.astro";
 import { authenticate } from "../../lib/auth/guard.ts";
 import { readShelterFacts } from "../../lib/auth/store.ts";
+import { listShelterAnimals } from "../../lib/animals/store.ts";
+import {
+  AVAILABILITY_WORDS,
+  agree,
+  sentence,
+} from "../../lib/animals/words.ts";
 import { readShelterProfile } from "../../lib/shelter/store.ts";
 
 /**
@@ -97,6 +103,20 @@ const anythingVisible =
 const decided = facts?.latestVerificationOutcome ?? null;
 const answered = decided === "Refused" || decided === "Revoked";
 const unreachable = facts !== null && facts.contactPointCount === 0;
+
+/**
+ * The shelter's own animals, newest first.
+ *
+ * Here because this is the only route to a published animal: the public page is gated on
+ * `isListed()`, so an animal is unreachable there until its shelter is verified *and* offers a
+ * contact point — and the animal's own page is the only place its edit form lives. Now that
+ * issue #53 has landed the verification log, that gate can open, and this list is still what a
+ * shelter navigates by.
+ *
+ * Every availability is shown, including adopted ones: an adopted animal is still the shelter's,
+ * and hiding it would read as the row having been lost.
+ */
+const animals = await listShelterAnimals(db, session.shelterId);
 ---
 
 <Refugios title="Tu refugio" heading={shelter.displayName}>
@@ -137,6 +157,33 @@ const unreachable = facts !== null && facts.contactPointCount === 0;
         no le aparecen a nadie aunque el refugio esté verificado, porque no habría manera de
         escribirte por ellos.
       </p>
+    )
+  }
+
+  <h2>Tus animales</h2>
+
+  {
+    animals.length === 0 ? (
+      <p data-testid="no-animals">
+        Todavía no has publicado ningún animal. Para publicar uno, primero sube sus fotos.
+      </p>
+    ) : (
+      <ul data-testid="animal-list">
+        {animals.map((animal) => (
+          <li>
+            <a href={`/refugios/animales/${animal.id}`}>{animal.name}</a>
+            {" — "}
+            {/*
+              Through `agree()` and `sentence()` rather than the option labels, because this
+              describes a *particular* animal: `Adoptada` for a female, and the disclaimer once
+              if her sex was never recorded. The option labels are for form controls, which
+              describe no animal and so have nothing to agree with.
+            */}
+            {sentence([agree(AVAILABILITY_WORDS[animal.availability], animal.sex)])}
+            {animal.urgentReason !== null && <strong> urgente</strong>}
+          </li>
+        ))}
+      </ul>
     )
   }
 

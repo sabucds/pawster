@@ -11,6 +11,25 @@
 export type { AgeBand } from "./age-band.ts";
 export { AGE_BANDS, deriveAgeBand, monthsBetween } from "./age-band.ts";
 export type {
+  AgeEstimateBasis,
+  AnimalDraftFacts,
+  AnimalRefusal,
+  AnimalRefusalReason,
+  SizePairing,
+  Sterilisation,
+  UrgencyMark,
+} from "./animal.ts";
+export {
+  AGE_ESTIMATE_BASES,
+  MAX_URGENT_PER_SHELTER,
+  STERILISATIONS,
+  isAgeEstimateBasis,
+  isSterilisation,
+  refuseAnimal,
+  refuseSizePairing,
+  refuseUrgency,
+} from "./animal.ts";
+export type {
   GoodWithAxis,
   GoodWithFlag,
   GoodWithFlags,
@@ -19,7 +38,19 @@ export type {
   Size,
   Species,
 } from "./axes.ts";
-export { GOOD_WITH_AXES, SEXES, SIZES, SPECIES } from "./axes.ts";
+export {
+  GOOD_WITH_AXES,
+  GOOD_WITH_FLAGS,
+  SEXES,
+  SIZE_ADULT_KILOGRAMS,
+  SIZES,
+  SPECIES,
+  isGoodWithFlag,
+  isSex,
+  isSize,
+  isSpecies,
+  sizeApplies,
+} from "./axes.ts";
 export {
   CRITERIA_VOCABULARIES,
   MAX_CRITERIA_VALUES_PER_AXIS,
@@ -46,7 +77,7 @@ export type {
   ShelterFacts,
   VerificationOutcome,
 } from "./listing.ts";
-export { isListed } from "./listing.ts";
+export { AVAILABILITIES, isAvailability, isListed } from "./listing.ts";
 export type {
   AdoptionUnit,
   AnimalAxes,

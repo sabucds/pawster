@@ -1,0 +1,212 @@
+---
+import { createDb } from "@pawster/db";
+import { isResumable } from "@pawster/domain";
+import { env } from "cloudflare:workers";
+import AnimalFields from "../../../components/AnimalFields.astro";
+import FormErrors from "../../../components/FormErrors.astro";
+import Refugios from "../../../layouts/Refugios.astro";
+import { readSubmittedValues } from "../../../lib/animals/fields.ts";
+import type { AnimalError } from "../../../lib/animals/publish.ts";
+import { parsePublish } from "../../../lib/animals/publish.ts";
+import {
+  countSessionPhotos,
+  countUrgentAnimals,
+  findAnimalIdForSession,
+  publishAnimal,
+} from "../../../lib/animals/store.ts";
+import { authenticate } from "../../../lib/auth/guard.ts";
+import { findUploadSession } from "../../../lib/photos/store.ts";
+
+/**
+ * Publishing an animal: the form, and the write that makes the animal exist.
+ *
+ * **The animal is complete the moment it exists**, which is the shape of issue #55 and the
+ * reason this page has no draft state, no "save and continue later" and no partially filled row
+ * anywhere. The photographs were uploaded first and are already in R2 with their derivatives
+ * generated (ADR 0012); this form is the last step, and its `POST` either writes one complete
+ * animal or writes nothing at all.
+ *
+ * Server-rendered and posting to itself, matching `perfil.astro` and for the same reason: it
+ * reports every problem at once and comes back filled in with what the shelter typed. A
+ * prerendered form posting to an API endpoint could do neither without either re-rendering
+ * server-side anyway or shipping a validation island — and an island would be a second copy of
+ * the rules in `lib/animals/publish.ts`.
+ *
+ * ## The session in the query string
+ *
+ * The photographs exist before the animal does, so this page is reached with the upload session
+ * they were staged in: `?sesion=<id>`. That is not a detail of the URL, it is ADR 0012's
+ * ordering made visible — there is no way to render this form without having already uploaded,
+ * which is what makes "between one and six photos" an invariant of the insert rather than a rule
+ * something later has to check.
+ *
+ * A session belonging to another shelter answers **404 rather than 403**, matching the upload
+ * endpoints: telling a stranger that an id exists is itself an answer.
+ */
+export const prerender = false;
+
+const db = createDb(env.DB);
+const now = new Date();
+
+const session = await authenticate(Astro.request, db, env, now);
+if (!session) return Astro.redirect("/refugios/entrar", 303);
+
+if (session.refreshedCookie) {
+  Astro.response.headers.append("set-cookie", session.refreshedCookie);
+}
+
+const sessionId = Astro.url.searchParams.get("sesion");
+if (!sessionId) return new Response("Faltan las fotos", { status: 404 });
+
+const upload = await findUploadSession(db, sessionId);
+// Not this shelter's session, or no such session: the same answer either way.
+if (!upload || upload.shelterId !== session.shelterId) {
+  return new Response("No encontrado", { status: 404 });
+}
+
+/**
+ * The animal this session was already published as, if it was.
+ *
+ * Asked before anything else is decided, because it changes what the page *is*: a session that
+ * has been consumed has no form left to render.
+ */
+const alreadyPublished = await findAnimalIdForSession(db, sessionId);
+
+if (alreadyPublished !== null && Astro.request.method !== "POST") {
+  // A shelter revisiting the link it published from is asking for its animal.
+  return Astro.redirect(`/refugios/animales/${alreadyPublished}`, 303);
+}
+
+/**
+ * Whether the session is still within the 24 hours ADR 0012 gives it.
+ *
+ * Asked here and not only at upload, because the two ends of the window guard different things:
+ * the upload endpoint refuses *adding* to a dead session, and this refuses *publishing* from one.
+ * The reclamation sweep (ADR 0016, issue #66) deletes the derivatives of any session older than
+ * the window with no animal committed — so without this check, publishing from a day-old session
+ * would mint an animal whose photographs are already scheduled for deletion, leaving nothing for
+ * the primary photo to be.
+ *
+ * `hasCommittedAnimal` is the real answer rather than a placeholder, which is what lets the
+ * expired case below distinguish "too late" from "already done".
+ */
+const resumable = isResumable(
+  { createdAt: upload.createdAt, hasCommittedAnimal: alreadyPublished !== null },
+  now,
+);
+
+if (!resumable && alreadyPublished === null) {
+  return new Response("Estas fotos ya vencieron", { status: 404 });
+}
+
+const photoCount = await countSessionPhotos(db, sessionId);
+
+let errors: readonly AnimalError[] = [];
+/** What the shelter typed, so a refused form comes back as it left rather than reset. */
+let submitted: FormData | null = null;
+
+if (Astro.request.method === "POST") {
+  submitted = await Astro.request.formData();
+
+  const parsed = parsePublish(submitted, {
+    now,
+    /**
+     * A consumed session is reported as zero photos so the publish is refused by the rule that
+     * already owns "an animal needs photographs", rather than by a second branch with a second
+     * message. The sentence the shelter reads is `photosAlreadyUsed` below.
+     */
+    photoCount: alreadyPublished === null ? photoCount : 0,
+    /**
+     * Nothing to exclude: there is no animal yet. On the edit path the animal being saved is
+     * left out of this count, which is what stops a reworded reason being refused by its own
+     * mark.
+     */
+    otherUrgentCount: await countUrgentAnimals(db, session.shelterId),
+  });
+
+  if (parsed.ok) {
+    const animalId = await publishAnimal(db, {
+      shelterId: session.shelterId,
+      uploadSessionId: sessionId,
+      animal: parsed.value,
+      now,
+    });
+
+    /**
+     * Built by hand rather than through `Astro.redirect()`, because a redirect is a fresh
+     * response and does not carry the headers staged on `Astro.response` — the sliding refresh
+     * would be silently dropped, as `perfil.astro` records having measured.
+     */
+    const headers = new Headers({
+      location: `/refugios/animales/${animalId}?publicado`,
+    });
+    if (session.refreshedCookie) {
+      headers.set("set-cookie", session.refreshedCookie);
+    }
+    return new Response(null, { status: 303, headers });
+  }
+
+  errors = parsed.errors;
+
+  /**
+   * Said plainly rather than left to the photo-count message, which would tell a shelter to
+   * upload more photos when the truth is that these ones already became an animal.
+   */
+  if (alreadyPublished !== null) {
+    errors = [
+      {
+        field: "photos",
+        reason:
+          "Estas fotos ya se publicaron. El animal está guardado y lo puedes editar desde su " +
+          "propia página.",
+      },
+    ];
+  }
+}
+
+/**
+ * Every control's current value: what was typed, or nothing on a first render.
+ *
+ * Read from the submitted `FormData` rather than from the parsed animal, because a refusal has
+ * no parsed animal — and what has to come back is what the shelter *typed*, including the value
+ * that was refused.
+ */
+const values = submitted ? readSubmittedValues(submitted) : {};
+---
+
+<Refugios title="Publicar un animal" heading="Publicar un animal">
+  <FormErrors errors={errors} />
+
+  <p data-testid="photo-count">
+    {photoCount === 1 ? "Tienes 1 foto lista." : `Tienes ${photoCount} fotos listas.`}
+    {" La primera es la principal."}
+  </p>
+
+  {errors.find((error) => error.field === "photos") && (
+    <p role="alert" data-testid="error-photos">
+      {errors.find((error) => error.field === "photos")!.reason}
+      {
+        alreadyPublished !== null && (
+          <a href={`/refugios/animales/${alreadyPublished}`}>Ver el animal</a>
+        )
+      }
+    </p>
+  )}
+
+  <form method="post" data-testid="publish-form">
+    <AnimalFields errors={errors} values={values} />
+    <p>
+      <button type="submit">Publicar</button>
+    </p>
+  </form>
+
+  <!--
+    Said here because it is true and a shelter should not find it out from an adopter: until the
+    shelter is verified, `isListed()` keeps the animal off every public surface. The animal's own
+    page repeats it, with the same words.
+  -->
+  <p data-testid="verification-note">
+    Mientras el refugio no esté verificado, lo que publiques no aparece en el sitio público.
+    Igual queda guardado y lo puedes seguir editando.
+  </p>
+</Refugios>

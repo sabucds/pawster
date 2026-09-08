@@ -20,7 +20,12 @@
  * that is not on the page.
  */
 
-import { MAX_FIELD, isEmailShaped, trimmedField } from "../form-fields.ts";
+import {
+  MAX_FIELD,
+  type ReadField,
+  isEmailShaped,
+  trimmedField,
+} from "../form-fields.ts";
 import type { ContactPointKind } from "@pawster/db";
 
 /**
@@ -83,10 +88,8 @@ export { MAX_FIELD } from "../form-fields.ts";
  * The value is returned either way, so a refused form can come back filled in with what the
  * shelter typed rather than blank.
  */
-export interface ReadField {
-  readonly value: string;
-  readonly reason: string | null;
-}
+/** Re-exported so this module's own callers are unaffected by the move. */
+export type { ReadField };
 
 export function readDisplayName(form: FormData): ReadField {
   const value = trimmedField(form, "displayName");

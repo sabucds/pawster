@@ -43,6 +43,13 @@
       "when": 1788890960920,
       "tag": "0005_the_verification_log",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1788894878897,
+      "tag": "0006_the_animal_is_complete_when_it_exists",
+      "breakpoints": true
     }
   ]
 }

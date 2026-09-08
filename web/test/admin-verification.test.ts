@@ -11,6 +11,7 @@ import {
   DECISION_LINK_TTL_MS,
   PENDING_LIST_LINK_TTL_MS,
 } from "../src/lib/verification/policy.ts";
+import { seedAnimal } from "./support/animal.ts";
 import { ORIGIN, cookieFrom, get, post } from "./support/http.ts";
 import {
   REGISTRATION,
@@ -401,15 +402,13 @@ describe("a verified shelter's animals, and a revoked one's", () => {
   it("delists a real animal through isListed(), with nothing written but the entry", async () => {
     await signIn();
     const shelterId = await shelterIdFor();
-    await createDb(env.DB).insert(animals).values({
-      id: "animal-revoked",
-      shelterId,
-      name: "Canela",
-      species: "dog",
-      estimatedBirthDate: new Date("2025-01-01"),
-      region: "Miranda",
-      lastConfirmedAt: new Date("2026-08-30"),
-    });
+    /**
+     * Through the shared seeder rather than an inline insert. Issue #55 made an animal twenty
+     * columns, two of them under CHECK constraints and one a foreign key into the upload session
+     * its photographs live in — so the row's shape is defined once, in `support/animal.ts`, and
+     * this test states only the part it cares about: which shelter owns the animal, and its id.
+     */
+    await seedAnimal({ id: "animal-revoked", shelterId });
     const animal = { availability: "Available" } as const;
 
     await post("/admin/decide", {

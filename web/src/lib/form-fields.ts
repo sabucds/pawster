@@ -40,6 +40,23 @@ const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * `File` value — which `FormData.get` can also return — is not a text field and is refused
  * the same way.
  */
+/**
+ * A value and the reason it cannot be used, or `null` when it can.
+ *
+ * The value is returned either way, so a refused form can come back filled in with what was
+ * typed rather than blank.
+ *
+ * Here rather than beside one feature's readers because three of them return it now —
+ * `shelter/fields.ts`, `animals/fields.ts` and the subscriber signup — and a shape shared by
+ * three callers that lives in one of their folders is a shape the other two import sideways.
+ * `shelter/fields.ts` re-exports it so its own callers are unaffected, the way this module
+ * already lends `MAX_FIELD` back.
+ */
+export interface ReadField {
+  readonly value: string;
+  readonly reason: string | null;
+}
+
 export function trimmedField(form: FormData, name: string): string {
   const value = form.get(name);
   return typeof value === "string" ? value.trim() : "";
