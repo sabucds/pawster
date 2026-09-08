@@ -48,6 +48,25 @@ The increase was not decomposed into its parts. Doing so honestly needs a build 
 parent commit to subtract, and the figure above is enough to answer the only question being
 asked of it today.
 
+
+### Recorded 2026-09-08, after the animal page (#57)
+
+| Worker | Raw | Gzipped | Of the 3 MB limit |
+|---|---|---|---|
+| `web` | 1223.96 KiB | **331.64 KiB** | 10.8% |
+| `digest` | 221.79 KiB | 49.29 KiB | 1.6% |
+
+**The parent commit was measured too, so this one is attributed rather than inferred.** At
+`ab40fad` — development with #53, #55 and #61 merged and none of them recorded here — `web` was
+**318.71 KiB** gzipped. So the animal page, the archive page, the contact hand-off and their five
+libraries cost **12.9 KiB**, and the other 90 KiB of the gap to the #54 row above belongs to the
+three tickets that landed between them.
+
+That is the decomposition the #54 row said it was not doing, and it is worth the extra build:
+without it this row reads as one page costing 103 KiB, which would be the loudest number in the
+file and false. The rate to watch is roughly 13 KiB per feature ticket, against 2.7 MB of
+headroom.
+
 ## Per-request SSR CPU
 
 ```sh
