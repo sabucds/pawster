@@ -67,10 +67,21 @@ describe("a Drizzle client constructed inside the handler", () => {
   });
 
   it("reads the real schema the real migrations created", async () => {
+    // `slug` and `base_region` are named explicitly even though migration 0001 gave both a
+    // `DEFAULT ''`. That default exists only to backfill rows written before the columns did,
+    // and the migration says so; a fresh insert leaning on it would make the claim false.
     await env.DB.prepare(
-      "INSERT INTO shelters (id, display_name, account_email, country_code, created_at) VALUES (?, ?, ?, ?, ?)",
+      "INSERT INTO shelters (id, slug, display_name, account_email, base_region, country_code, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
     )
-      .bind("s1", "Refugio Ejemplo", "hola@example.org", "VE", 0)
+      .bind(
+        "s1",
+        "refugio-ejemplo",
+        "Refugio Ejemplo",
+        "hola@example.org",
+        "Miranda",
+        "VE",
+        0,
+      )
       .run();
 
     const response = await get("/per-request");

@@ -1,0 +1,39 @@
+---
+import Refugios from "../../../layouts/Refugios.astro";
+
+/**
+ * The single failure page for everything that can go wrong with a code.
+ *
+ * A wrong code, an expired one, one whose five attempts are gone, one superseded by a newer
+ * request, a token that names nothing, and a token minted for an address that belongs to
+ * nobody all land here with the same words. **The collapsing is the security property**, not
+ * a shortcut: a page that said "expired" rather than "wrong" would confirm that a code had
+ * been issued, which confirms the address is registered — the oracle ADR 0008 forbids.
+ *
+ * It is also, usefully, the complete answer. The shelter's next move is to ask for another
+ * code in every one of those cases, so a more specific message would not change what anyone
+ * does about it.
+ */
+---
+
+<Refugios title="Ese código no sirvió" heading="Ese código no sirvió">
+  <p data-testid="code-refused">
+    Puede que lo hayas escrito distinto, que se haya vencido, o que hayas pedido otro después
+    — al pedir uno nuevo, el anterior deja de servir.
+  </p>
+
+  <p>
+    <a href="/refugios/entrar/codigo">Vuelve a escribirlo</a> si crees que fue un dedazo, o
+    <a href="/refugios/entrar">pide un código nuevo</a>.
+  </p>
+
+  <p>
+    <!--
+      Said plainly because the alternative is a shelter concluding it has been locked out of
+      its own account. Five wrong guesses kill the *code*, and nothing else: no shelter, no
+      session, no waiting period. The next request works.
+    -->
+    Después de varios intentos fallidos el código se anula por seguridad. Eso no bloquea tu
+    refugio: pides otro y sigues.
+  </p>
+</Refugios>

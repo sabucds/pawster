@@ -130,8 +130,8 @@ npx([
   "--local", "--config", CONFIG, "--persist-to", PERSIST,
   "--command",
   `DELETE FROM animals; DELETE FROM shelters;
-   INSERT INTO shelters (id, display_name, account_email, country_code, created_at)
-     VALUES ('measure-s', 'Refugio de Medición', 'medicion@example.org', 'VE', 0);
+   INSERT INTO shelters (id, slug, display_name, account_email, base_region, country_code, created_at)
+     VALUES ('measure-s', 'refugio-de-medicion', 'Refugio de Medición', 'medicion@example.org', 'Miranda', 'VE', 0);
    INSERT INTO animals (id, shelter_id, name, species, estimated_birth_date, region, last_confirmed_at)
      VALUES ('measure-1', 'measure-s', 'Canela', 'dog', 1735689600000, 'Miranda', 1756512000000);`,
 ]);

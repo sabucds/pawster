@@ -1,0 +1,54 @@
+---
+import Refugios from "../../../layouts/Refugios.astro";
+
+/**
+ * Ask for a code.
+ *
+ * **Prerendered, and this one is load-bearing.** ADR 0013: "Sign-in adds no server-rendered
+ * route. The form is static and posts to an action endpoint." A static form is also the
+ * cheapest possible way to satisfy ADR 0008's identical-response rule, because a page that
+ * renders nothing about the submitted address cannot leak anything about it — there is no
+ * server-side branch here to get wrong.
+ *
+ * It says up front that the answer will be the same either way. That is not a disclaimer
+ * bolted on: a shelter whose address has a typo in it would otherwise sit waiting for mail
+ * that is never coming, and telling it the page cannot distinguish the two cases is what
+ * lets it think to check the spelling.
+ */
+---
+
+<Refugios title="Entrar" heading="Entra a tu refugio">
+  <p>
+    Escribe el correo del refugio y te mandamos un código de seis dígitos. No hay
+    contraseña.
+  </p>
+
+  <form method="post" action="/api/refugios/codigo">
+    <p>
+      <label for="accountEmail">Correo del refugio</label><br />
+      <input
+        id="accountEmail"
+        name="accountEmail"
+        type="email"
+        required
+        maxlength="200"
+        autocomplete="email"
+      />
+    </p>
+    <p><button type="submit">Mándame el código</button></p>
+  </form>
+
+  <p data-testid="identical-response-notice">
+    <!--
+      The enumeration rule, stated to the shelter rather than only enforced. ADR 0008
+      requires this form to answer identically whether or not the address is registered, so
+      the page cannot tell a shelter that its address is unknown — and a shelter that does
+      not know that would read the silence as a platform fault instead of a typo.
+    -->
+    Esta página responde igual si el correo está registrado y si no lo está, para que nadie
+    pueda averiguar cuáles refugios están en Pawster. Si no te llega nada en unos minutos,
+    revisa que el correo esté bien escrito.
+  </p>
+
+  <p>¿Todavía no tienes refugio aquí? <a href="/refugios/registro">Regístralo</a>.</p>
+</Refugios>

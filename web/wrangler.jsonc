@@ -18,5 +18,19 @@
       "database_id": "00000000-0000-0000-0000-000000000000",
       "migrations_dir": "../db/migrations"
     }
-  ]
+  ],
+
+  // `SESSION_SECRET`, `SIGN_IN_SECRET` and `RESEND_API_KEY` are deliberately absent. The
+  // first signs the Session cookie, the second keys the One-Time Code hash, and a committed
+  // plaintext `var` for either would put a shelter's whole credential in the repository —
+  // the same rule `digest/wrangler.jsonc` follows for `UNSUBSCRIBE_SECRET`. They are set
+  // with `wrangler secret put`, and the test seam supplies fixed ones, so the suite still
+  // needs no credentials.
+  "vars": {
+    // A different sender from the digest's, so a shelter's mail client and Postmaster Tools
+    // can tell a credential from a newsletter, and so a spam complaint about the digest
+    // cannot take the sign-in sender's reputation with it.
+    "SIGN_IN_FROM_ADDRESS": "entrar@pawster.dpdns.org",
+    "SITE_ORIGIN": "https://pawster.dpdns.org"
+  }
 }

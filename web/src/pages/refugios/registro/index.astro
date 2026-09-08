@@ -1,0 +1,240 @@
+---
+import { createDb } from "@pawster/db";
+import { env } from "cloudflare:workers";
+import Refugios from "../../../layouts/Refugios.astro";
+import {
+  CONTACT_POINT_KINDS,
+  parseRegistration,
+} from "../../../lib/auth/registration.ts";
+import type { RegistrationError } from "../../../lib/auth/registration.ts";
+import { findShelterByEmail, registerShelter } from "../../../lib/auth/store.ts";
+
+/**
+ * Registration: the one form on the platform that both renders and processes itself.
+ *
+ * **This route is server-rendered, and that is a decision rather than a default.** ADR 0007
+ * says the Worker should run as rarely as possible and that "a route opts out with
+ * `export const prerender = false`, and every such route is a decision" — so here is the
+ * reasoning. A registration form has to report several field errors at once and keep what
+ * the shelter already typed; a prerendered form posting to an action endpoint can do neither
+ * without either re-rendering server-side anyway or shipping a validation island, and an
+ * island would be a second copy of the rules in `registration.ts`. The cost is bounded to a
+ * degree that settles it: this platform expects on the order of forty shelters *ever*, so
+ * this route's whole lifetime traffic is a few hundred invocations.
+ *
+ * Sign-in is the opposite case and stays static, because ADR 0013 requires its response to
+ * carry nothing — see `entrar/index.astro`.
+ *
+ * ## This endpoint is unauthenticated and its writes are not bounded
+ *
+ * Recorded here because it is a real gap and the neighbouring file used to claim otherwise.
+ * `/api/refugios/codigo` grew a per-IP limit specifically so an unauthenticated caller could
+ * not make the platform write to D1 without limit — and this route, which inserts a shelter
+ * row plus up to three contact-point rows, has no equivalent. A script posting valid
+ * registrations can spend D1's free-tier daily writes.
+ *
+ * It is left for the ticket that owns abuse limits rather than solved here, for two reasons.
+ * The limit that belongs on this route is not the sign-in mail ledger — `sign_in_requests`
+ * counts mail, and writing registration attempts into it would make every figure in
+ * `policy.ts` mean something else — and the cheap real answer is a Cloudflare WAF rate rule
+ * at the edge, which is configuration rather than code and belongs with the ops ticket
+ * (#68). What this route emphatically must not do is grow a second, subtly different ledger
+ * on its own.
+ *
+ * The exposure is bounded in the meantime by what the rows are worth: an unverified shelter
+ * publishes nothing visible (ADR 0003), so the attack costs storage and nothing else.
+ */
+export const prerender = false;
+
+const SUCCESS = "/refugios/registro/listo";
+
+let errors: readonly RegistrationError[] = [];
+/** What the shelter typed, so a refused form comes back filled in rather than blank. */
+let submitted: FormData | null = null;
+
+if (Astro.request.method === "POST") {
+  submitted = await Astro.request.formData();
+  const parsed = parseRegistration(submitted);
+
+  if (parsed.ok) {
+    const db = createDb(env.DB);
+
+    /**
+     * An address that is already registered gets the **success** page, and no second
+     * shelter is written.
+     *
+     * Not an error message, because "that address is already registered" is the
+     * shelter-enumeration answer ADR 0008 forbids the code-request form from giving, and a
+     * registration form that gives it away instead has only moved the oracle. The two
+     * responses are identical, so this form cannot be used to test whether an address is on
+     * the platform either.
+     *
+     * The cost is that a genuine registration typed into another shelter's address is
+     * silently dropped. Nothing is lost that the shelter can see — no mail is sent at
+     * registration — and the recovery is the same out-of-band path ADR 0013 already defines
+     * for a lost inbox.
+     */
+    const existing = await findShelterByEmail(db, parsed.value.accountEmail);
+    if (existing === null) {
+      await registerShelter(db, parsed.value, new Date());
+    }
+
+    return Astro.redirect(SUCCESS, 303);
+  }
+
+  errors = parsed.errors;
+}
+
+const priorValue = (field: string): string => {
+  const value = submitted?.get(field);
+  return typeof value === "string" ? value : "";
+};
+
+const errorFor = (field: RegistrationError["field"]): string | undefined =>
+  errors.find((error) => error.field === field)?.reason;
+
+/**
+ * Three empty contact-point rows. One would make the "at least one" rule read as a limit;
+ * more than three would suggest a shelter is expected to fill them all in. A shelter with a
+ * fourth channel adds it from its profile (issue #52).
+ */
+const CONTACT_ROWS = [0, 1, 2];
+
+const KIND_LABELS: Record<(typeof CONTACT_POINT_KINDS)[number], string> = {
+  whatsapp: "WhatsApp",
+  instagram: "Instagram",
+  email: "Correo",
+  phone: "Teléfono",
+};
+---
+
+<Refugios title="Registra tu refugio" heading="Registra tu refugio">
+  {
+    errors.length > 0 && (
+      <div role="alert" data-testid="errors">
+        <p>Revisa lo siguiente:</p>
+        <ul>
+          {errors.map((error) => (
+            <li>{error.reason}</li>
+          ))}
+        </ul>
+      </div>
+    )
+  }
+
+  <form method="post" action="/refugios/registro">
+    <p>
+      <label for="displayName">Nombre del refugio</label><br />
+      <!--
+        `required` on every field, and the same rules re-checked in `registration.ts`. The
+        attribute is a courtesy that saves a round trip; it is not a check, because it is
+        gone the moment anyone posts to this URL without a browser in the way.
+      -->
+      <input
+        id="displayName"
+        name="displayName"
+        type="text"
+        required
+        maxlength="120"
+        value={priorValue("displayName")}
+        aria-describedby="displayName-hint"
+      />
+      <small id="displayName-hint">
+        Así te van a ver los adoptantes. Puedes cambiarlo después.
+      </small>
+      {errorFor("displayName") && <strong>{errorFor("displayName")}</strong>}
+    </p>
+
+    <p>
+      <label for="accountEmail">Correo del refugio</label><br />
+      <input
+        id="accountEmail"
+        name="accountEmail"
+        type="email"
+        required
+        maxlength="200"
+        value={priorValue("accountEmail")}
+        aria-describedby="accountEmail-hint"
+      />
+      <small id="accountEmail-hint">
+        <!--
+          The account email is the shelter's whole credential (ADR 0013), so the form says so
+          here rather than leaving a volunteer to discover it by leaving. `CONTEXT.md`:
+          "Deliberately not a named person's, so it survives a volunteer leaving."
+        -->
+        Que sea un correo del refugio y no de una persona: con este correo se entra, así que
+        tiene que seguir sirviendo cuando cambien los voluntarios. No se publica en ningún
+        lado.
+      </small>
+      {errorFor("accountEmail") && <strong>{errorFor("accountEmail")}</strong>}
+    </p>
+
+    <p>
+      <label for="baseRegion">¿Dónde está el refugio?</label><br />
+      <input
+        id="baseRegion"
+        name="baseRegion"
+        type="text"
+        required
+        maxlength="200"
+        value={priorValue("baseRegion")}
+        aria-describedby="baseRegion-hint"
+      />
+      <small id="baseRegion-hint">
+        El estado donde está el refugio. Cada animal lleva el suyo, así que puedes publicar
+        uno que esté en otro lado.
+      </small>
+      {errorFor("baseRegion") && <strong>{errorFor("baseRegion")}</strong>}
+    </p>
+
+    <p>
+      <label for="countryCode">País</label><br />
+      <select id="countryCode" name="countryCode" required>
+        <option value="VE" selected={priorValue("countryCode") !== "" ? undefined : true}>
+          Venezuela
+        </option>
+      </select>
+      {errorFor("countryCode") && <strong>{errorFor("countryCode")}</strong>}
+    </p>
+
+    <fieldset>
+      <legend>¿Cómo te contactan los adoptantes?</legend>
+      <p id="contactPoints-hint">
+        <!--
+          The reason the rule exists, told plainly. `isListed()` requires
+          `contactPointCount > 0`, so a shelter with none would publish animals that nobody
+          can see — and nothing on its own screen would look wrong. Saying why here is
+          cheaper than a support conversation later.
+        -->
+        Hace falta al menos una. Sin ninguna, tus animales no le aparecerían a nadie, porque
+        no habría manera de escribirte por ellos. Esto sí se publica.
+      </p>
+      {
+        CONTACT_ROWS.map((row) => (
+          <p>
+            <label for={`contactValue-${row}`}>Forma de contacto</label><br />
+            <select name="contactKind" aria-label="Tipo">
+              {CONTACT_POINT_KINDS.map((kind) => (
+                <option value={kind}>{KIND_LABELS[kind]}</option>
+              ))}
+            </select>
+            <input
+              id={`contactValue-${row}`}
+              name="contactValue"
+              type="text"
+              maxlength="200"
+              required={row === 0}
+            />
+          </p>
+        ))
+      }
+      {errorFor("contactPoints") && <strong>{errorFor("contactPoints")}</strong>}
+    </fieldset>
+
+    <p><button type="submit">Registrar el refugio</button></p>
+  </form>
+
+  <p>
+    ¿Ya tienes refugio registrado? <a href="/refugios/entrar">Entra con tu correo</a>.
+  </p>
+</Refugios>

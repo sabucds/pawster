@@ -390,6 +390,8 @@ issue that builds the surface.
 | Region | `dónde está` | The label; values are the administrative divisions' own names |
 | Sex | `sexo` | `Macho`, `Hembra`, `No se sabe` |
 | Sterilisation | `esterilización` | `Esterilizado / Esterilizada`, `Sin esterilizar`, `No se sabe`. A display-only attribute (not a Filter Axis) with no glossary entry of its own, and the only concept English also genders: `Neutered / Spayed` |
+| One-Time Code | `el código` | `Escribe el código`, `Tu código para entrar`. Never `OTP`, `PIN` or `clave` — `clave` means password, which is the one thing this is not. Settled by issue #51 |
+| Session | *(no noun)* | Rendered as the act: `Entra a tu refugio`, `Salir`. A shelter is never told it "has a session", because the word it would hear is `sesión` and the thing it is doing is entering. Settled by issue #51 |
 | Verification | `verificado` | `Refugio verificado`; the log itself is never shown to an adopter |
 | Digest | `resumen` | |
 | Subscription | `búsqueda` | What a subscriber calls their own: `Cambiar mis búsquedas` |

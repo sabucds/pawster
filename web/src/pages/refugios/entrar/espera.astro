@@ -1,0 +1,50 @@
+---
+import Refugios from "../../../layouts/Refugios.astro";
+
+/**
+ * The platform is out of sign-in mail for now.
+ *
+ * ADR 0013: "When the ceiling is hit the honest behaviour is to tell the shelter to try
+ * tomorrow, never to eat the digest." This page is that honesty, and it is a separate page
+ * rather than a message on the sign-in form because the form is prerendered and has no way
+ * to render a per-request state.
+ *
+ * **It reveals nothing about any address**, which is what allows it to exist at all
+ * alongside ADR 0008's identical-response rule. Both refusals that lead here — the global
+ * daily ceiling and the per-IP request limit — are facts about the platform and about the
+ * caller, never about the submitted address, so a registered and an unregistered address
+ * arrive here under exactly the same conditions. The per-address refusals, the five-minute
+ * cooldown and the daily cap, deliberately do **not** land here: those are facts about one
+ * address and are refused silently, with the same response a successful request gets.
+ *
+ * The wording says "in a few hours" rather than "tomorrow", because the budget is counted
+ * over a trailing 24 hours rather than a calendar day — see `mailBudgetWindowStart()` for
+ * why. Telling a shelter "tomorrow" when the answer is "in three hours" is a small lie that
+ * costs it a day of publishing.
+ */
+---
+
+<Refugios title="Vuelve más tarde" heading="Ahora mismo no podemos mandar el código">
+  <p data-testid="mail-ceiling">
+    Pawster manda una cantidad limitada de correos al día y hoy ya se llegó al tope. No es
+    nada que hayas hecho tú y tu refugio está bien.
+  </p>
+
+  <p data-testid="try-later">
+    Vuelve a intentarlo <strong>en unas horas</strong> y te va a llegar el código sin
+    problema.
+  </p>
+
+  <p>
+    <!--
+      Named, not hidden behind "technical limits". The reservation is real and the reason is
+      real: subscriber digests share the same 100 emails a day, and a shelter that
+      understands the platform is small is not the same as a shelter that thinks it is
+      broken.
+    -->
+    El tope existe porque el correo es lo único que este proyecto tiene contado, y una parte
+    está reservada para los resúmenes que reciben los adoptantes.
+  </p>
+
+  <p><a href="/refugios/entrar">Volver</a></p>
+</Refugios>

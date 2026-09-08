@@ -1,0 +1,58 @@
+---
+import Refugios from "../../../layouts/Refugios.astro";
+import { ONE_TIME_CODE_DIGITS, ONE_TIME_CODE_TTL_MS } from "../../../lib/auth/policy.ts";
+
+/**
+ * Type the code.
+ *
+ * Prerendered, and it carries **no field for the address** — that is the whole reason the
+ * code request hands back an opaque token in a cookie instead of putting the address in the
+ * redirect. See `oneTimeCodes.requestToken` in `db/src/schema.ts`: a response whose bytes
+ * varied with the submitted address would be a response that answers whether that address is
+ * registered, which ADR 0008 forbids.
+ *
+ * The two policy numbers are read from `policy.ts` rather than written into the copy, so
+ * the sentence a shelter reads and the expiry the endpoint enforces cannot drift apart. They
+ * are resolved at build time; nothing here runs per request.
+ */
+const ttlMinutes = Math.round(ONE_TIME_CODE_TTL_MS / 60_000);
+---
+
+<Refugios title="Escribe el código" heading="Escribe el código">
+  <p>
+    Te mandamos un código de {ONE_TIME_CODE_DIGITS} dígitos al correo del refugio. Vence en {
+      ttlMinutes
+    } minutos y sirve una sola vez.
+  </p>
+
+  <form method="post" action="/api/refugios/sesion">
+    <p>
+      <label for="code">Código</label><br />
+      <!--
+        `inputmode="numeric"` and not `type="number"`: a number input strips the leading zero
+        from `012345`, which is a perfectly good code, and offers spinner arrows for a value
+        nobody increments. `autocomplete="one-time-code"` is what lets iOS and Android offer
+        the code straight from the notification, which is the case ADR 0013 cares about — the
+        inbox and the browser on different devices, or at least in different apps.
+      -->
+      <input
+        id="code"
+        name="code"
+        type="text"
+        inputmode="numeric"
+        autocomplete="one-time-code"
+        pattern="[0-9]*"
+        required
+        maxlength="12"
+        aria-describedby="code-hint"
+      />
+      <small id="code-hint">Los {ONE_TIME_CODE_DIGITS} dígitos, con o sin espacios.</small>
+    </p>
+    <p><button type="submit">Entrar</button></p>
+  </form>
+
+  <p>
+    ¿No te llegó? <a href="/refugios/entrar">Pide otro</a>. Ojo: al pedir uno nuevo, el
+    anterior deja de servir.
+  </p>
+</Refugios>

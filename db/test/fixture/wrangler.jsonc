@@ -10,6 +10,17 @@
       "database_name": "pawster",
       "database_id": "00000000-0000-0000-0000-000000000000",
       "migrations_dir": "../../migrations"
+    },
+    // A second, empty database that the suite's setup file does *not* migrate, so
+    // `migrations.test.ts` can apply the migrations one at a time and seed a row between
+    // them. That is the only way to observe what migration 0001 does to a `shelters` table
+    // that already has rows in it — applying them all at once, as every other test project
+    // does, can never reach the case.
+    {
+      "binding": "MIGRATION_DB",
+      "database_name": "pawster-migration-fixture",
+      "database_id": "00000000-0000-0000-0000-000000000001",
+      "migrations_dir": "../../migrations"
     }
   ]
 }

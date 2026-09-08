@@ -1,0 +1,45 @@
+---
+/**
+ * The frame the shelter-facing pages share.
+ *
+ * Deliberately thin — a document, a heading and a slot. It exists because six pages landed
+ * at once with issue #51 and the alternative was six copies of the same `<head>`, not
+ * because a design system is being started here.
+ *
+ * **No stylesheet and no script.** Both are real decisions rather than things not done yet:
+ * ADR 0007's rule is that the Worker runs as rarely as possible and the payload is small on
+ * a metered Venezuelan connection, and every page in this group is a form that has to work
+ * before any of that arrives. The look belongs to the ticket that designs the publishing
+ * area; what these pages owe the shelter is that the words are right and the form submits.
+ *
+ * The copy is es-VE, hard-coded, matching `index.astro` and `animales/[id].astro`. ADR 0018
+ * settles that UI strings become typed phrase functions in a `strings/` workspace; that
+ * workspace does not exist yet and standing it up needs a per-locale routing decision
+ * Astro does not make for us, which belongs with the listing (#56/#57) rather than with
+ * auth. `CONTEXT.md`'s *User-facing Spanish* table governs the words used here.
+ */
+interface Props {
+  title: string;
+  heading: string;
+}
+
+const { title, heading } = Astro.props;
+---
+
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title} — Pawster</title>
+    <!--
+      Never indexed. Every page in this group is either a credential form or a shelter's own
+      publishing area, and a search engine holding a cached copy of one is all cost and no
+      benefit — nobody arrives at a sign-in form through search.
+    -->
+    <meta name="robots" content="noindex" />
+  </head>
+  <body>
+    <h1>{heading}</h1>
+    <slot />
+  </body>
+</html>

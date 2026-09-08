@@ -9,6 +9,12 @@ declare global {
        * file system.
        */
       TEST_MIGRATIONS: D1Migration[];
+      /**
+       * The unmigrated second database `migrations.test.ts` owns. Declared here because the
+       * binding is real — it is in `test/fixture/wrangler.jsonc` — but `Cloudflare.Env` for
+       * this project is not generated from that file.
+       */
+      MIGRATION_DB: D1Database;
     }
   }
 }
