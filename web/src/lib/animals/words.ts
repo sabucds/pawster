@@ -351,24 +351,12 @@ export const SPECIES_OPTION_LABELS = optionLabels(SPECIES_WORDS);
 export const STERILISATION_OPTION_LABELS = optionLabels(STERILISATION_WORDS);
 
 /**
- * The five bands as the listing's filter panel offers them — `Cachorro`, `Gatico`, `Joven`,
- * `Adulto`, `Senior`.
- *
- * Capitalised, like {@link ageBandLabel} and for its reason: standing alone in a checkbox a
- * band opens a value rather than trailing a noun. Masculine and undisclosed, like every other
- * option label — a filter option names a category and describes no particular animal, so there
- * is no sex to agree with and nothing to disclose.
- *
- * Both first bands are offered, and that is the vocabulary rather than a duplication: a cat is
- * never `Puppy`, so `Cachorro` and `Gatico` are two different filters and an adopter looking
- * for a kitten is not served by a checkbox that says `Cachorro`.
+ * *There is deliberately no age-band option label here.* A filter panel's words for the six
+ * criteria vocabularies are `../axis-labels.ts`'s, which holds them for all three surfaces that
+ * render them and checks each record against `domain/`'s vocabulary with `satisfies`. A copy
+ * here would be a second list that can disagree with it — and the first draft of #56's panel
+ * was exactly that copy.
  */
-export const AGE_BAND_OPTION_LABELS: Record<AgeBand, string> = Object.fromEntries(
-  (Object.keys(AGE_BAND_WORDS) as AgeBand[]).map((band) => [
-    band,
-    AGE_BAND_WORDS[band].m.charAt(0).toUpperCase() + AGE_BAND_WORDS[band].m.slice(1),
-  ]),
-) as Record<AgeBand, string>;
 
 /** The three availabilities as the shelter's own edit form offers them. */
 export const AVAILABILITY_OPTION_LABELS = optionLabels(AVAILABILITY_WORDS);

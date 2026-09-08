@@ -466,6 +466,17 @@ export function selectListed(
  * `criteria.ts` has said all along that "the same normalisation has to happen on the animal's
  * side for the two to ever meet". This is the animal's side, and it meets it through that
  * module's own exported function rather than through a second `toLowerCase()`.
+ *
+ * **A distinct type for the display form was considered and is not here.** The conflation is
+ * real — {@link ListedAnimal}'s `region` is typed `Region`, which `axes.ts` calls "an opaque
+ * identifier", while what it actually holds is the string a shelter typed — and a compiler that
+ * could tell the two apart would make this function unnecessary to remember. But `Region` is a
+ * bare alias for `string`, so a sibling alias would be assignable to it in both directions and
+ * would catch exactly nothing; making it catch something means branding, which means a
+ * validating constructor and casts at every boundary that reads a region out of D1 or off a
+ * form. `axes.ts` already weighed that trade for this axis and declined it — "it would buy
+ * casts rather than safety today" — and the reference data that would justify a constructor
+ * belongs to a later ticket. So the guarantee is this one function and the test that pins it.
  */
 function axesOf(animal: ListedAnimal): AnimalAxes {
   return {

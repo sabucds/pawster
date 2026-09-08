@@ -97,31 +97,31 @@ describe("the provenance line", () => {
   });
 });
 
-describe("the convivencia slot", () => {
+describe("the good-with slot", () => {
   it("makes a known No a legible warning, one per axis", () => {
-    const { convivencia } = card({
+    const { goodWith: lines } = card({
       goodWith: { children: "Yes", dogs: "No", cats: "No" },
     });
 
-    expect(convivencia.warnings).toEqual([
+    expect(lines.warnings).toEqual([
       "No convive con perros",
       "No convive con gatos",
     ]);
     expect(renderCard(card({ goodWith: { children: "Yes", dogs: "No", cats: "No" } })))
-      .toContain("convivencia-no");
+      .toContain("good-with-no");
   });
 
   it("merges the known Yeses into one quiet line", () => {
-    expect(card({ goodWith: ALL_YES }).convivencia.positives).toBe(
+    expect(card({ goodWith: ALL_YES }).goodWith.positives).toBe(
       "Con niños, perros y gatos",
     );
     expect(
       card({ goodWith: { children: "Yes", dogs: "Unknown", cats: "Yes" } })
-        .convivencia.positives,
+        .goodWith.positives,
     ).toBe("Con niños y gatos");
     expect(
       card({ goodWith: { children: "Unknown", dogs: "Unknown", cats: "Yes" } })
-        .convivencia.positives,
+        .goodWith.positives,
     ).toBe("Con gatos");
   });
 
@@ -129,24 +129,62 @@ describe("the convivencia slot", () => {
   it("collapses the unknowns into one named line", () => {
     expect(
       card({ goodWith: { children: "Yes", dogs: "Unknown", cats: "Yes" } })
-        .convivencia.unknown,
+        .goodWith.unknown,
     ).toBe("Sin evaluar: perros");
     expect(
       card({ goodWith: { children: "Yes", dogs: "Unknown", cats: "Unknown" } })
-        .convivencia.unknown,
+        .goodWith.unknown,
     ).toBe("Sin evaluar: perros, gatos");
   });
 
   it("says it once for an animal nothing was assessed about", () => {
-    const { convivencia } = card({ goodWith: ALL_UNKNOWN });
+    const { goodWith: lines } = card({ goodWith: ALL_UNKNOWN });
 
-    expect(convivencia.unknown).toBe("Convivencia sin evaluar");
-    expect(convivencia.positives).toBeNull();
-    expect(convivencia.warnings).toEqual([]);
+    expect(lines.unknown).toBe("Convivencia sin evaluar");
+    expect(lines.positives).toBeNull();
+    expect(lines.warnings).toEqual([]);
   });
 
   it("has nothing to say when every axis is a known Yes", () => {
-    expect(card({ goodWith: ALL_YES }).convivencia.unknown).toBeNull();
+    expect(card({ goodWith: ALL_YES }).goodWith.unknown).toBeNull();
+  });
+
+  /**
+   * **The slot's worst case is three lines, not two**, and the stylesheet reserves three
+   * because of this test. #17 specifies "a fixed two-line reservation … enough for the worst
+   * case in the seed data: two `No`s plus a `Yes`" — which is three phrases under its own
+   * three-weights rule, since only the positives merge and only the unknowns collapse.
+   *
+   * The animal that made this matter is ordinary rather than contrived: children `No`, dogs
+   * `Yes`, cats `Unknown` produced three lines into a two-line slot, and what fell off the
+   * bottom was `Sin evaluar: gatos` — the label `CONTEXT.md` requires an unassessed axis to
+   * carry.
+   */
+  it("emits at most three lines, and three is reached by ordinary animals", () => {
+    const lineCount = (flags: GoodWithFlags): number => {
+      const { goodWith: lines } = card({ goodWith: flags });
+      return (
+        lines.warnings.length +
+        (lines.positives === null ? 0 : 1) +
+        (lines.unknown === null ? 0 : 1)
+      );
+    };
+
+    expect(lineCount({ children: "No", dogs: "Yes", cats: "Unknown" })).toBe(3);
+    expect(lineCount({ children: "No", dogs: "No", cats: "Yes" })).toBe(3);
+    expect(lineCount({ children: "No", dogs: "No", cats: "No" })).toBe(3);
+    expect(lineCount(ALL_UNKNOWN)).toBe(1);
+    expect(lineCount(ALL_YES)).toBe(1);
+
+    /** Every combination there is, so "at most three" is exhaustive rather than sampled. */
+    const flags: GoodWithFlags["children"][] = ["Yes", "No", "Unknown"];
+    for (const children of flags) {
+      for (const dogs of flags) {
+        for (const cats of flags) {
+          expect(lineCount({ children, dogs, cats })).toBeLessThanOrEqual(3);
+        }
+      }
+    }
   });
 });
 

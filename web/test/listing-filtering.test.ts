@@ -7,7 +7,8 @@ import {
   criteriaFromSearch,
   searchFromCriteria,
 } from "../src/lib/listing/criteria.ts";
-import { regionsIn, statusLine } from "../src/lib/listing/island.ts";
+import { regionsIn } from "../src/lib/listing/island.ts";
+import { statusLine } from "../src/lib/listing/words.ts";
 
 /**
  * Filtering, end to end, minus the document.

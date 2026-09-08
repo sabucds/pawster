@@ -15,10 +15,17 @@
  *
  * #17's card is A — Mosaico 2×, fixed height — and its one real defect is that a two-up grid
  * makes every row as tall as its tallest card over data that is intrinsically variable-height.
- * The fix is a **fixed two-line reservation for the convivencia slot**, which means committing
- * to a fixed field set: photo, name, urgency chip, one meta line, one provenance line, and the
- * convivencia slot. Nothing here is optional-and-sometimes-taller, which is why
- * {@link CardModel}'s convivencia is three named slots rather than a list of chips.
+ * The fix is a **fixed reservation for the good-with slot** (the `convivencia` an adopter
+ * reads), which means committing to a fixed field set: photo, name, urgency chip, one meta
+ * line, one provenance line, and that slot. Nothing here is optional-and-sometimes-taller,
+ * which is why {@link CardModel}'s {@link GoodWithLines} is three named slots rather than a
+ * list of chips.
+ *
+ * **The slot reserves three lines, and #17's "two" is wrong for its own rule.** That prototype
+ * sizes the reservation for "two `No`s plus a `Yes`", which is *three* phrases under the
+ * three-weights rule it settles in the same document: only the positives merge and only the
+ * unknowns collapse, because a known `No` is a safety fact that earns a line of its own.
+ * `web/test/listing-card.test.ts` pins the worst case exhaustively.
  */
 
 import type { ListedAnimal } from "@pawster/domain";
@@ -36,9 +43,11 @@ import {
   goodWithUnknownLine,
   provenanceLine,
 } from "../animals/words.ts";
+import { URGENT_CHIP_LABEL } from "./words.ts";
 
 /**
- * The convivencia slot: **three visual weights, not one tri-state chip row.**
+ * The good-with slot — `convivencia` to its reader: **three visual weights, not one tri-state
+ * chip row.**
  *
  * The three are not one visual class and treating them as one is exactly what produces the
  * wall of chips #17 measured. A known `No` is a safety fact and the filter excludes only an
@@ -46,7 +55,7 @@ import {
  * than urgent and merges; and the unknowns collapse into one named line so that
  * non-information is not the heaviest thing on the card.
  */
-export interface Convivencia {
+export interface GoodWithLines {
   /** One legible warning per known `No` — `No convive con gatos`. */
   readonly warnings: readonly string[];
   /** Every known `Yes`, merged — `Con niños y gatos`. `null` when there are none. */
@@ -84,7 +93,7 @@ export interface CardModel {
    * here, so the threshold that re-bands every animal at once lives in one place.
    */
   readonly provenanceAged: boolean;
-  readonly convivencia: Convivencia;
+  readonly goodWith: GoodWithLines;
   /**
    * A chip beside the name, and **not a sort key**. The cap is three per shelter and the
    * listing is cross-shelter, so the platform can cap urgency per shelter but not per screen —
@@ -132,7 +141,7 @@ export function cardModel(
     meta: cardMetaLine(animal, band),
     provenance: provenanceLine(animal, daysBetween(animal.lastConfirmedAt, now)),
     provenanceAged: deriveStalenessBand(animal.lastConfirmedAt, now) !== "Fresh",
-    convivencia: {
+    goodWith: {
       warnings: axesAnswering(animal, "No").map((axis) =>
         goodWithPhrase(axis, "No"),
       ),
@@ -195,22 +204,22 @@ export function escapeHtml(value: string): string {
  * constraint — 8.6× between card shapes for the same twelve animals — and a two-up grid of
  * 344×430 photos is more than one screen's worth on any handset.
  *
- * The convivencia slot renders its three weights in a fixed order and inside a container the
- * stylesheet reserves two lines for, so a card with two warnings and a card with none are the
- * same height.
+ * The good-with slot renders its three weights in a fixed order, inside a container the
+ * stylesheet reserves three lines for, so a card with two warnings and a card with none are
+ * the same height.
  */
 export function renderCard(card: CardModel): string {
-  const warnings = card.convivencia.warnings
+  const warnings = card.goodWith.warnings
     .map(
       (warning) =>
-        `<li class="convivencia-no">${escapeHtml(warning)}</li>`,
+        `<li class="good-with-no">${escapeHtml(warning)}</li>`,
     )
     .join("");
-  const positives = card.convivencia.positives
-    ? `<li class="convivencia-si">${escapeHtml(card.convivencia.positives)}</li>`
+  const positives = card.goodWith.positives
+    ? `<li class="good-with-yes">${escapeHtml(card.goodWith.positives)}</li>`
     : "";
-  const unknown = card.convivencia.unknown
-    ? `<li class="convivencia-sin">${escapeHtml(card.convivencia.unknown)}</li>`
+  const unknown = card.goodWith.unknown
+    ? `<li class="good-with-unknown">${escapeHtml(card.goodWith.unknown)}</li>`
     : "";
 
   return `<li class="card" data-testid="card" data-animal-id="${escapeHtml(card.id)}">
@@ -226,14 +235,14 @@ export function renderCard(card: CardModel): string {
     />
     <h2 class="card-name">${escapeHtml(card.name)}${
       card.urgent
-        ? ' <span class="chip-urgent" data-testid="urgent-chip">Urgente</span>'
+        ? ` <span class="chip-urgent" data-testid="urgent-chip">${URGENT_CHIP_LABEL}</span>`
         : ""
     }</h2>
     <p class="card-meta" data-testid="card-meta">${escapeHtml(card.meta)}</p>
     <p class="card-provenance${
       card.provenanceAged ? " is-aged" : ""
     }" data-testid="card-provenance">${escapeHtml(card.provenance)}</p>
-    <ul class="card-convivencia" data-testid="card-convivencia">${warnings}${positives}${unknown}</ul>
+    <ul class="card-good-with" data-testid="card-good-with">${warnings}${positives}${unknown}</ul>
   </a>
 </li>`;
 }

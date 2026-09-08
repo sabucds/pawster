@@ -44,6 +44,7 @@ import {
 } from "@pawster/domain";
 import { cardModel, escapeHtml, renderCard } from "./card.ts";
 import { criteriaFromForm, searchFromCriteria } from "./criteria.ts";
+import { INDEX_UNREADABLE, statusLine } from "./words.ts";
 
 /**
  * What the page's shell gives the island: the four elements it writes to, and the bucket's
@@ -137,32 +138,6 @@ function renderRegions(
     .join("");
 }
 
-/**
- * How many animals the current filters leave, said in Spanish and agreeing with the number.
- *
- * The empty case says what to do about it rather than only that there is nothing, because the
- * most likely cause is a filter combination rather than an empty platform.
- */
-export function statusLine(shown: number, total: number): string {
-  if (total === 0) {
-    return "Todavía no hay animales publicados.";
-  }
-  if (shown === 0) {
-    return "Ningún animal coincide con esos filtros. Quita alguno para ver más.";
-  }
-  if (shown === total) {
-    return shown === 1 ? "1 animal" : `${shown} animales`;
-  }
-  return shown === 1 ? `1 animal de ${total}` : `${shown} animales de ${total}`;
-}
-
-/**
- * Wire the panel to the index, and render once.
- *
- * The clock is read once per render rather than once per card, so every card on a screen
- * derives its band and its staleness from the same instant — two cards disagreeing about
- * "today" because a render crossed midnight is a small thing, but it is free to prevent.
- */
 export async function startListing(elements: ListingElements): Promise<void> {
   const { form, grid, status, regions, mediaBase } = elements;
 
@@ -177,8 +152,7 @@ export async function startListing(elements: ListingElements): Promise<void> {
      * "without it the listing is empty in a way that looks like a broken index rather than a
      * missing header".
      */
-    status.textContent =
-      "No pudimos cargar la lista de animales. Prueba a recargar la página.";
+    status.textContent = INDEX_UNREADABLE;
     status.dataset.state = "failed";
     return;
   }
@@ -212,6 +186,17 @@ export async function startListing(elements: ListingElements): Promise<void> {
     const now = new Date();
     const shown = selectListed(animals, criteria, now);
 
+    /**
+     * One `innerHTML` for the whole grid: one reflow, where a few dozen cards' worth of
+     * `createElement` is a few hundred DOM operations on the cheapest phone this is built for.
+     *
+     * It does re-create every `<img>` on every keystroke of the panel, and what makes that
+     * free rather than a request per tick is ADR 0012: a derivative's key is a hash of its
+     * bytes and it is served `max-age=31536000, immutable`, so a photo the browser has already
+     * seen is a cache hit with no revalidation. That is the same property the whole read path
+     * rests on, spent here as well — and it is why "filtering issues zero network requests"
+     * survives contact with a grid that is rebuilt rather than diffed.
+     */
     grid.innerHTML = shown
       .map((animal) => renderCard(cardModel(animal, now, mediaBase)))
       .join("");

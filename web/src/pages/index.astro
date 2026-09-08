@@ -1,20 +1,35 @@
 ---
-import {
-  AGE_BANDS,
-  CRITERIA_VOCABULARIES,
-  GOOD_WITH_AXES,
-  SEXES,
-  SIZES,
-  SPECIES,
-} from "@pawster/domain";
-import {
-  AGE_BAND_OPTION_LABELS,
-  SEX_LABELS,
-  SPECIES_OPTION_LABELS,
-  goodWithPhrase,
-  sizeOptionLabel,
-} from "../lib/animals/words.ts";
+import type { LabelledAxis } from "../lib/axis-labels.ts";
+import { LABELLED_AXES, REGION_HEADING } from "../lib/axis-labels.ts";
 import { MEDIA_BASE_URL } from "../lib/listing/media.ts";
+
+/**
+ * The one sentence some axes need, and prose is why it is here rather than in
+ * `lib/axis-labels.ts`.
+ *
+ * That module's scope is "vocabulary values", and it says so: *"Prose stays where it is read: a
+ * page's sentences are in the page."* A note is a sentence to this page's reader, and the
+ * digest's signup form — which renders the same axes from the same labels — needs neither of
+ * these, because a subscriber is describing a standing interest rather than reading a result
+ * set.
+ *
+ * Both notes exist because a filter behaves in a way an adopter cannot see from the checkbox:
+ *
+ * - **Size** is asked of dogs only and always about the adult animal, so a cat fails that axis
+ *   rather than passing it vacuously (`domain/`'s `matching.ts`).
+ * - **Convivencia** excludes only a known *no*. An animal nobody assessed still appears,
+ *   labelled — which is what keeps a shelter's honest "no se sabe" from costing it reach, and
+ *   is therefore what keeps the flags describing animals at all (`CONTEXT.md`).
+ *
+ * A `Partial` keyed by the axis field, so an axis with nothing to add says nothing rather than
+ * carrying an empty string, and an axis renamed in `domain/` fails this build.
+ */
+const AXIS_NOTES: Partial<Record<LabelledAxis["field"], string>> = {
+  sizes: "El tamaño es solo para perros, y es el que se espera de adulto.",
+  goodWith:
+    "Filtrar aquí solo saca a los animales que sabemos que no convive. Los que no están " +
+    "evaluados igual aparecen, y te lo decimos en la tarjeta.",
+};
 
 /**
  * The listing: the page an adopter actually opens.
@@ -165,6 +180,12 @@ import { MEDIA_BASE_URL } from "../lib/listing/media.ts";
         variant B's 6.3 screens and 717 KB. It won over the denser row layout on the grounds
         that the listing's job is not the digest's — someone arriving cold from a shelter's
         Instagram post keeps scrolling because of the photograph.
+
+        **Two at every width, and there was briefly a three-up rule here.** It was not asked
+        for, and it broke the thing variant A exists to hold: at three columns the card is
+        narrow, its 4:5 photo is short, and the text below it no longer fits the height the
+        card had been given — so the last convivencia line was silently cut. Uniformity is what
+        this grid is for, so the columns are the one thing about it that does not vary.
       */
       .grid {
         display: grid;
@@ -176,22 +197,31 @@ import { MEDIA_BASE_URL } from "../lib/listing/media.ts";
       }
 
       /*
-        Fixed height, which is the fix for variant A's one real defect: a two-up grid makes
-        every row as tall as its tallest card, and this data is intrinsically variable-height.
-        Uniformity is bought by committing to a fixed field set — see `lib/listing/card.ts`.
+        **No fixed card height, and that is the fix rather than the omission.**
+
+        Variant A's one real defect is that a two-up grid makes every row as tall as its
+        tallest card over data that is intrinsically variable-height. The first draft answered
+        it with `height: 24.5rem`, which cannot work: the photo's height is a *proportion of
+        the card's width* (`aspect-ratio`), so it grows with the viewport while a `rem` height
+        does not — at the 46rem wrap the photo alone is taller than the card was, and the
+        bottom of the text was cut off.
+
+        So uniformity is bought where it actually comes from. Every card in a row is the same
+        width, the photo is the same proportion of it, and **each text block below reserves its
+        own fixed height** — which is the committed field set of `lib/listing/card.ts` written
+        as CSS. Nothing here has to know what the total comes to, and nothing clips at any
+        width.
       */
       .card {
         border: 1px solid var(--line);
         border-radius: 0.5rem;
         overflow: hidden;
-        height: 24.5rem;
       }
 
       .card-link {
         display: block;
         color: inherit;
         text-decoration: none;
-        height: 100%;
       }
 
       /*
@@ -216,9 +246,16 @@ import { MEDIA_BASE_URL } from "../lib/listing/media.ts";
         background: var(--line);
       }
 
+      /*
+        Two lines reserved: a name plus its urgency chip wraps at two-up on a 360px handset,
+        and a card whose name wrapped must not be taller than its neighbour whose name did not.
+      */
       .card-name {
         font-size: 1rem;
+        line-height: 1.25;
         margin: 0.5rem 0.6rem 0.15rem;
+        height: 2.5rem;
+        overflow: hidden;
       }
 
       .chip-urgent {
@@ -233,10 +270,20 @@ import { MEDIA_BASE_URL } from "../lib/listing/media.ts";
         vertical-align: 0.05rem;
       }
 
+      /*
+        One line each, ellipsised. `Perra adulta · Mediana · sexo no registrado` is the longest
+        meta line the platform can build and it does not fit a two-up card at 360px — and the
+        animal page carries all of it anyway, which is what makes trimming here affordable.
+      */
       .card-meta {
         margin: 0 0.6rem 0.15rem;
         font-size: 0.85rem;
+        line-height: 1.35;
+        height: 1.15rem;
         color: var(--ink-soft);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
       /*
@@ -247,7 +294,12 @@ import { MEDIA_BASE_URL } from "../lib/listing/media.ts";
       .card-provenance {
         margin: 0 0.6rem 0.3rem;
         font-size: 0.8rem;
+        line-height: 1.35;
+        height: 1.1rem;
         color: var(--ink-soft);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
       .card-provenance.is-aged {
@@ -255,35 +307,67 @@ import { MEDIA_BASE_URL } from "../lib/listing/media.ts";
       }
 
       /*
-        **Two lines, reserved whether or not there is anything to put in them.** This is the
-        other half of the fixed-height card: without it a card with two warnings and a card
-        with none are different heights, and the row takes the taller.
+        **Three lines, reserved whether or not there is anything to put in them.** This is the
+        other half of the uniform card: without a reservation, a card with two warnings and a
+        card with none are different heights and the row takes the taller.
+
+        **Three and not two, and #17's own number is what is wrong here.** That prototype
+        specifies "a fixed two-line reservation … enough for the worst case in the seed data:
+        two `No`s plus a `Yes`" — but two `No`s plus a `Yes` is *three* phrases under the
+        three-weights rule the same prototype settles, because only the positives merge and
+        only the unknowns collapse. A known `No` gets a line of its own, by design, since it is
+        the safety fact an unfiltered adopter has to see.
+
+        So the true worst case is three lines, and it is reached by ordinary animals: children
+        `No`, dogs `Yes`, cats `Unknown` is one, and all three `No` is another. Reserving two
+        clipped the third line — which for that first animal is `Sin evaluar: gatos`, the exact
+        label `CONTEXT.md` requires an unassessed axis to carry. The reservation is sized to
+        what `renderCard` can emit rather than to what the prototype's seed data happened to
+        contain.
       */
-      .card-convivencia {
+      .card-good-with {
         list-style: none;
-        margin: 0 0.6rem;
+        margin: 0 0.6rem 0.6rem;
         padding: 0;
         font-size: 0.78rem;
+        line-height: 1.3;
         color: var(--ink-soft);
-        height: 2.6rem;
+        height: 3.05rem;
         overflow: hidden;
+      }
+
+      /*
+        One line per item, which is what makes the three-line reservation above exact rather
+        than approximate: a phrase allowed to wrap would push the third item out of a slot
+        sized for three.
+      */
+      .card-good-with li {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
       /* A legible warning: the filter excludes only an explicit No, so an unfiltered
          adopter has to be able to see one. */
-      .convivencia-no {
+      .good-with-no {
         color: var(--warn);
         font-weight: 600;
       }
 
-      .convivencia-sin {
-        font-style: italic;
-      }
+      /*
+        **`.good-with-yes` has no rule, and that is the third weight.** #17's finding is that a
+        known `Yes` is useful rather than urgent, so it takes the slot's own soft colour and
+        nothing else — giving it a treatment is how three weights collapse back into the wall
+        of chips that measured +14% scroll to say less.
+      */
 
-      @media (min-width: 34rem) {
-        .grid {
-          grid-template-columns: repeat(3, 1fr);
-        }
+      /*
+        Italic rather than a colour: an unassessed axis is still information, but it is the one
+        line on the card that is *about the absence of* information, and the shape of the type
+        says that without competing with the warning above for attention.
+      */
+      .good-with-unknown {
+        font-style: italic;
       }
     </style>
   </head>
@@ -291,8 +375,8 @@ import { MEDIA_BASE_URL } from "../lib/listing/media.ts";
     <div class="wrap">
       <h1>Animales en adopción</h1>
       <p class="lede" data-testid="prerendered">
-        Animales en adopción en Venezuela. Filtra sin esperar: la lista se descarga una vez y
-        el resto pasa en tu teléfono.
+        Animales en adopción en Venezuela. Filtra sin esperar: el listado se descarga una vez
+        y el resto pasa en tu teléfono.
       </p>
 
       <div
@@ -306,98 +390,39 @@ import { MEDIA_BASE_URL } from "../lib/listing/media.ts";
           grouped, labelled and keyboard-reachable for free, and so that one `change` listener
           on it covers every axis — including the region boxes the island adds afterwards.
         -->
-        <form class="filters" data-testid="filters">
-          <fieldset class="axis">
-            <legend>Especie</legend>
-            <div class="axis-options">
-              {
-                SPECIES.map((species) => (
-                  <label class="axis-option">
-                    <input type="checkbox" name="species" value={species} />
-                    {SPECIES_OPTION_LABELS[species]}
-                  </label>
-                ))
-              }
-            </div>
-          </fieldset>
+        <form class="filters" data-filters data-testid="filters">
+          {
+            LABELLED_AXES.map((axis) => (
+              <fieldset class="axis">
+                <legend>{axis.heading}</legend>
+                <div class="axis-options">
+                  {axis.values.map((option) => (
+                    <label class="axis-option">
+                      <input
+                        type="checkbox"
+                        name={axis.field}
+                        value={option.value}
+                      />
+                      {option.label}
+                    </label>
+                  ))}
+                </div>
+                {AXIS_NOTES[axis.field] && (
+                  <p class="axis-note">{AXIS_NOTES[axis.field]}</p>
+                )}
+              </fieldset>
+            ))
+          }
 
+          <!--
+            Regions last, matching the order `describeCriteria()` reads a criteria back in, so
+            the digest's opt-in page and this panel lay the same six axes out the same way.
+          -->
           <fieldset class="axis">
-            <legend>Dónde</legend>
+            <legend>{REGION_HEADING}</legend>
             <!-- Filled by the island from the index: see the frontmatter. -->
             <div class="axis-options" data-regions data-testid="regions"></div>
             <p class="axis-note">Puedes escoger varios estados a la vez.</p>
-          </fieldset>
-
-          <fieldset class="axis">
-            <legend>Etapa</legend>
-            <div class="axis-options">
-              {
-                AGE_BANDS.map((band) => (
-                  <label class="axis-option">
-                    <input type="checkbox" name="ageBands" value={band} />
-                    {AGE_BAND_OPTION_LABELS[band]}
-                  </label>
-                ))
-              }
-            </div>
-          </fieldset>
-
-          <fieldset class="axis">
-            <legend>Tamaño</legend>
-            <div class="axis-options">
-              {
-                SIZES.map((size) => (
-                  <label class="axis-option">
-                    <input type="checkbox" name="sizes" value={size} />
-                    {sizeOptionLabel(size)}
-                  </label>
-                ))
-              }
-            </div>
-            <!--
-              Said rather than left to be inferred: size is asked of dogs only, and always
-              about the adult animal, so a cat fails this axis rather than passing it
-              vacuously (`domain/`'s `matching.ts`).
-            -->
-            <p class="axis-note">El tamaño es solo para perros, y es el de adulto.</p>
-          </fieldset>
-
-          <fieldset class="axis">
-            <legend>Sexo</legend>
-            <div class="axis-options">
-              {
-                SEXES.map((sex) => (
-                  <label class="axis-option">
-                    <input type="checkbox" name="sexes" value={sex} />
-                    {SEX_LABELS[sex]}
-                  </label>
-                ))
-              }
-            </div>
-          </fieldset>
-
-          <fieldset class="axis">
-            <legend>Convivencia</legend>
-            <div class="axis-options">
-              {
-                GOOD_WITH_AXES.map((axis) => (
-                  <label class="axis-option">
-                    <input type="checkbox" name="goodWith" value={axis} />
-                    {goodWithPhrase(axis, "Yes")}
-                  </label>
-                ))
-              }
-            </div>
-            <!--
-              The rule, told to the adopter, because it changes how they read the results: a
-              filter here excludes only an animal whose answer is a known *no*. An animal
-              nobody assessed still appears, labelled — which is what keeps shelters honest
-              about answering "no se sabe" (`CONTEXT.md`).
-            -->
-            <p class="axis-note">
-              Filtrar aquí solo saca a los animales que sabemos que no convive. Los que no
-              están evaluados igual aparecen, y te lo decimos en la tarjeta.
-            </p>
           </fieldset>
         </form>
 
@@ -432,7 +457,7 @@ import { MEDIA_BASE_URL } from "../lib/listing/media.ts";
        * the framework handling a constraint instead of us remembering to.
        */
       const root = document.querySelector<HTMLElement>("[data-listing]");
-      const form = root?.querySelector<HTMLFormElement>("[data-testid='filters']");
+      const form = root?.querySelector<HTMLFormElement>("[data-filters]");
       const grid = root?.querySelector<HTMLElement>("[data-grid]");
       const status = root?.querySelector<HTMLElement>("[data-status]");
       const regions = root?.querySelector<HTMLElement>("[data-regions]");

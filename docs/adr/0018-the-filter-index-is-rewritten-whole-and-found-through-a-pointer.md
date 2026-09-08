@@ -319,6 +319,23 @@ detection the platform needs.
   metered connection, filtering has to move server-side" - arrives when R2's 10 GB does, not before
   it. The index never becomes the binding constraint ahead of storage, and no intermediate scaling
   work is needed.
+
+  > **Measured, and this bullet's conclusion does not survive it.** Issue #56 shipped the index and
+  > `npm run check:filter-index` re-derives its size from the serializer that writes it: **20.4
+  > B/animal gzipped, not 13.4**, so 9,500 animals is **187.4 KB** and ADR 0007's budget is crossed
+  > at about **7,578**. The index expires *first*, not "at almost the same moment".
+  >
+  > The gap is identifiers, and it is the whole of it. Both figures above come from the issue #17
+  > prototype, which synthesised 4-character animal ids, 3-character shelter ids and a thumbnail
+  > key of `id + "-1"`. The rows the platform writes carry two `crypto.randomUUID()`s and a
+  > content-addressed derivative key of `d/` plus a 64-character hex digest (ADR 0012) - about 105
+  > high-entropy characters an animal that gzip cannot fold away and that no prototype counted.
+  >
+  > **Nothing is reopened here, because the number does not bind yet.** At the 2,500 listed animals
+  > this ADR spends its own arithmetic on, the index is 51.0 KB - a third of the budget. And 9,500
+  > was already the optimistic figure ADR 0016 discounts. What has moved is *when* ADR 0007's
+  > trigger fires: around 7,600 listed animals rather than never. The full reasoning, and the
+  > cheapest lever if it ever does bind, are in [`measurements.md`](../measurements.md#filter-index-size).
 - **Regeneration frequency is act-shaped, not animal-shaped.** Confirmations are the platform's most
   frequent write, so they dominate: each is a full rewrite, and a nudge answered for a shelterful is
   one. Even ten thousand acts a month is ~30,000 Class A operations against 1M free.

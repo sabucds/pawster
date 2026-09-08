@@ -119,20 +119,47 @@ describe("the stylesheet rules the card's uniformity rests on", () => {
     expect(css).toContain(`aspect-ratio:${CARD_PHOTO_WIDTH}/${CARD_PHOTO_HEIGHT}`);
   });
 
-  it("reserves the convivencia slot whether or not there is anything in it", () => {
+  /**
+   * Three lines, which is the worst case `renderCard` can emit — two known `No`s plus a merged
+   * positive, or a `No` plus a positive plus the unknown line. #17 specifies "two", and that
+   * number is wrong for its own three-weights rule: only the positives merge and only the
+   * unknowns collapse, so each known `No` keeps a line of its own.
+   */
+  it("reserves three lines for the convivencia slot, whatever is in it", () => {
     const css = html.replace(/\s+/g, "");
 
-    /** Two lines at the slot's own font size, and hidden overflow so it cannot grow. */
-    expect(css).toContain(".card-convivencia{");
-    expect(css).toMatch(/\.card-convivencia\{[^}]*height:2\.6rem/);
-    expect(css).toMatch(/\.card-convivencia\{[^}]*overflow:hidden/);
+    expect(css).toMatch(/\.card-good-with\{[^}]*height:3\.05rem/);
+    expect(css).toMatch(/\.card-good-with\{[^}]*line-height:1\.3/);
+    expect(css).toMatch(/\.card-good-with\{[^}]*overflow:hidden/);
+    /** One line per item, or a wrapped phrase would push the third out of the slot. */
+    expect(css).toMatch(/\.card-good-withli\{[^}]*white-space:nowrap/);
   });
 
-  it("fixes the card's height, which is what makes the two-up grid uniform", () => {
+  /**
+   * **No fixed card height**, and its absence is the fix. The photo's height is a proportion
+   * of the card's width, so it grows with the viewport while a `rem` height does not — at the
+   * 46rem wrap the photo alone was taller than the card, and the text below it was cut off.
+   * Uniformity comes from equal widths plus a per-block reservation instead.
+   */
+  it("reserves each text block rather than fixing the card's total height", () => {
     const css = html.replace(/\s+/g, "");
 
-    expect(css).toMatch(/\.card\{[^}]*height:/);
+    expect(css).not.toMatch(/\.card\{[^}]*height:/);
+    for (const block of ["card-name", "card-meta", "card-provenance", "card-good-with"]) {
+      expect(css).toMatch(new RegExp(`\\.${block}\\{[^}]*height:`));
+      expect(css).toMatch(new RegExp(`\\.${block}\\{[^}]*overflow:hidden`));
+    }
+  });
+
+  /**
+   * Two columns at every width. A three-up rule was briefly here and is what made the clipping
+   * above reachable: narrower cards mean a shorter photo and the same text underneath.
+   */
+  it("stays two-up at every width", () => {
+    const css = html.replace(/\s+/g, "");
+
     expect(css).toContain("grid-template-columns:repeat(2,1fr)");
+    expect(css).not.toContain("repeat(3,1fr)");
   });
 
   it("colours the aged provenance line differently, and nothing else about the card", () => {

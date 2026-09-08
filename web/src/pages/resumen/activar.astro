@@ -3,7 +3,7 @@ import { createDb } from "@pawster/db";
 import { env } from "cloudflare:workers";
 import Resumen from "../../layouts/Resumen.astro";
 import { hashOptInToken } from "../../lib/subscriber/crypto.ts";
-import { describeCriteria } from "../../lib/subscriber/labels.ts";
+import { describeCriteria } from "../../lib/axis-labels.ts";
 import { isOptInExpired, refuseOptIn } from "../../lib/subscriber/policy.ts";
 import { parseOptInToken } from "../../lib/subscriber/signup.ts";
 import {

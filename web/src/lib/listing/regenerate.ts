@@ -109,18 +109,21 @@ async function gzip(text: string): Promise<ArrayBuffer> {
 }
 
 /**
- * `put` the index, retrying **once** inline before giving up.
+ * `put`, retrying **once** inline before giving up — so at most two attempts.
  *
  * ADR 0018's first line of defence against Index Drift: "the failing act retries the `put`
  * once inline — it is I/O, so it is affordable — and if it still fails, tells the shelter the
  * truth: the animal is saved, the listing follows." One retry and not a loop, because the
  * second failure is not a blip and the act it belongs to is a shelter waiting on a form.
  *
- * The throw is what carries "the listing follows" to the caller. It is deliberately raised
- * *before* the pointer is swung, so a failure leaves the previous index standing rather than
- * publishing a pointer to bytes that are not there.
+ * The throw is what carries "the listing follows" to the caller: {@link regenerateForAct}
+ * turns it into a `null` and the surface words it. Both writes a regeneration makes go through
+ * here — the index and the pointer — and neither can leave a half-published state, because the
+ * index is written first: a failure on the index leaves the previous one standing under the
+ * pointer that still names it, and a failure on the pointer leaves an orphan the prefix-keeping
+ * collects an hour later.
  */
-async function putOnce(
+async function putWithRetry(
   media: R2Bucket,
   key: string,
   body: ArrayBuffer | string,
@@ -178,7 +181,7 @@ export async function regenerateIndex(
    */
   const key = indexObjectKey(await sha256Hex(text));
 
-  await putOnce(env.media, key, await gzip(text), {
+  await putWithRetry(env.media, key, await gzip(text), {
     contentType: INDEX_CONTENT_TYPE,
     /**
      * Stored gzipped with the encoding declared, so 33.4 KB is the wire cost whatever fronts
@@ -199,7 +202,7 @@ export async function regenerateIndex(
    * collect an hour later.
    */
   const pointer: IndexPointer = { key, generatedAt: env.now.toISOString() };
-  await putOnce(env.media, INDEX_POINTER_KEY, JSON.stringify(pointer), {
+  await putWithRetry(env.media, INDEX_POINTER_KEY, JSON.stringify(pointer), {
     contentType: INDEX_CONTENT_TYPE,
     cacheControl: POINTER_CACHE_CONTROL,
   });
