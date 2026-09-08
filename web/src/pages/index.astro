@@ -1,12 +1,52 @@
 ---
+import {
+  AGE_BANDS,
+  CRITERIA_VOCABULARIES,
+  GOOD_WITH_AXES,
+  SEXES,
+  SIZES,
+  SPECIES,
+} from "@pawster/domain";
+import {
+  AGE_BAND_OPTION_LABELS,
+  SEX_LABELS,
+  SPECIES_OPTION_LABELS,
+  goodWithPhrase,
+  sizeOptionLabel,
+} from "../lib/animals/words.ts";
+import { MEDIA_BASE_URL } from "../lib/listing/media.ts";
+
 /**
- * Prerendered, like almost everything an anonymous adopter browses. No `prerender` export
- * here because static is the default — the exception is the file that opts out.
+ * The listing: the page an adopter actually opens.
  *
- * This page is served from Static Assets without invoking Worker code. What holds that
- * true is `web/test/routing.test.ts` — "exists as a static asset, which is what lets the
- * asset router answer it" — which asks the `ASSETS` binding for `/` directly. Adding
- * `prerender = false` here makes that binding return 404 and the test fail.
+ * **Prerendered, and there is no `prerender` export here because static is the default** — the
+ * exception is the file that opts out. That is not a preference: Cloudflare's own figures put
+ * server-side rendering at 10–20 ms of CPU against a 10 ms Free-plan ceiling, while a file
+ * served from Static Assets is served *without invoking Worker code*, is free and unlimited,
+ * and does not count against the 100,000 requests/day cap (ADR 0007). This is the page that
+ * takes the traffic, so it is the page that must cost nothing.
+ *
+ * What holds that true is `web/test/routing.test.ts`, which asks the `ASSETS` binding for `/`
+ * directly rather than asking the Worker: a prerendered page is written to `dist/client/` at
+ * build time and the asset router answers ahead of the Worker, so that binding returns the
+ * page. Add `export const prerender = false` here and there is no `dist/client/index.html` at
+ * all, the binding returns 404, and the test fails — while `SELF.fetch("/")` would return 200
+ * either way, which is why a status check through the Worker cannot see the regression.
+ *
+ * ## Nothing about a particular animal is in this file
+ *
+ * The cards are built in the browser from the filter index, and the reason is not
+ * page-weight — it is that a prerendered page cannot know about an animal published after it
+ * was built. Baking today's animals into the HTML would mean a rebuild per publish, and
+ * ADR 0007 chose "seconds, not a rebuild": a publish writes a new index to R2 and the next
+ * page load reads it. So this file is the *chrome* — the five closed-vocabulary axes, the
+ * grid's shape, and the stylesheet that makes the grid uniform — and `lib/listing/island.ts`
+ * fills it.
+ *
+ * The five axes below are therefore real, working HTML before any script runs. Only the
+ * regions are added by the island, because there is no region reference data in the platform
+ * yet and the honest set to offer is the set that has animals in it (ADR 0005 makes regions a
+ * country's administrative divisions, which is a lookup a later ticket owns).
  */
 ---
 
@@ -14,10 +54,399 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Pawster</title>
+    <title>Pawster — animales en adopción en Venezuela</title>
+    <!--
+      **`is:global`, and it is not laziness.** Astro scopes a component's styles by adding a
+      `data-astro-cid-*` attribute to the elements it renders and to every selector — and the
+      cards are not rendered by Astro. The island builds them from the filter index and writes
+      them into the grid, so they carry no such attribute and a scoped `.card { … }` would
+      never match one: the fixed card height, the reserved photo box and the aged provenance
+      colour would all silently fail to apply, which is every layout criterion #56 states.
+
+      Global costs nothing here because this page owns its whole document — it has its own
+      `<html>` and shares no layout — so there is nothing else for these class names to
+      collide with.
+    -->
+    <style is:global>
+      :root {
+        --ink: #1a1d22;
+        --ink-soft: #5b6472;
+        --line: #e2e5ea;
+        --warn: #8a4b00;
+        --aged: #8a5a00;
+        --urgent-bg: #fdeaea;
+        --urgent-ink: #9b1c1c;
+        --page: #ffffff;
+      }
+
+      body {
+        margin: 0;
+        font: 16px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+        color: var(--ink);
+        background: var(--page);
+      }
+
+      .wrap {
+        max-width: 46rem;
+        margin: 0 auto;
+        padding: 1rem 0.75rem 3rem;
+      }
+
+      h1 {
+        font-size: 1.35rem;
+        margin: 0 0 0.25rem;
+      }
+
+      .lede {
+        margin: 0 0 1rem;
+        color: var(--ink-soft);
+      }
+
+      /*
+        The filter panel. `position: sticky` so six axes at 360px do not cost an adopter a
+        scroll back to the top to change their mind — #17 drew the same sticky row for the
+        same reason.
+      */
+      .filters {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background: var(--page);
+        border-bottom: 1px solid var(--line);
+        padding: 0.5rem 0;
+        margin-bottom: 0.75rem;
+      }
+
+      .axis {
+        border: 0;
+        margin: 0;
+        padding: 0.35rem 0;
+      }
+
+      .axis legend {
+        padding: 0;
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: var(--ink-soft);
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
+      }
+
+      .axis-options {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem 0.75rem;
+        list-style: none;
+        margin: 0.3rem 0 0;
+        padding: 0;
+      }
+
+      .axis-option {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        font-size: 0.9rem;
+      }
+
+      .axis-note {
+        margin: 0.2rem 0 0;
+        font-size: 0.8rem;
+        color: var(--ink-soft);
+      }
+
+      .status {
+        margin: 0 0 0.6rem;
+        font-size: 0.9rem;
+        color: var(--ink-soft);
+      }
+
+      /*
+        Two-up, which is #17's variant A: 3.0 screens and 304 KB for twelve animals, against
+        variant B's 6.3 screens and 717 KB. It won over the denser row layout on the grounds
+        that the listing's job is not the digest's — someone arriving cold from a shelter's
+        Instagram post keeps scrolling because of the photograph.
+      */
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 0.75rem;
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+
+      /*
+        Fixed height, which is the fix for variant A's one real defect: a two-up grid makes
+        every row as tall as its tallest card, and this data is intrinsically variable-height.
+        Uniformity is bought by committing to a fixed field set — see `lib/listing/card.ts`.
+      */
+      .card {
+        border: 1px solid var(--line);
+        border-radius: 0.5rem;
+        overflow: hidden;
+        height: 24.5rem;
+      }
+
+      .card-link {
+        display: block;
+        color: inherit;
+        text-decoration: none;
+        height: 100%;
+      }
+
+      /*
+        **`height: auto` beside the `width`/`height` attributes, and both are required.**
+        Without this line, `max-width: 100%` makes an `<img>` carrying those attributes ignore
+        its box's aspect ratio: #17 measured a 688×516 photo rendered 360×516, stretched, with
+        every card about 40% too tall. The attributes cannot be dropped instead — they are
+        what reserves the box before the bytes arrive, which is what gave a blocked photo and
+        a loaded one an identical document height in that prototype.
+
+        `object-fit: cover` is what lets an aspect-preserving derivative sit in a fixed frame:
+        `cardThumbnail` is `scale-down` at 400px on the long edge (ADR 0012), so its shape
+        varies per photograph while the box does not.
+      */
+      .card-photo {
+        display: block;
+        width: 100%;
+        max-width: 100%;
+        height: auto;
+        aspect-ratio: 344 / 430;
+        object-fit: cover;
+        background: var(--line);
+      }
+
+      .card-name {
+        font-size: 1rem;
+        margin: 0.5rem 0.6rem 0.15rem;
+      }
+
+      .chip-urgent {
+        display: inline-block;
+        font-size: 0.7rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        padding: 0.05rem 0.3rem;
+        border-radius: 0.25rem;
+        background: var(--urgent-bg);
+        color: var(--urgent-ink);
+        vertical-align: 0.05rem;
+      }
+
+      .card-meta {
+        margin: 0 0.6rem 0.15rem;
+        font-size: 0.85rem;
+        color: var(--ink-soft);
+      }
+
+      /*
+        The provenance line, in the same position on every card. Its colour — and only its
+        colour — shifts past 30 days; nothing else about the card changes, because the sort
+        order is already doing the de-emphasising (ADR 0001).
+      */
+      .card-provenance {
+        margin: 0 0.6rem 0.3rem;
+        font-size: 0.8rem;
+        color: var(--ink-soft);
+      }
+
+      .card-provenance.is-aged {
+        color: var(--aged);
+      }
+
+      /*
+        **Two lines, reserved whether or not there is anything to put in them.** This is the
+        other half of the fixed-height card: without it a card with two warnings and a card
+        with none are different heights, and the row takes the taller.
+      */
+      .card-convivencia {
+        list-style: none;
+        margin: 0 0.6rem;
+        padding: 0;
+        font-size: 0.78rem;
+        color: var(--ink-soft);
+        height: 2.6rem;
+        overflow: hidden;
+      }
+
+      /* A legible warning: the filter excludes only an explicit No, so an unfiltered
+         adopter has to be able to see one. */
+      .convivencia-no {
+        color: var(--warn);
+        font-weight: 600;
+      }
+
+      .convivencia-sin {
+        font-style: italic;
+      }
+
+      @media (min-width: 34rem) {
+        .grid {
+          grid-template-columns: repeat(3, 1fr);
+        }
+      }
+    </style>
   </head>
   <body>
-    <h1>Pawster</h1>
-    <p data-testid="prerendered">Animales en adopción en Venezuela.</p>
+    <div class="wrap">
+      <h1>Animales en adopción</h1>
+      <p class="lede" data-testid="prerendered">
+        Animales en adopción en Venezuela. Filtra sin esperar: la lista se descarga una vez y
+        el resto pasa en tu teléfono.
+      </p>
+
+      <div
+        data-listing
+        data-testid="listing"
+        data-media-base={MEDIA_BASE_URL}
+      >
+        <!--
+          A real `<form>` with real checkboxes, and no `action`: there is nothing to submit to,
+          because the answer is already in the browser. It is a form so that the controls are
+          grouped, labelled and keyboard-reachable for free, and so that one `change` listener
+          on it covers every axis — including the region boxes the island adds afterwards.
+        -->
+        <form class="filters" data-testid="filters">
+          <fieldset class="axis">
+            <legend>Especie</legend>
+            <div class="axis-options">
+              {
+                SPECIES.map((species) => (
+                  <label class="axis-option">
+                    <input type="checkbox" name="species" value={species} />
+                    {SPECIES_OPTION_LABELS[species]}
+                  </label>
+                ))
+              }
+            </div>
+          </fieldset>
+
+          <fieldset class="axis">
+            <legend>Dónde</legend>
+            <!-- Filled by the island from the index: see the frontmatter. -->
+            <div class="axis-options" data-regions data-testid="regions"></div>
+            <p class="axis-note">Puedes escoger varios estados a la vez.</p>
+          </fieldset>
+
+          <fieldset class="axis">
+            <legend>Etapa</legend>
+            <div class="axis-options">
+              {
+                AGE_BANDS.map((band) => (
+                  <label class="axis-option">
+                    <input type="checkbox" name="ageBands" value={band} />
+                    {AGE_BAND_OPTION_LABELS[band]}
+                  </label>
+                ))
+              }
+            </div>
+          </fieldset>
+
+          <fieldset class="axis">
+            <legend>Tamaño</legend>
+            <div class="axis-options">
+              {
+                SIZES.map((size) => (
+                  <label class="axis-option">
+                    <input type="checkbox" name="sizes" value={size} />
+                    {sizeOptionLabel(size)}
+                  </label>
+                ))
+              }
+            </div>
+            <!--
+              Said rather than left to be inferred: size is asked of dogs only, and always
+              about the adult animal, so a cat fails this axis rather than passing it
+              vacuously (`domain/`'s `matching.ts`).
+            -->
+            <p class="axis-note">El tamaño es solo para perros, y es el de adulto.</p>
+          </fieldset>
+
+          <fieldset class="axis">
+            <legend>Sexo</legend>
+            <div class="axis-options">
+              {
+                SEXES.map((sex) => (
+                  <label class="axis-option">
+                    <input type="checkbox" name="sexes" value={sex} />
+                    {SEX_LABELS[sex]}
+                  </label>
+                ))
+              }
+            </div>
+          </fieldset>
+
+          <fieldset class="axis">
+            <legend>Convivencia</legend>
+            <div class="axis-options">
+              {
+                GOOD_WITH_AXES.map((axis) => (
+                  <label class="axis-option">
+                    <input type="checkbox" name="goodWith" value={axis} />
+                    {goodWithPhrase(axis, "Yes")}
+                  </label>
+                ))
+              }
+            </div>
+            <!--
+              The rule, told to the adopter, because it changes how they read the results: a
+              filter here excludes only an animal whose answer is a known *no*. An animal
+              nobody assessed still appears, labelled — which is what keeps shelters honest
+              about answering "no se sabe" (`CONTEXT.md`).
+            -->
+            <p class="axis-note">
+              Filtrar aquí solo saca a los animales que sabemos que no convive. Los que no
+              están evaluados igual aparecen, y te lo decimos en la tarjeta.
+            </p>
+          </fieldset>
+        </form>
+
+        <p class="status" data-status data-testid="status" role="status">
+          Cargando animales…
+        </p>
+
+        <!--
+          Ordered, because the order carries meaning: freshest-confirmed first (ADR 0001), and
+          a screen reader announcing "list, 12 items" is telling the adopter how much there is.
+        -->
+        <ul class="grid" data-grid data-testid="grid"></ul>
+      </div>
+
+      <p class="axis-note">
+        Las etapas y el tiempo desde la última confirmación se calculan cuando abres la
+        página, no cuando se publicó el animal.
+      </p>
+    </div>
+
+    <script>
+      import { startListing } from "../lib/listing/island.ts";
+
+      /**
+       * The one line of glue, and it is deliberately incapable of doing anything else: it
+       * finds the shell's elements and hands them over. Everything that decides anything is
+       * in the modules `island.ts` imports, which is what makes them testable without a
+       * document (`docs/testing-seams.md`).
+       *
+       * Astro ships this only because this page asks for it — islands architecture means no
+       * JavaScript unless a component wants some, which on a metered Venezuelan connection is
+       * the framework handling a constraint instead of us remembering to.
+       */
+      const root = document.querySelector<HTMLElement>("[data-listing]");
+      const form = root?.querySelector<HTMLFormElement>("[data-testid='filters']");
+      const grid = root?.querySelector<HTMLElement>("[data-grid]");
+      const status = root?.querySelector<HTMLElement>("[data-status]");
+      const regions = root?.querySelector<HTMLElement>("[data-regions]");
+
+      if (root && form && grid && status && regions) {
+        void startListing({
+          root,
+          form,
+          grid,
+          status,
+          regions,
+          mediaBase: root.dataset.mediaBase ?? "",
+        });
+      }
+    </script>
   </body>
 </html>

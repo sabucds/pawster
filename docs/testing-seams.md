@@ -110,6 +110,35 @@ staleness bands, matching — so **no test in that package waits for a clock or 
 That is a property of the interface rather than of the tests, which is why it holds for the
 island and the digest too.
 
+### The island, and why there is no third seam for it
+
+The listing's island (#56) is the repository's first browser code, and it added **no DOM test
+library and no second Vitest project**. That is not a gap left open; it is what the split above
+is for. The island's own file holds only fetching, listening and writing to the DOM, and every
+*decision* it makes lives in a module with no document in reach:
+
+| What is decided | Where it lives | How it is tested |
+|---|---|---|
+| Which animals appear, in what order | `domain/`'s `selectListed` | `domain/src/filter-index.test.ts`, plain Node |
+| What a card says, and with what emphasis | `web/src/lib/listing/card.ts` | `web/test/listing-card.test.ts`, as strings |
+| What the panel's URL means | `web/src/lib/listing/criteria.ts` | `web/test/listing-filtering.test.ts` |
+| The grid's shape and the reserved boxes | the page's stylesheet | `web/test/listing-page.test.ts`, over the served asset |
+
+Two things fall out of that, and both are worth knowing before adding to it.
+
+**"Filtering issues no network request" is asserted rather than asserted-about.** The whole
+filter path is pure, so a test can drive it — and because `test/setup.ts` installs the outbound
+interceptor for every test in the project, a request from anywhere in that path fails the test
+by itself. `listing-filtering.test.ts` also checks the call log is empty, which catches the
+case the interceptor would allow: a call to a vendor that *is* registered.
+
+**What no test here covers is the wiring.** That `startListing` finds the right elements, that
+the `change` listener is attached, that `innerHTML` is assigned to the grid — those are
+observed by a person opening the page, and by the small size of the file that holds them.
+Adding a DOM library would cover them, at the price of a dependency and a second project; the
+judgement made in #56 was that a file with no branches in it is the cheaper place to be
+careful. If that file grows a decision, the decision moves out rather than the seam moving in.
+
 ## What the tooling actually does, as opposed to what is written about it
 
 Checked against the shipped packages on 2026-09-03, because the spec this work was built

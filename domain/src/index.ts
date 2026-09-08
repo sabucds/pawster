@@ -55,6 +55,7 @@ export {
   CRITERIA_VOCABULARIES,
   MAX_CRITERIA_VALUES_PER_AXIS,
   MAX_REGION_LENGTH,
+  normaliseRegion,
   parseCriteria,
   readCriteria,
   writeCriteria,
@@ -71,6 +72,28 @@ export {
 } from "./derivative.ts";
 export type { DigestPeriod } from "./digest.ts";
 export { DIGEST_DAILY_BUDGET, digestIdempotencyKey } from "./digest.ts";
+export type {
+  FilterIndex,
+  IndexPointer,
+  ListedAnimal,
+  StoredIndexObject,
+} from "./filter-index.ts";
+export {
+  INDEX_CACHE_CONTROL,
+  INDEX_CONTENT_ENCODING,
+  INDEX_CONTENT_TYPE,
+  INDEX_POINTER_KEY,
+  INDEX_PREFIX,
+  POINTER_CACHE_CONTROL,
+  SUPERSEDED_INDEX_GRACE_MS,
+  compareByFreshestConfirmed,
+  indexGeneratedAt,
+  indexObjectKey,
+  isSupersededIndexObject,
+  parseIndex,
+  selectListed,
+  serializeIndex,
+} from "./filter-index.ts";
 export type {
   AnimalFacts,
   Availability,

@@ -96,6 +96,57 @@ real measurement can overturn.
 The honest reading: about a millisecond leaves room, and nothing automated will tell us
 when it stops doing so.
 
+## Filter index size
+
+```sh
+npm run check:filter-index
+```
+
+Serializes a synthetic catalogue through `domain/src/filter-index.ts`'s **own** `serializeIndex`
+— the function the regenerator calls — and gzips the result. It exits non-zero if the index
+stops fitting [ADR 0007](adr/0007-prerender-first-and-filter-in-the-browser.md)'s ~150 KB
+metered-connection budget at 2,500 listed animals, which is
+[ADR 0018](adr/0018-the-filter-index-is-rewritten-whole-and-found-through-a-pointer.md)'s own
+working figure for the platform's scale.
+
+### Recorded 2026-09-08, with the listing (#56)
+
+| Listed animals | Raw | Gzipped | Per animal, gzipped |
+|---|---|---|---|
+| 2,500 | 674.1 KB | **51.0 KB** | 20.4 B |
+| 9,500 | 2,561.4 KB | 187.4 KB | 19.7 B |
+
+**ADR 0018's 33.4 KB does not describe the shipped index, and the difference is identifiers.**
+That figure comes from the issue #17 prototype, which synthesised 4-character animal ids,
+3-character shelter ids and a thumbnail key of `id + "-1"`. The rows the platform actually
+writes carry two `crypto.randomUUID()`s at 36 characters each and a content-addressed
+derivative key of `d/` plus a 64-character hex digest plus an extension
+([ADR 0012](adr/0012-derivatives-are-generated-once-at-upload.md)) — about **105 characters an
+animal the prototype never counted**, and high-entropy ones that gzip cannot fold away.
+
+So the measured index is **20.4 B/animal gzipped against the ADR's 13.4**, and one conclusion
+in ADR 0018 does not survive it. That ADR says the index's read budget and R2's storage cap
+"expire at almost the same moment", with a ~9,500-animal endgame at ~127 KB inside the budget.
+Measured, 9,500 animals is **187.4 KB**, and the budget is crossed at about **7,578**. The
+index expires *first*.
+
+Three things keep that from being urgent, and they are worth stating so the next reader does
+not reopen a decision on a number that does not bind yet:
+
+- **At the scale that binds today it is a third of the budget.** 51.0 KB at 2,500 animals,
+  which is the figure ADR 0018 spends all of its own arithmetic on.
+- **The 9,500 figure was already called optimistic.** ADR 0012 derived it, and ADR 0016 says it
+  is generous "by about a gigabyte's worth" — so R2's 10 GB is reached at fewer animals than
+  that, and a lower real ceiling is a smaller index.
+- **ADR 0007's trigger is unchanged, only earlier.** Its stated answer — "when the index stops
+  being cheap to download on a metered connection, filtering has to move server-side" — is
+  still the answer. What has moved is when: around 7,600 listed animals rather than never.
+
+The cheapest lever, if it ever does bind, is the animal id. It is 36 of those characters, and
+the issue #17 prototype's own contact CTA writes a short one — `pawster.org/a/m6p2` — so a
+shorter public address was the intended shape before #55 chose UUIDs. Changing it changes every
+animal's public URL, which is why it is named here rather than done.
+
 ## Upright derivatives from a rotated source — unverified offline
 
 Not a measurement yet, and recorded here rather than left implicit because the upload path

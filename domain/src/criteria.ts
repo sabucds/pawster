@@ -40,6 +40,7 @@ import { AGE_BANDS, type AgeBand } from "./age-band.ts";
 import {
   GOOD_WITH_AXES,
   type GoodWithAxis,
+  type Region,
   SEXES,
   SIZES,
   SPECIES,
@@ -68,6 +69,28 @@ export const MAX_REGION_LENGTH = 60;
  * for the whole country by naming every region can still do it.
  */
 export const MAX_CRITERIA_VALUES_PER_AXIS = 24;
+
+/**
+ * A region as an identifier: trimmed and lower-cased.
+ *
+ * **Exported because both sides of the comparison have to do this**, which the regions rule
+ * below has always said — "the same normalisation has to happen on the animal's side for the
+ * two to ever meet" — and which nothing enforced while only one side existed. Issue #56 is
+ * the other side arriving: the filter index carries each animal's region as its shelter typed
+ * it, because that string is also what a card displays, and `selectListed` normalises it
+ * through this function before `matches` compares. A criteria holding `aragua` and an animal
+ * holding `Aragua` are the same region, and without one shared function they are two.
+ *
+ * Naming it is the whole change. The rule was a closure inside the table and is now a
+ * function the table calls, so there is still exactly one definition of it.
+ *
+ * It cannot check that a region *exists*: ADR 0005 makes the vocabulary per-country reference
+ * data, so a typo matches no animal rather than failing to save — `axes.ts` records that as
+ * this axis's accepted cost.
+ */
+export function normaliseRegion(raw: string): Region {
+  return raw.trim().toLowerCase();
+}
 
 /**
  * One axis's rule: how to read a submitted value, and where a kept value sorts.
@@ -113,7 +136,7 @@ const AXES: Readonly<Record<keyof SubscriptionCriteria, AxisRule>> = {
    */
   regions: {
     read: (raw) => {
-      const value = raw.trim().toLowerCase();
+      const value = normaliseRegion(raw);
       if (value.length === 0 || value.length > MAX_REGION_LENGTH) return null;
       return value;
     },

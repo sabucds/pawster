@@ -15,6 +15,7 @@ import {
   publishAnimal,
 } from "../../../lib/animals/store.ts";
 import { authenticate } from "../../../lib/auth/guard.ts";
+import { regenerateForAct } from "../../../lib/listing/regenerate.ts";
 import { findUploadSession } from "../../../lib/photos/store.ts";
 
 /**
@@ -133,12 +134,27 @@ if (Astro.request.method === "POST") {
     });
 
     /**
+     * The last step of the act, after the transaction that committed it, exactly once
+     * (ADR 0018). A publish is what puts the animal on the listing, and the listing is a file
+     * in R2 — so until this runs, the animal exists and no adopter can see it.
+     *
+     * Synchronous and in the request path, which is what keeps publish-to-visible at the
+     * "seconds, not a rebuild" ADR 0007 promised. It cannot fail the publish: the animal is
+     * already written, so a `null` here is reported to the shelter as the truth rather than
+     * raised as an error about a write that succeeded.
+     */
+    const regenerated = await regenerateForAct({ db, media: env.MEDIA, now });
+
+    /**
      * Built by hand rather than through `Astro.redirect()`, because a redirect is a fresh
      * response and does not carry the headers staged on `Astro.response` — the sliding refresh
      * would be silently dropped, as `perfil.astro` records having measured.
      */
     const headers = new Headers({
-      location: `/refugios/animales/${animalId}?publicado`,
+      location:
+        regenerated === null
+          ? `/refugios/animales/${animalId}?publicado&listado=pendiente`
+          : `/refugios/animales/${animalId}?publicado`,
     });
     if (session.refreshedCookie) {
       headers.set("set-cookie", session.refreshedCookie);

@@ -29,11 +29,19 @@ import type { CitedArtifacts, VerificationMethod } from "./policy.ts";
 import { citedArtifactsDrifted, parseCitedContactPoints } from "./policy.ts";
 import type { AdminLinkSecrets } from "./link.ts";
 import { ADMIN_DECISION_PATH, adminLinkUrl, mintAdminLink } from "./link.ts";
+import { regenerateForAct } from "../listing/regenerate.ts";
 import type { VerificationMailEnv } from "./mail.ts";
 import { sendCitedArtifactsChangedEmail, sendOutcomeEmail } from "./mail.ts";
 import { appendVerification, readLatestVerification } from "./store.ts";
 
-export type VerificationEnv = VerificationMailEnv & AdminLinkSecrets;
+/**
+ * `MEDIA` joins this because a decision changes what the public listing shows: standing is a
+ * clause of the listing rule, so **verifying a shelter lists its entire roster at once and
+ * revoking it delists the same roster** — and the listing an adopter reads is a file in R2,
+ * not a query. ADR 0018 names verification as one of the acts that regenerate the index.
+ */
+export type VerificationEnv = VerificationMailEnv &
+  AdminLinkSecrets & { readonly MEDIA: R2Bucket };
 
 export interface DecisionRequest {
   readonly shelterId: string;
@@ -59,6 +67,18 @@ export type DecisionResult =
        * thing they would otherwise have to guess at.
        */
       readonly shelterMailed: boolean | null;
+      /**
+       * Whether the public listing was rewritten to match the decision just made.
+       *
+       * Reported for the same reason `shelterMailed` is, and it matters most in the direction
+       * that is hardest to notice: a revocation whose index write is lost leaves a revoked
+       * shelter's animals on adopters' cards, and the shelter will make no further act to heal
+       * it — so the nightly regeneration is the only thing that will, which bounds it at one
+       * run rather than at nothing. An admin who can see that is an admin who can wait
+       * knowingly or re-post; an admin who cannot is being told the roster is gone when it is
+       * not.
+       */
+      readonly listingUpdated: boolean;
     };
 
 /**
@@ -97,8 +117,23 @@ export async function decideVerification(
     now,
   );
 
+  /**
+   * The listing consequence of the standing change, once, after the entry that caused it.
+   *
+   * Ahead of the mail rather than after it, and the ordering is a judgement about which of the
+   * two an adopter can see: a revoked shelter's animals sitting on the public listing is the
+   * platform lying to adopters, while a notification arriving a second later is nothing. The
+   * mail below is allowed to be slow; this is not allowed to queue behind it.
+   *
+   * It is one regeneration for a whole roster. Per-animal regeneration would make this
+   * quadratic — a forty-animal roster would be forty reads of the listable set and forty puts,
+   * thirty-nine of them publishing a half-verified shelter to adopters (ADR 0018).
+   */
+  const listingUpdated =
+    (await regenerateForAct({ db, media: env.MEDIA, now })) !== null;
+
   if (request.outcome === "Verified") {
-    return { recorded: true, shelterMailed: null };
+    return { recorded: true, shelterMailed: null, listingUpdated };
   }
 
   /**
@@ -121,7 +156,7 @@ export async function decideVerification(
     shelterMailed = false;
   }
 
-  return { recorded: true, shelterMailed };
+  return { recorded: true, shelterMailed, listingUpdated };
 }
 
 /**
