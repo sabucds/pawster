@@ -7,9 +7,18 @@ import {
 import {
   SHORT_ID_ALPHABET,
   SHORT_ID_LENGTH,
-  isShortIdShaped,
   newShortId,
 } from "../src/lib/animals/short-id.ts";
+
+/**
+ * The shape check lives here rather than beside the generator, because this suite is its only
+ * caller. The route deliberately does not validate an id before looking it up — a miss is the
+ * same 404 either way, and animals published before the short id exists carry UUIDs that a
+ * shape gate would refuse.
+ */
+const isShortIdShaped = (value: string): boolean =>
+  value.length === SHORT_ID_LENGTH &&
+  [...value].every((character) => SHORT_ID_ALPHABET.includes(character));
 
 /**
  * The address an animal keeps forever, as a table.

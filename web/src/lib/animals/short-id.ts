@@ -80,18 +80,14 @@ export function newShortId(): string {
 }
 
 /**
- * Whether a path segment could be an address this platform minted.
+ * **There is deliberately no `isShortIdShaped()` here**, and the absence is worth a note because
+ * the function is the obvious next thing to write.
  *
- * **Not used to gate the route**, and that is the point of the comment rather than an
- * oversight. The animal page looks the id up whatever it is shaped like, because a lookup that
- * misses is the same 404 as a lookup that was never made and one code path is easier to be sure
- * of than two. This exists for the tests, which assert the shape of what {@link newShortId}
- * mints, and for the ADR's script.
+ * Nothing would call it. The route does not validate the segment before looking it up: an id
+ * that misses is the same 404 as an id that could not have existed, so a shape check ahead of
+ * the query buys nothing and costs a second code path that can disagree with the first about
+ * what an address is. And it must not become one — animals published before this file existed
+ * carry UUIDs, and a route that refused anything not eight symbols long would 404 every one of
+ * them. `web/test/animal-address.test.ts` asserts the shape of what {@link newShortId} mints,
+ * which is the only place the question is actually asked.
  */
-export function isShortIdShaped(value: string): boolean {
-  if (value.length !== SHORT_ID_LENGTH) return false;
-  for (const character of value) {
-    if (!SHORT_ID_ALPHABET.includes(character)) return false;
-  }
-  return true;
-}

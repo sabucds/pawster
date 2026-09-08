@@ -128,7 +128,9 @@ describe("the server-rendered animal detail page", () => {
     expect(response.status).toBe(200);
     expect(html).toContain('data-testid="animal-name">Canela');
     expect(html).toContain('data-testid="shelter-name">Refugio Los Teques');
-    expect(html).toContain('data-testid="region">Miranda');
+    // The region rides on the meta line and has no row of its own — the facts table drops what
+    // the heading already says.
+    expect(html).toContain('data-testid="animal-meta">Perra joven · Mediana · Miranda');
   });
 
   it("404s for an animal that does not exist", async () => {

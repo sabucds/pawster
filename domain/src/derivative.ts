@@ -181,7 +181,12 @@ export function derivativeContentType(name: DerivativeName): string {
 
 
 /**
- * The size a derivative of a `sourceWidth × sourceHeight` photo will actually be.
+ * The dimensions a derivative of a `sourceWidth × sourceHeight` photo will actually have.
+ *
+ * Dimensions rather than "size" throughout, and not only because `CONTEXT.md` puts *size* on
+ * *Derivative*'s _Avoid_ list: on this platform `Size` is a filter axis meaning a dog's expected
+ * adult size, rendered to an adopter as `Tamaño adulto`. A function called `derivativeSize` in a
+ * codebase that also asks whether a dog is `Medium` is a word doing two jobs.
  *
  * It exists for the `width` and `height` attributes on an `<img>`, and those attributes are
  * not decoration. The public-listing prototype measured a page with photos blocked and a page

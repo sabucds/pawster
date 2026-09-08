@@ -1,5 +1,6 @@
 import type { AgeBand, Sex, Species } from "@pawster/domain";
 import { describe, expect, it } from "vitest";
+import type { AnimalWords } from "../src/lib/animals/words.ts";
 import {
   AGE_BAND_WORDS,
   AGE_BASIS_NOTES,
@@ -13,9 +14,13 @@ import {
   ageWithBasis,
   agoPhrase,
   agree,
+  archiveExplanation,
+  archiveHeadline,
   confirmationSentence,
+  confirmedAgo,
   describeAnimal,
   goodWithPhrase,
+  metaLine,
   sentence,
   speciesAndBand,
 } from "../src/lib/animals/words.ts";
@@ -253,6 +258,30 @@ describe("agoPhrase", () => {
   });
 });
 
+describe("the fact and the consequence are two functions", () => {
+  it("gives the listing card a line with no consequence in it", () => {
+    /**
+     * The acceptance criterion is a *split* — "the consequence sentence appears on the page and
+     * nowhere on the listing card" — so the split has to be expressible in the API, not just
+     * observed at one call site. Issue #56 renders `Miranda · Confirmada ayer` from this
+     * function, and it cannot reach the consequence from here.
+     */
+    const card = confirmedAgo("Female", new Date("2026-05-08T12:00:00Z"), NOW);
+
+    expect(card).toBe("Confirmada hace 4 meses");
+    expect(card).not.toContain(MAYBE_GONE);
+    // Nor the shelter: on a card of twelve animals, every line would say `por el refugio`.
+    expect(card).not.toContain("refugio");
+  });
+
+  it("builds the page's line out of the card's, so the two cannot disagree", () => {
+    const page = confirmationSentence("Female", new Date("2026-05-08T12:00:00Z"), NOW);
+    expect(page.startsWith(confirmedAgo("Female", new Date("2026-05-08T12:00:00Z"), NOW))).toBe(
+      true,
+    );
+  });
+});
+
 describe("the provenance line", () => {
   it("agrees with the animal and names whose word it is", () => {
     const line = confirmationSentence("Female", new Date("2026-05-08T12:00:00Z"), NOW);
@@ -337,15 +366,30 @@ describe("what an archive page says happened", () => {
   it("gives an adopted animal a headline of its own", () => {
     // The outcome the platform exists to produce, and the difference between a dead link and a
     // good ending for an adopter who arrived late at a forwarded message.
-    expect(agree(ARCHIVE_HEADLINES.Adopted, "Female").word).toBe("Encontró casa");
-    expect(agree(ARCHIVE_HEADLINES.NoLongerAvailable, "Female").word).toBe(
+    expect(archiveHeadline("Adopted", "Female")).toBe("Encontró casa");
+    expect(archiveHeadline("NoLongerAvailable", "Female")).toBe(
       "Ya no está disponible",
     );
   });
 
+  it("claims nothing about an animal whose shelter merely left", () => {
+    /**
+     * Nobody said anything about *her*: she may well still be looking for a home. What ended is
+     * Pawster's ability to put an adopter in touch, which is a fact about the platform and the
+     * shelter — and a headline saying she is unavailable would assert something no one told us,
+     * on the one page whose whole purpose is to say only what is known.
+     */
+    for (const reason of ["ShelterDeparted", "ShelterUnreachable"] as const) {
+      expect(archiveHeadline(reason, "Female")).toBe(
+        "Ya no podemos ponerte en contacto",
+      );
+      expect(archiveHeadline(reason, "Female")).not.toContain("disponible");
+    }
+  });
+
   it("words the four reasons apart in the explanation", () => {
     const explanations = (["Adopted", "NoLongerAvailable", "ShelterDeparted", "ShelterUnreachable"] as const).map(
-      (reason) => agree(ARCHIVE_EXPLANATIONS[reason], "Female").word,
+      (reason) => archiveExplanation(reason, "Female"),
     );
 
     expect(new Set(explanations).size).toBe(4);
@@ -354,12 +398,12 @@ describe("what an archive page says happened", () => {
   it("attributes an adoption to the shelter rather than claiming it", () => {
     // `El refugio dice` does the work `por el refugio` does in the provenance line: Pawster
     // witnessed no adoption, and it must not sound as though it did.
-    expect(agree(ARCHIVE_EXPLANATIONS.Adopted, "Female").word).toContain("El refugio dice");
+    expect(archiveExplanation("Adopted", "Female")).toContain("El refugio dice");
   });
 
   it("agrees an adoption with the animal's sex", () => {
-    expect(agree(ARCHIVE_EXPLANATIONS.Adopted, "Female").word).toContain("adoptada");
-    expect(agree(ARCHIVE_EXPLANATIONS.Adopted, "Male").word).toContain("adoptado");
+    expect(archiveExplanation("Adopted", "Female")).toContain("adoptada");
+    expect(archiveExplanation("Adopted", "Male")).toContain("adoptado");
   });
 
   it("never names the concept to the adopter", () => {
@@ -377,5 +421,47 @@ describe("what an archive page says happened", () => {
     for (const phrase of everything) {
       expect(phrase.toLowerCase()).not.toContain("archiv");
     }
+  });
+});
+
+describe("metaLine", () => {
+  const female: AnimalWords = {
+    species: "dog",
+    sex: "Female",
+    size: "Medium",
+    sterilisation: "Sterilised",
+  };
+
+  it("stops before sterilisation, which the facts table under it already says", () => {
+    /**
+     * The prototype's rule: "the page's facts table also drops what the heading already says".
+     * A heading reading `Perra joven · Mediana · Esterilizada` above a row saying
+     * `Esterilización: Esterilizada` is a duplication, and the animal page renders both.
+     */
+    expect(metaLine(female, "Adult")).toBe("Perra adulta · Mediana");
+    expect(metaLine(female, "Adult")).not.toContain("Esterilizada");
+  });
+
+  it("keeps size, which the table labels rather than repeats", () => {
+    // Bare in the heading and labelled `Tamaño adulto` in the table, because a bare `Mediana`
+    // does not say that for a puppy it is a prediction rather than an observation.
+    expect(metaLine({ ...female, size: "Small" }, "Puppy")).toBe("Cachorra · Pequeña");
+    expect(metaLine({ ...female, species: "cat", size: null }, "Adult")).toBe("Gata adulta");
+  });
+
+  it("is the line describeAnimal is built on, so the two cannot disagree", () => {
+    // The composition rule — that a band word replaces the species word for a puppy — is the one
+    // genuinely hard rule here, and it has to be the same on both surfaces.
+    for (const band of ["Puppy", "Young", "Adult", "Senior"] as const) {
+      expect(describeAnimal(female, band).startsWith(metaLine(female, band))).toBe(true);
+    }
+  });
+
+  it("discloses an assumed gender exactly once, like every other composed line", () => {
+    const unknown: AnimalWords = { ...female, sex: "Unknown" };
+    const line = metaLine(unknown, "Adult");
+
+    expect(line).toContain(SEX_UNKNOWN_NOTE);
+    expect(line.split(SEX_UNKNOWN_NOTE)).toHaveLength(2);
   });
 });

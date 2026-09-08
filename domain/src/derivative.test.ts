@@ -122,7 +122,7 @@ describe("derivative keys", () => {
   });
 });
 
-describe("the size a derivative will be", () => {
+describe("the dimensions a derivative will have", () => {
   it("gives a cover derivative the box, whatever it was made from", () => {
     // The whole point of a social preview: 1200×630, or the platform it is shared to crops
     // it itself and unpredictably.

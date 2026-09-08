@@ -63,10 +63,30 @@ describe("WhatsApp", () => {
     expect(handoff("whatsapp", "0058 412 5550001").href).toContain("wa.me/584125550001?");
   });
 
-  it("has no link for a value with no number in it", () => {
-    // Rendered as text by the page rather than as a dead button — an adopter who taps a link
-    // that goes nowhere concludes the animal is gone.
+  it("refuses a nationally-formatted number instead of linking to nothing", () => {
+    /**
+     * The common case for a Venezuelan shelter, and the one that used to produce a live button
+     * to `wa.me/04125550001` — a link that resolves to nothing, on a page whose whole purpose is
+     * to be written to. An adopter who taps a dead link concludes the animal is gone.
+     *
+     * `wa.me` takes E.164, in which a number never begins with `0`: a leading zero is a national
+     * trunk prefix. Converting it means owning a trunk rule per country, so the platform refuses
+     * instead and the page prints the number as text the adopter can read and dial.
+     */
+    expect(handoff("whatsapp", "0412 5550001").href).toBeNull();
+    expect(handoff("whatsapp", "(0212) 555-0001").href).toBeNull();
+  });
+
+  it("still dials a national number on the phone channel", () => {
+    // The asymmetry is real: `tel:` hands the string to the handset's dialler, and a national
+    // number is exactly what a local handset dials.
+    expect(handoff("phone", "0412 5550001").href).toBe("tel:04125550001");
+  });
+
+  it("has no link for a value that is not a number at all", () => {
     expect(handoff("whatsapp", "pregúntanos").href).toBeNull();
+    // Too short to be any country's number, so it cannot become a working link either.
+    expect(handoff("whatsapp", "5550").href).toBeNull();
   });
 });
 

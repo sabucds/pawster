@@ -32,30 +32,80 @@ import type { ContactPointKind } from "@pawster/db";
 import type { StoredContactPoint } from "../shelter/store.ts";
 
 /**
- * What each channel's button says, in es-VE.
+ * Everything that differs between the four channels, in one record per channel.
  *
- * The verb rather than the channel — `Escribir por WhatsApp`, not `WhatsApp` — because the
- * filled button is an instruction and the adopter is about to do the thing it names. `Llamar`
- * is the one that is not writing, and it is worth the row: a phone number offered as
+ * **One table and not four.** The first draft had a labels table, a short-labels table, a
+ * `switch` building the href and a `kind === "whatsapp" || kind === "email"` test for the
+ * prefill — four places keyed on the same closed union, which is Fowler's Repeated Switches and
+ * is also the shape that lets a fifth channel be added to three of them. Adding one here is a
+ * single entry the compiler demands in full.
+ *
+ * `action` is the verb rather than the channel — `Escribir por WhatsApp`, not `WhatsApp` —
+ * because the filled button is an instruction and the adopter is about to do the thing it names.
+ * `Llamar` is the one that is not writing, and it earns its wording: a phone number offered as
  * "escribir" is a promise the channel cannot keep.
  *
- * Held apart from `../shelter/fields.ts`'s `CONTACT_POINT_LABELS`, which labels the *form* a
- * shelter fills in. That table names the channel (`Correo`); this one names the act. Merging
- * them would give the shelter's form a button verb and this page a bare noun.
+ * `short` is held apart from `../shelter/fields.ts`'s `CONTACT_POINT_LABELS`, which labels the
+ * *form a shelter fills in*. The two happen to agree today and are not the same string: that
+ * table names the channel to the shelter that owns it, this one names an alternative to an
+ * adopter choosing between them, and merging them would couple a public page's wording to a
+ * private form's.
  */
-export const CONTACT_ACTION_LABELS: Record<ContactPointKind, string> = {
-  whatsapp: "Escribir por WhatsApp",
-  instagram: "Escribir por Instagram",
-  email: "Escribir un correo",
-  phone: "Llamar",
-};
+interface Channel {
+  /** What the filled button says. */
+  readonly action: string;
+  /** What the compact row says. */
+  readonly short: string;
+  /**
+   * Whether the prefilled message travels on this channel.
+   *
+   * Data rather than a rule, because it is a fact about someone else's URL scheme: `wa.me` takes
+   * a `?text=` and `mailto:` takes a `?body=`, while Instagram's web profile has no message
+   * parameter at all and a phone call has no text.
+   */
+  readonly carriesPrefill: boolean;
+  /**
+   * The link, or `null` when this value cannot become one.
+   *
+   * Takes the whole hand-off's inputs rather than just the value, because `mailto:` needs the
+   * animal's name for the subject line and the others do not — a signature per channel would be
+   * a second thing to keep in step.
+   */
+  href(value: string, animalName: string, prefill: string): string | null;
+}
 
-/** The compact row's labels: the channel alone, because the row is a list of alternatives. */
-export const CONTACT_SHORT_LABELS: Record<ContactPointKind, string> = {
-  whatsapp: "WhatsApp",
-  instagram: "Instagram",
-  email: "Correo",
-  phone: "Teléfono",
+const CHANNELS: Record<ContactPointKind, Channel> = {
+  whatsapp: {
+    action: "Escribir por WhatsApp",
+    short: "WhatsApp",
+    carriesPrefill: true,
+    href(value, _animalName, prefill) {
+      const digits = whatsappDigits(value);
+      // `encodeURIComponent` rather than `URLSearchParams`, which writes `+` for a space: a
+      // prefill reading `hace 4 meses` must not arrive as `hace+4+meses`.
+      return digits === null
+        ? null
+        : `https://wa.me/${digits}?text=${encodeURIComponent(prefill)}`;
+    },
+  },
+  instagram: {
+    action: "Escribir por Instagram",
+    short: "Instagram",
+    carriesPrefill: false,
+    href: (value) => instagramUrl(value),
+  },
+  email: {
+    action: "Escribir un correo",
+    short: "Correo",
+    carriesPrefill: true,
+    href: (value, animalName, prefill) => mailtoUri(value, animalName, prefill),
+  },
+  phone: {
+    action: "Llamar",
+    short: "Teléfono",
+    carriesPrefill: false,
+    href: (value) => telUri(value),
+  },
 };
 
 /** Shown above the quoted prefill, so an adopter is not surprised by what they are sending. */
@@ -117,25 +167,49 @@ export interface ContactHandoff {
 }
 
 /**
- * A WhatsApp number as `wa.me` wants it: digits only, no `+`, no spaces.
+ * The shortest string of digits that could be an international phone number.
  *
- * A leading `00` is dropped, because it is the international access prefix and `wa.me` wants
- * the country code bare — a shelter that typed `0058 412…` means the same number as one that
- * typed `+58 412…`.
+ * E.164 allows up to fifteen and sets no floor; eight is the shortest national number in
+ * ordinary use plus a one- or two-digit country code. Below it the shelter has typed something
+ * that is not a phone number, and a `wa.me` link built on it goes nowhere.
+ */
+const MIN_INTERNATIONAL_DIGITS = 8;
+
+/**
+ * A WhatsApp number as `wa.me` wants it — digits only, no `+`, no spaces — **or `null` when what
+ * the shelter typed cannot become a working link.**
  *
- * **A locally-formatted number is left as it was typed and will not work**, and that is a
- * deliberate refusal rather than a gap. A Venezuelan shelter typing `0412 5550001` means
- * `+58 412 5550001`, and converting it requires knowing that `0` is Venezuela's trunk prefix —
- * a per-country rule the platform would then own for every country it claims to work in
- * (`CONTEXT.md`: "Built for Venezuelan shelters first, modelled to work anywhere"). Guessing
- * one country's rule and applying it to all of them silently mangles every other country's
- * numbers, which is worse than a link that visibly does not work. The place to fix this is the
- * profile form, where a shelter can be asked for the international form and can see what it
- * typed.
+ * A leading `00` is dropped first, because it is the international access prefix and `wa.me`
+ * wants the country code bare: a shelter that typed `0058 412…` means the same number as one
+ * that typed `+58 412…`.
+ *
+ * ## Why a leading zero is refused rather than repaired
+ *
+ * A Venezuelan shelter typing `0412 5550001` means `+58 412 5550001`, and this **will not guess
+ * that**. `wa.me` takes E.164, in which a number never begins with `0` — the leading zero is a
+ * national trunk prefix, meaningful only inside the country that defines it. So a number that
+ * still starts with `0` after the `00` strip is a national format, and the only way to convert
+ * it is to know that country's trunk rule: a per-country table the platform would then owe every
+ * country it claims to work in (`CONTEXT.md`: "Built for Venezuelan shelters first, modelled to
+ * work anywhere"). Guessing Venezuela's rule and applying it everywhere silently mangles
+ * everyone else's numbers.
+ *
+ * **What it does instead is refuse, which is the whole point of this function returning `null`.**
+ * The earlier version stripped the punctuation and handed back `04125550001`, producing a live
+ * button to `wa.me/04125550001` that resolves to nothing — and an adopter who taps a dead link
+ * concludes the animal is gone. Refusing renders the number as plain text beside the channel
+ * name, so the adopter can still read it, copy it and dial it. A visible number beats an
+ * invisible failure.
+ *
+ * The real fix is upstream, in the profile form (#52), where a shelter can be asked for the
+ * international form and can see what it typed. This is the half that can be done from here.
  */
 function whatsappDigits(value: string): string | null {
   const digits = value.replace(/\D/g, "").replace(/^00/, "");
-  return digits.length === 0 ? null : digits;
+  if (digits.length < MIN_INTERNATIONAL_DIGITS) return null;
+  // E.164 has no leading zero; one that survives the `00` strip is a national trunk prefix.
+  if (digits.startsWith("0")) return null;
+  return digits;
 }
 
 /**
@@ -157,7 +231,15 @@ function instagramUrl(value: string): string | null {
   return handle.length === 0 ? null : `https://instagram.com/${handle}`;
 }
 
-/** `tel:` keeps the `+`, which is the one character that makes a number dialable abroad. */
+/**
+ * `tel:` keeps the `+`, which is the one character that makes a number dialable from abroad.
+ *
+ * **Deliberately more permissive than {@link whatsappDigits}**, and the asymmetry is real rather
+ * than an oversight. `wa.me` resolves a number on WhatsApp's servers and needs E.164 or it
+ * resolves nothing; `tel:` hands the string to the handset's dialler, and a Venezuelan adopter's
+ * phone dials `0412 5550001` perfectly well — that is what a national number is *for*. Refusing
+ * it here would break the common case in the name of a rule that does not apply.
+ */
 function telUri(value: string): string | null {
   const dialable = value.replace(/[^\d+]/g, "");
   return /\d/.test(dialable) ? `tel:${dialable}` : null;
@@ -184,50 +266,28 @@ function mailtoUri(value: string, animalName: string, prefill: string): string |
 /**
  * Every contact point as a hand-off, in the shelter's own order.
  *
- * The first element is the one the page renders as a filled button. That is not stated in the
- * return type — a `{ primary, rest }` shape was the alternative and it lies about a shelter
- * with one contact point, which has a primary and no rest and would render an empty row.
+ * The first element is the one the page renders as a filled button — the shelter's own position
+ * 0. That is not stated in the return type: a `{ first, rest }` shape was the alternative and it
+ * lies about a shelter with one contact point, which would render an empty row.
  *
- * Only two channels carry the prefill, and the asymmetry is the platforms', not ours: `wa.me`
- * takes a `?text=` and `mailto:` takes a `?body=`, while Instagram's web profile has no message
- * parameter at all and a phone call has no text. {@link ContactHandoff.carriesPrefill} is
- * returned rather than left for the page to infer from the kind, so the page can show the
- * quoted message under a block where at least one channel will actually send it.
+ * {@link ContactHandoff.carriesPrefill} is returned rather than left for the page to infer from
+ * the kind, so the page can decide to show the quoted message only where some channel will
+ * actually send it — without knowing anything about `wa.me`'s query string.
  */
 export function contactHandoffs(
   points: readonly StoredContactPoint[],
   animalName: string,
   prefill: string,
 ): readonly ContactHandoff[] {
-  return points.map((point) => ({
-    kind: point.kind,
-    href: hrefFor(point, animalName, prefill),
-    label: CONTACT_ACTION_LABELS[point.kind],
-    shortLabel: CONTACT_SHORT_LABELS[point.kind],
-    value: point.value,
-    carriesPrefill: point.kind === "whatsapp" || point.kind === "email",
-  }));
-}
-
-function hrefFor(
-  point: StoredContactPoint,
-  animalName: string,
-  prefill: string,
-): string | null {
-  switch (point.kind) {
-    case "whatsapp": {
-      const digits = whatsappDigits(point.value);
-      // `encodeURIComponent` rather than `URLSearchParams`, for the `+`-as-space reason above:
-      // a prefill reading `hace 4 meses` must not arrive as `hace+4+meses`.
-      return digits === null
-        ? null
-        : `https://wa.me/${digits}?text=${encodeURIComponent(prefill)}`;
-    }
-    case "instagram":
-      return instagramUrl(point.value);
-    case "email":
-      return mailtoUri(point.value, animalName, prefill);
-    case "phone":
-      return telUri(point.value);
-  }
+  return points.map((point) => {
+    const channel = CHANNELS[point.kind];
+    return {
+      kind: point.kind,
+      href: channel.href(point.value, animalName, prefill),
+      label: channel.action,
+      shortLabel: channel.short,
+      value: point.value,
+      carriesPrefill: channel.carriesPrefill,
+    };
+  });
 }

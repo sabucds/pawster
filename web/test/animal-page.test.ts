@@ -198,10 +198,10 @@ describe("the contact hand-off", () => {
      * (`CONTEXT.md`, *Contact Point*). Four equal buttons hand an adopter a decision they have
      * no basis for making, which is the alternative the prototype measured and rejected.
      */
-    expect(html).toContain('data-testid="contact-primary" data-kind="whatsapp"');
+    expect(html).toContain('data-testid="contact-first" data-kind="whatsapp"');
     expect(html).toContain("Escribir por WhatsApp");
 
-    const others = html.slice(html.indexOf('data-testid="contact-others"'));
+    const others = html.slice(html.indexOf('data-testid="contact-rest"'));
     expect(others).toContain('data-kind="instagram"');
     expect(others).toContain('data-kind="email"');
     // The primary is not repeated in the row it is the alternative to.
@@ -212,8 +212,8 @@ describe("the contact hand-off", () => {
     await seedListedAnimal();
 
     const html = await (await get("/a/animal-1/canela")).text();
-    expect(html).toContain('data-testid="contact-primary"');
-    expect(html).not.toContain('data-testid="contact-others"');
+    expect(html).toContain('data-testid="contact-first"');
+    expect(html).not.toContain('data-testid="contact-rest"');
   });
 
   it("hands WhatsApp a message naming the animal and its short id", async () => {
@@ -243,7 +243,7 @@ describe("the contact hand-off", () => {
     });
 
     const html = await (await get("/a/animal-1/canela")).text();
-    expect(html).toContain('data-testid="contact-primary" data-kind="instagram"');
+    expect(html).toContain('data-testid="contact-first" data-kind="instagram"');
     expect(html).not.toContain('data-testid="prefill"');
   });
 

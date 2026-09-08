@@ -1,8 +1,11 @@
 ---
 import { createDb } from "@pawster/db";
-import { deriveAgeBand, deriveStalenessBand } from "@pawster/domain";
+import {
+  GOOD_WITH_AXES,
+  deriveAgeBand,
+  deriveStalenessBand,
+} from "@pawster/domain";
 import { env } from "cloudflare:workers";
-import { GOOD_WITH_AXES } from "@pawster/domain";
 import { animalUrl, messageAddress } from "../../../lib/animals/address.ts";
 import {
   OFF_PLATFORM_NOTE,
@@ -15,17 +18,15 @@ import { findAnimal } from "../../../lib/animals/store.ts";
 import { publicView } from "../../../lib/animals/visibility.ts";
 import {
   ARCHIVE_ELSEWHERE,
-  ARCHIVE_EXPLANATIONS,
-  ARCHIVE_HEADLINES,
   ARCHIVE_PHOTOS_DROPPED,
-  GOOD_WITH_ANSWER_LABELS,
-  SIZE_WORDS,
-  STERILISATION_WORDS,
-  agree,
   ageWithBasis,
+  archiveExplanation,
+  archiveHeadline,
   confirmationSentence,
-  describeAnimal,
   goodWithPhrase,
+  metaLine,
+  sizeLabel,
+  sterilisationLabel,
 } from "../../../lib/animals/words.ts";
 import { readShelterFacts } from "../../../lib/auth/store.ts";
 import {
@@ -73,6 +74,16 @@ import {
  * was in with verification before #53 landed the log. Nothing about this page changes when #65
  * arrives.
  *
+ * ## The one thing on the prototype's field budget that is missing
+ *
+ * The public-listing prototype lists "shelter, its verification badge **and any dormancy
+ * notice**" among what only this page shows, and the dormancy notice is not here. A Dormant
+ * Shelter is one with no activity of any kind for ninety days (`CONTEXT.md`), and nothing on the
+ * platform records activity yet — the fact the notice would be derived from does not exist, so a
+ * notice would either never fire or fire on something else. It arrives with issue #65, which
+ * owns shelter-level notices, and it is a block above the contact hand-off rather than anything
+ * that changes the rules on this page.
+ *
  * ## Copy
  *
  * es-VE, hard-coded, through `lib/animals/words.ts` — the position ADR 0018 leaves the codebase
@@ -113,9 +124,15 @@ const now = new Date();
 
 const listed = view.kind === "listed";
 const band = deriveAgeBand(animal.species, animal.estimatedBirthDate, now);
-const description = describeAnimal(animal, band);
+const meta = metaLine(animal, band);
 const gallery = await readAnimalGallery(db, animal, env.MEDIA_PUBLIC_ORIGIN);
 const canonical = animalUrl(env.SITE_ORIGIN, animal.id, animal.name);
+
+/** Built once and used twice: it goes into the links, and it is quoted to the adopter. */
+const prefill = prefillMessage(
+  animal.name,
+  messageAddress(env.SITE_ORIGIN, animal.id),
+);
 
 /**
  * Read only for a listed animal, and the saving is not the point — an archive page must not
@@ -126,14 +143,18 @@ const contacts = listed
   ? contactHandoffs(
       await readStoredContactPoints(db, animal.shelterId),
       animal.name,
-      prefillMessage(animal.name, messageAddress(env.SITE_ORIGIN, animal.id)),
+      prefill,
     )
   : [];
-const [primaryContact, ...otherContacts] = contacts;
-const prefill = prefillMessage(
-  animal.name,
-  messageAddress(env.SITE_ORIGIN, animal.id),
-);
+
+/**
+ * `firstContact` and not `primaryContact`: `CONTEXT.md` puts "primary contact" on *Contact
+ * Point*'s _Avoid_ list, and the reason is the design rather than the vocabulary. There is no
+ * primary contact point, in the way there *is* a Primary Photo — a shelter holds an ordered set
+ * and the first one is what an adopter is offered, so "first" is the whole of what is true about
+ * it. A name implying a flag would be describing a column that deliberately does not exist.
+ */
+const [firstContact, ...remainingContacts] = contacts;
 
 /**
  * The provenance line's emphasis, and only its emphasis. The sentence itself is unconditional
@@ -144,8 +165,8 @@ const staleness = deriveStalenessBand(animal.lastConfirmedAt, now);
 const archive =
   view.kind === "archived"
     ? {
-        headline: agree(ARCHIVE_HEADLINES[view.reason], animal.sex).word,
-        explanation: agree(ARCHIVE_EXPLANATIONS[view.reason], animal.sex).word,
+        headline: archiveHeadline(view.reason, animal.sex),
+        explanation: archiveExplanation(view.reason, animal.sex),
       }
     : null;
 
@@ -158,7 +179,7 @@ const socialDescription =
   animal.description.length > 160
     ? `${animal.description.slice(0, 157).trimEnd()}…`
     : animal.description;
-const socialTitle = `${animal.name} — ${description}`;
+const socialTitle = `${animal.name} — ${meta}`;
 ---
 
 <html lang="es">
@@ -208,31 +229,43 @@ const socialTitle = `${animal.name} — ${description}`;
           <meta property="og:image:width" content="1200" />
           <meta property="og:image:height" content="630" />
           <meta property="og:image:alt" content={`Foto de ${animal.name}`} />
+          {/*
+            The **only** `twitter:` tag, and the one that is not redundant: X falls back to Open
+            Graph for the title, the description and the image, but it has no `og:` equivalent
+            for "render this as a large image rather than a thumbnail". A `twitter:title` beside
+            an identical `og:title` is bytes on a metered connection and a second place for the
+            copy to drift.
+          */}
           <meta name="twitter:card" content="summary_large_image" />
-          <meta name="twitter:image" content={gallery.socialPreviewUrl} />
         </>
       )
     }
-    <meta name="twitter:title" content={socialTitle} />
-    <meta name="twitter:description" content={socialDescription} />
     <meta name="description" content={socialDescription} />
 
     {/*
-      No stylesheet, matching every other page here: ADR 0007's rule is that the payload is
-      small on a metered Venezuelan connection, and the look belongs to the ticket that designs
-      the public surface. What is inlined is the short list of rules the public-listing
-      prototype *measured*, each of which is a correctness property rather than a taste:
+      No stylesheet, matching every other page here: ADR 0007's rule is that the payload is small
+      on a metered Venezuelan connection, and the look of the public surface belongs to the ticket
+      that designs it. **This is not that ticket, so every rule below has to earn its line by
+      implementing something the issue or the prototype's measurements actually require** — and
+      four do. Nothing here sets a typeface, a scale, a spacing system or a brand colour.
 
-      - `max-width: 100%` **with** `height: auto`. The prototype's one recorded bug: the pair of
-        `width`/`height` attributes an `<img>` needs in order to reserve its box makes the
-        browser ignore the box's aspect ratio unless `height: auto` says otherwise, and a
-        688×516 photo rendered 360×516 — stretched, and every card 40% too tall.
-      - the attributes themselves, on every image. Photos blocked and photos loaded measured an
-        *identical* document height because of them: no layout shift on a patchy connection.
-      - the gallery scrolls horizontally rather than stacking six full-width photos, which is
-        the difference between a page and a scroll.
-      - the provenance line goes amber past the fresh band. The *sentence* is the same either
-        way; only the emphasis escalates.
+      1. `img { max-width: 100%; height: auto }` — the prototype's one recorded bug, quoted:
+         "`img { max-width: 100% }` **without `height: auto`** makes an `<img>` carrying
+         `width`/`height` attributes ignore the `aspect-ratio` on its box: a 688×516 photo
+         rendered 360×516, stretched and oversized". Both halves are needed, and the attributes
+         on the tags are the third: photos blocked and photos loaded measured an *identical*
+         document height because of them — no layout shift on a patchy connection.
+      2. `.gallery` scrolls horizontally. Without it six full-width photographs stack, and the
+         page an adopter has to scroll past to reach the contact button is six screens long.
+      3. `.provenance` goes amber past the fresh band. This is what lets `confirmationSentence()`
+         print the consequence unconditionally: the *sentence* is the same at one day and at four
+         months, and the escalation is the colour. Take the colour away and the choice is between
+         warning about every animal in the same voice and making the sentence's presence the
+         warning — the failure the prototype named.
+      4. `.contact-first` is filled and `.contact-rest` is not. The issue's criterion is "the
+         first contact point is a filled button; the rest are a compact row", and a filled button
+         that is not filled does not discharge it — the whole point is that an adopter handed
+         four equal choices has no basis for making one, so the difference has to be visible.
     */}
     <style is:global>
       img { max-width: 100%; height: auto; }
@@ -241,8 +274,12 @@ const socialTitle = `${animal.name} — ${description}`;
       .provenance { padding: 9px 10px; border-radius: 9px; background: #f2f2ef; }
       .provenance[data-staleness="Ageing"],
       .provenance[data-staleness="Stale"] { background: #fdf1dc; }
-      .contact-primary { display: block; text-align: center; font-weight: 700; padding: 14px 12px; }
-      .contact-others { display: flex; gap: 7px; list-style: none; padding: 0; }
+      .contact-first {
+        display: block; text-align: center; padding: 14px 12px; border-radius: 11px;
+        background: #1b6b4a; color: #fff; font-weight: 700; text-decoration: none;
+      }
+      .contact-rest { display: flex; gap: 7px; list-style: none; padding: 8px 0 0; }
+      .contact-rest a { padding: 9px 12px; border: 1px solid #d8d8d2; border-radius: 9px; }
       .prefill { font-style: italic; }
     </style>
   </head>
@@ -274,7 +311,7 @@ const socialTitle = `${animal.name} — ${description}`;
     }
 
     <h1 data-testid="animal-name">{animal.name}</h1>
-    <p data-testid="animal-meta">{description} · {animal.region}</p>
+    <p data-testid="animal-meta">{meta} · {animal.region}</p>
 
     {
       /*
@@ -342,16 +379,24 @@ const socialTitle = `${animal.name} — ${description}`;
             {animal.size !== null && (
               <>
                 <dt>Tamaño adulto</dt>
-                <dd data-testid="size">{agree(SIZE_WORDS[animal.size], animal.sex).word}</dd>
+                <dd data-testid="size">{sizeLabel(animal.size, animal.sex)}</dd>
               </>
             )}
 
-            <dt>Dónde está</dt>
-            <dd data-testid="region">{animal.region}</dd>
+            {/*
+              **No `Dónde está` row.** The region is already in the meta line directly above,
+              and the prototype's rule for this table is that it "drops what the heading already
+              says" — the rule that removed species, life stage and sex. The prototype's own
+              ficha kept region in both, which is the inconsistency rather than the rule: three
+              duplications were worth removing and the fourth is the same duplication.
 
+              Size does stay in both, and that is not a contradiction: the heading's bare
+              `Mediana` does not say the size is a prediction about the adult animal, and the
+              row's `Tamaño adulto` label does.
+            */}
             <dt>Esterilización</dt>
             <dd data-testid="sterilisation">
-              {agree(STERILISATION_WORDS[animal.sterilisation], animal.sex).word}
+              {sterilisationLabel(animal.sterilisation, animal.sex)}
             </dd>
 
             {animal.medicalNeeds !== null && (
@@ -371,6 +416,18 @@ const socialTitle = `${animal.name} — ${description}`;
         line because three stacked "no se sabe" chips are the heaviest thing on a card that is
         trying to say something; the page has the room, and a shelter's honest "not assessed" is
         worth reading before you write.
+
+        Each row is the phrase and nothing appended to it. The first draft rendered
+        `{goodWithPhrase(...)} — {GOOD_WITH_ANSWER_LABELS[flag]}`, producing
+        `Sin evaluar: gatos — No se sabe`: that joins two translated strings in a template, which
+        is the one thing ADR 0018 forbids outright, and it says the same thing twice —
+        `CONTEXT.md` writes these renderings as whole phrases precisely because the negation and
+        the not-yet-assessed form are shaped differently and the answer is already inside the
+        phrase.
+
+        The flag still reaches the markup as an attribute, because the three answers earn three
+        visual weights: a known `No` is a safety fact and must stay legible, a known `Yes` is
+        quiet, and an unknown is labelled rather than hidden.
       */
       listed && (
         <section>
@@ -379,8 +436,6 @@ const socialTitle = `${animal.name} — ${description}`;
             {GOOD_WITH_AXES.map((axis) => (
               <li data-axis={axis} data-flag={animal.goodWith[axis]}>
                 {goodWithPhrase(axis, animal.goodWith[axis])}
-                {" — "}
-                {GOOD_WITH_ANSWER_LABELS[animal.goodWith[axis]]}
               </li>
             ))}
           </ul>
@@ -406,7 +461,7 @@ const socialTitle = `${animal.name} — ${description}`;
     </section>
 
     {
-      listed && primaryContact !== undefined && (
+      listed && firstContact !== undefined && (
         <section data-testid="contact">
           <h2>Contactar al refugio</h2>
 
@@ -420,25 +475,25 @@ const socialTitle = `${animal.name} — ${description}`;
             A point whose value cannot become a link is rendered as text rather than as a dead
             button: an adopter who taps a link that goes nowhere concludes the animal is gone.
           */}
-          {primaryContact.href === null ? (
-            <p data-testid="contact-primary">
-              {primaryContact.label}: {primaryContact.value}
+          {firstContact.href === null ? (
+            <p data-testid="contact-first">
+              {firstContact.label}: {firstContact.value}
             </p>
           ) : (
             <a
-              class="contact-primary"
-              data-testid="contact-primary"
-              data-kind={primaryContact.kind}
-              href={primaryContact.href}
+              class="contact-first"
+              data-testid="contact-first"
+              data-kind={firstContact.kind}
+              href={firstContact.href}
               rel="nofollow noopener"
             >
-              {primaryContact.label}
+              {firstContact.label}
             </a>
           )}
 
-          {otherContacts.length > 0 && (
-            <ul class="contact-others" data-testid="contact-others">
-              {otherContacts.map((contact) => (
+          {remainingContacts.length > 0 && (
+            <ul class="contact-rest" data-testid="contact-rest">
+              {remainingContacts.map((contact) => (
                 <li>
                   {contact.href === null ? (
                     <span data-kind={contact.kind}>

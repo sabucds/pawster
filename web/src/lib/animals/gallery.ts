@@ -28,7 +28,7 @@
  */
 
 import type { Database } from "@pawster/db";
-import { type DerivativeName, derivativeDimensions } from "@pawster/domain";
+import { derivativeDimensions } from "@pawster/domain";
 import { derivativeKey } from "../photos/keys.ts";
 import { listSessionPhotos } from "../photos/store.ts";
 
@@ -111,7 +111,10 @@ export async function readAnimalGallery(
         row.height,
       );
       return {
-        url: publicUrl(mediaOrigin, await keyFor(row.sourceDigest, "detailImage")),
+        url: publicUrl(
+          mediaOrigin,
+          await derivativeKey(row.sourceDigest, "detailImage"),
+        ),
         width,
         height,
         alt,
@@ -124,11 +127,7 @@ export async function readAnimalGallery(
     socialPreviewUrl: publicUrl(
       mediaOrigin,
       // `rows` is ordered by position and non-empty, so this is position 0 — the primary.
-      await keyFor(rows[0]!.sourceDigest, "socialPreview"),
+      await derivativeKey(rows[0]!.sourceDigest, "socialPreview"),
     ),
   };
-}
-
-function keyFor(sourceDigest: string, name: DerivativeName): Promise<string> {
-  return derivativeKey(sourceDigest, name);
 }
