@@ -36,8 +36,13 @@ _Avoid_: Owner email, admin email, login email, notification address, primary us
 **Contact Point**:
 A public channel - WhatsApp, Instagram, email or phone - through which an adopter reaches
 a shelter about an animal. Distinct from the shelter's account email, which is auth
-identity and is never published.
-_Avoid_: Contact details, channel, handle
+identity and is never published. A shelter holds an **ordered** set of them and always at
+least one, because an animal published by a shelter with none is not listed; the order is
+the shelter's decision rather than a rendering detail, since the first one is what an
+adopter is offered as a filled button, so the channel the shelter actually answers goes
+first. Reordering therefore changes which channel that is - the same relationship
+`Primary Photo` has to a photo's order, and the reason neither concept has a flag.
+_Avoid_: Contact details, channel, handle, primary contact
 
 **Adopter**:
 A member of the public looking to adopt. Has no account and no password; identified only
@@ -356,7 +361,7 @@ it. The mechanism is [ADR 0018](docs/adr/0018-strings-are-typed-phrase-functions
 holds the rule for composing a species word with a band word.
 
 **Most of these renderings are read off the shipped prototypes rather than coined here**, which is
-the point: they are words a human already saw on screen. Three rows are not, and are marked so in
+the point: they are words a human already saw on screen. Two rows are not, and are marked so in
 the table, because a rendering nobody has read is a weaker thing than one that has shipped:
 
 - `Gatico / Gatica` **corrects** the prototypes, which render `Gatito / Gatica`. The reasoning is in
@@ -365,8 +370,11 @@ the table, because a rendering nobody has read is a weaker thing than one that h
 - `adoptante` appears in no prototype at all — no surface has yet had to name the adopter to their
   face. It is here because the concept has an obvious es-VE word and the English _Avoid_ list already
   names it.
-- `forma de contacto` is the singular of the prototype's `Otras formas de contacto`; the singular
-  itself has not been rendered.
+
+`forma de contacto` was the third such row and is no longer one: the singular labels every
+contact row of the registration form (#51) and the profile form (#52), so it is now a word a
+shelter has read on screen rather than a singular inferred from the prototype's plural
+`Otras formas de contacto`.
 
 Rows marked _unsettled_ are concepts neither prototype had to name and whose wording belongs to the
 issue that builds the surface.
@@ -374,7 +382,7 @@ issue that builds the surface.
 | Term | es-VE | Note |
 |---|---|---|
 | Shelter | `refugio` | On the English _Avoid_ list, and the only natural es-VE word |
-| Contact Point | `forma de contacto` | Singular _not yet rendered_; the prototype ships `Otras formas de contacto` |
+| Contact Point | `forma de contacto` | The singular labels each row of the shelter forms (#51, #52); the prototype ships the plural `Otras formas de contacto` |
 | Adopter | `adoptante` | _Not yet rendered_; on the English _Avoid_ list |
 | Animal | `animal` | Never `mascota`, which is a pet someone already has |
 | Listing | `el listado` | The screen, not the state; the state is never named to a user |

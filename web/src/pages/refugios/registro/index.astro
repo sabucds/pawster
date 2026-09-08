@@ -1,13 +1,15 @@
 ---
 import { createDb } from "@pawster/db";
 import { env } from "cloudflare:workers";
+import FormErrors from "../../../components/FormErrors.astro";
 import Refugios from "../../../layouts/Refugios.astro";
-import {
-  CONTACT_POINT_KINDS,
-  parseRegistration,
-} from "../../../lib/auth/registration.ts";
+import { parseRegistration } from "../../../lib/auth/registration.ts";
 import type { RegistrationError } from "../../../lib/auth/registration.ts";
 import { findShelterByEmail, registerShelter } from "../../../lib/auth/store.ts";
+import {
+  CONTACT_POINT_KINDS,
+  CONTACT_POINT_LABELS,
+} from "../../../lib/shelter/fields.ts";
 
 /**
  * Registration: the one form on the platform that both renders and processes itself.
@@ -99,28 +101,10 @@ const errorFor = (field: RegistrationError["field"]): string | undefined =>
  * fourth channel adds it from its profile (issue #52).
  */
 const CONTACT_ROWS = [0, 1, 2];
-
-const KIND_LABELS: Record<(typeof CONTACT_POINT_KINDS)[number], string> = {
-  whatsapp: "WhatsApp",
-  instagram: "Instagram",
-  email: "Correo",
-  phone: "Teléfono",
-};
 ---
 
 <Refugios title="Registra tu refugio" heading="Registra tu refugio">
-  {
-    errors.length > 0 && (
-      <div role="alert" data-testid="errors">
-        <p>Revisa lo siguiente:</p>
-        <ul>
-          {errors.map((error) => (
-            <li>{error.reason}</li>
-          ))}
-        </ul>
-      </div>
-    )
-  }
+  <FormErrors errors={errors} />
 
   <form method="post" action="/refugios/registro">
     <p>
@@ -215,7 +199,7 @@ const KIND_LABELS: Record<(typeof CONTACT_POINT_KINDS)[number], string> = {
             <label for={`contactValue-${row}`}>Forma de contacto</label><br />
             <select name="contactKind" aria-label="Tipo">
               {CONTACT_POINT_KINDS.map((kind) => (
-                <option value={kind}>{KIND_LABELS[kind]}</option>
+                <option value={kind}>{CONTACT_POINT_LABELS[kind]}</option>
               ))}
             </select>
             <input

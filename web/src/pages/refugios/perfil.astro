@@ -1,0 +1,273 @@
+---
+import { createDb } from "@pawster/db";
+import { env } from "cloudflare:workers";
+import FormErrors from "../../components/FormErrors.astro";
+import Refugios from "../../layouts/Refugios.astro";
+import { authenticate } from "../../lib/auth/guard.ts";
+import {
+  CONTACT_POINT_KINDS,
+  CONTACT_POINT_LABELS,
+  MAX_DISPLAY_NAME,
+  MAX_FIELD,
+  readContactRows,
+} from "../../lib/shelter/fields.ts";
+import type { ProfileError } from "../../lib/shelter/profile.ts";
+import { parseProfile } from "../../lib/shelter/profile.ts";
+import { readShelterProfile, saveShelterProfile } from "../../lib/shelter/store.ts";
+
+/**
+ * The shelter's own profile: display name, base region, and the ordered set of contact
+ * points an adopter reaches it through.
+ *
+ * **Everything here is editable for as long as the shelter exists, before and after
+ * verification.** That is the whole point of the ticket this page belongs to: a new phone
+ * number should not be a support request. Verification standing is a judgement about the
+ * shelter (ADR 0003) and never a lock on its own record, so nothing on this page consults
+ * it.
+ *
+ * Server-rendered like registration, and for the same reason spelled out in
+ * `registro/index.astro`: it reports several field errors at once and comes back filled in
+ * with what the shelter typed, which a prerendered form posting to an action endpoint cannot
+ * do without either re-rendering server-side anyway or shipping a validation island — and an
+ * island would be a second copy of the rules in `lib/shelter/profile.ts`. The traffic is a
+ * handful of edits per shelter across the platform's lifetime.
+ *
+ * ## What this page cannot reach
+ *
+ * - **The slug.** It is not a field, not a hidden input, and not read from the form. It is
+ *   an address adopters and search engines already hold; `db/src/schema.ts` makes it
+ *   immutable and `scripts/check-source-rules.mjs`'s third rule fails the build over any
+ *   query outside registration that writes it. The page *shows* it, so a shelter can see its
+ *   own public address, and offers no way to change it.
+ * - **The account email.** A separate page, because changing it is not an edit: it ends every
+ *   live session and invalidates every outstanding link. See `correo.astro`.
+ *
+ * ## Post-redirect-get
+ *
+ * A successful save answers 303 back to this same URL rather than rendering the result of the
+ * `POST`, so a shelter that reloads afterwards does not re-submit its own form. The redirect
+ * carries `?guardado`, which is the only thing the success notice is driven by — there is no
+ * server-side flash state, because that would need somewhere to keep it.
+ */
+export const prerender = false;
+
+const db = createDb(env.DB);
+const now = new Date();
+
+const session = await authenticate(Astro.request, db, env, now);
+// 303 rather than a 401: there is no credential to re-present, so pointing at the form that
+// sends a new code is the only useful answer. The same choice `panel.astro` makes.
+if (!session) return Astro.redirect("/refugios/entrar", 303);
+
+if (session.refreshedCookie) {
+  Astro.response.headers.append("set-cookie", session.refreshedCookie);
+}
+
+let errors: readonly ProfileError[] = [];
+/** What the shelter typed, so a refused form comes back as it left rather than reset. */
+let submitted: FormData | null = null;
+
+if (Astro.request.method === "POST") {
+  submitted = await Astro.request.formData();
+  const parsed = parseProfile(submitted);
+
+  if (parsed.ok) {
+    await saveShelterProfile(db, session.shelterId, parsed.value, now);
+    /**
+     * Built as a `Response` rather than through `Astro.redirect()`, because a redirect is a
+     * fresh response and does **not** carry the headers staged on `Astro.response` — measured
+     * on `correo/index.astro`, where the `Set-Cookie` that ends a session was silently
+     * dropped. Here what would be dropped is the sliding refresh, which is a smaller loss
+     * (`guard.ts`: "a failure that heals on the next request") and still a loss for no
+     * reason, so the cookie is carried across by hand.
+     */
+    const headers = new Headers({ location: "/refugios/perfil?guardado" });
+    if (session.refreshedCookie) headers.set("set-cookie", session.refreshedCookie);
+    return new Response(null, { status: 303, headers });
+  }
+
+  errors = parsed.errors;
+}
+
+const profile = await readShelterProfile(db, session.shelterId);
+// `authenticate()` already proved the row exists by reading its epoch. A miss here means it
+// was deleted between the two reads, which is a signed-out shelter rather than an error.
+if (!profile) return Astro.redirect("/refugios/entrar", 303);
+
+const saved = Astro.url.searchParams.has("guardado") && submitted === null;
+
+const errorFor = (field: ProfileError["field"]): string | undefined =>
+  errors.find((error) => error.field === field)?.reason;
+
+/**
+ * The rows to render: what the shelter typed if it typed something, otherwise what is
+ * stored — plus two blank rows to add to.
+ *
+ * Reading the rows back off `submitted` is what makes a refused save non-destructive. Without
+ * it, a shelter that emptied its last contact point would be shown the refusal *and* the
+ * stored points, with its other edits silently gone.
+ *
+ * **Read through `readContactRows()`, which is also what the parser reads through.** The page
+ * decoding the rows itself was a bug and not a duplication: it paired the kinds and values but
+ * never looked at `contactPosition`, so a refused save handed the rows back in document order
+ * and renumbered them from 1 — and a shelter that reordered its points *and* mistyped its own
+ * name would fix the name, save, and silently persist the old order. Sharing the function is
+ * what makes the order on screen the order that would have been saved.
+ */
+const submittedRows = submitted ? readContactRows(submitted) : null;
+const storedRows = profile.contactPoints.map((point) => ({
+  kind: point.kind as string,
+  value: point.value,
+}));
+
+/**
+ * Trailing blanks are dropped before the spares are added, so the form is the same size on
+ * every render. Without this each refusal echoed back the two spare rows *and* appended two
+ * more, and a shelter that got the form wrong twice was looking at six empty rows.
+ *
+ * Trailing only, never interior: a blank row between two filled ones is a contact point the
+ * shelter is in the middle of deleting, and removing it from the render would move the rows
+ * under a cursor.
+ */
+const base = submittedRows ?? storedRows;
+let filled = base.length;
+while (filled > 0 && base[filled - 1]!.value.length === 0) filled--;
+
+/**
+ * Two spare rows rather than one, so adding a channel does not take two round trips, and
+ * rather than many, so the form does not suggest a shelter is expected to fill them all in.
+ * A shelter needing a third saves once and comes back to two more.
+ */
+const rows = [
+  ...base.slice(0, filled),
+  { kind: "whatsapp", value: "" },
+  { kind: "whatsapp", value: "" },
+];
+
+const priorValue = (field: string, fallback: string): string => {
+  if (!submitted) return fallback;
+  const value = submitted.get(field);
+  return typeof value === "string" ? value : fallback;
+};
+---
+
+<Refugios title="Datos del refugio" heading="Datos del refugio">
+  {
+    saved && (
+      <p role="status" data-testid="saved">Listo, se guardaron los cambios.</p>
+    )
+  }
+
+  <FormErrors errors={errors} />
+
+  <form method="post" action="/refugios/perfil">
+    <p>
+      <label for="displayName">Nombre del refugio</label><br />
+      <input
+        id="displayName"
+        name="displayName"
+        type="text"
+        required
+        maxlength={MAX_DISPLAY_NAME}
+        value={priorValue("displayName", profile.displayName)}
+        aria-describedby="displayName-hint"
+      />
+      <small id="displayName-hint">
+        Así te van a ver los adoptantes. Lo puedes cambiar cuando quieras.
+      </small>
+      {errorFor("displayName") && <strong>{errorFor("displayName")}</strong>}
+    </p>
+
+    <p>
+      <label for="baseRegion">¿Dónde está el refugio?</label><br />
+      <input
+        id="baseRegion"
+        name="baseRegion"
+        type="text"
+        required
+        maxlength={MAX_FIELD}
+        value={priorValue("baseRegion", profile.baseRegion)}
+        aria-describedby="baseRegion-hint"
+      />
+      <small id="baseRegion-hint">
+        El estado donde está el refugio. Cada animal lleva el suyo, así que puedes publicar
+        uno que esté en otro lado.
+      </small>
+      {errorFor("baseRegion") && <strong>{errorFor("baseRegion")}</strong>}
+    </p>
+
+    <fieldset>
+      <legend>¿Cómo te contactan los adoptantes?</legend>
+      <p id="contactPoints-hint">
+        <!--
+          The order is the decision, so the form says what the order *does* rather than
+          labelling a number field and leaving the shelter to guess. `CONTEXT.md` gives Primary
+          Photo the same shape — chosen by ordering, not by a flag — and issue #52 puts the
+          reason plainly: the channel the shelter actually answers goes first.
+        -->
+        La primera es la que se le ofrece al adoptante como botón, así que pon de primera la
+        que de verdad atiendes. Cambia los números para reordenarlas.
+      </p>
+      <p>
+        Para quitar una, borra lo que tenga escrito y guarda. Tiene que quedar al menos una:
+        sin ninguna, tus animales dejan de aparecer en el sitio.
+      </p>
+      {
+        rows.map((row, index) => (
+          <p>
+            <label for={`contactValue-${index}`}>Forma de contacto</label><br />
+            <!--
+              A typed number is how the order is expressed, because these pages ship no
+              JavaScript (ADR 0007) and drag-and-drop needs it. Duplicates and gaps are handled
+              rather than validated — see `readContactPoints()` in lib/shelter/fields.ts.
+            -->
+            <input
+              name="contactPosition"
+              type="number"
+              min="1"
+              step="1"
+              value={index + 1}
+              aria-label="Orden"
+            />
+            <select name="contactKind" aria-label="Tipo">
+              {CONTACT_POINT_KINDS.map((kind) => (
+                <option value={kind} selected={row.kind === kind}>
+                  {CONTACT_POINT_LABELS[kind]}
+                </option>
+              ))}
+            </select>
+            <input
+              id={`contactValue-${index}`}
+              name="contactValue"
+              type="text"
+              maxlength={MAX_FIELD}
+              value={row.value}
+            />
+          </p>
+        ))
+      }
+      {errorFor("contactPoints") && <strong>{errorFor("contactPoints")}</strong>}
+    </fieldset>
+
+    <p><button type="submit">Guardar</button></p>
+  </form>
+
+  <dl>
+    <dt>Dirección pública</dt>
+    <!--
+      Shown and not editable. A slug is an address adopters and search engines already hold,
+      so it is generated once from the display name at registration and never rewritten —
+      which is exactly why the display name above is free to change.
+    -->
+    <dd data-testid="slug">/refugios/{profile.slug}</dd>
+    <dt>Correo del refugio</dt>
+    <dd data-testid="account-email">{profile.accountEmail}</dd>
+  </dl>
+
+  <p>
+    El correo del refugio no se publica en ningún lado: es con lo que se entra.
+    <a href="/refugios/correo">Cambiar el correo del refugio</a>.
+  </p>
+
+  <p><a href="/refugios/panel">Volver</a></p>
+</Refugios>

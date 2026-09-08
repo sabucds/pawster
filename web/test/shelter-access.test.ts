@@ -13,6 +13,18 @@ import {
 } from "../src/lib/auth/policy.ts";
 import { encodeSession } from "../src/lib/auth/session.ts";
 import { readShelterFacts } from "../src/lib/auth/store.ts";
+import {
+  ORIGIN,
+  REGISTRATION,
+  ageMailLedger,
+  clearShelterTables,
+  cookieFrom,
+  get,
+  post,
+  register,
+  requestCode,
+  signIn,
+} from "./support/shelter.ts";
 
 /**
  * Registration and emailed-code sign-in, through the Worker's own front door.
@@ -21,147 +33,13 @@ import { readShelterFacts } from "../src/lib/auth/store.ts";
  * against a real local D1 with the real migrations applied, and every email leaves through
  * the single outbound interceptor. So "exactly one email per code request" is an assertion
  * against one ordered call log rather than a question asked of a mock.
- */
-
-const ORIGIN = "https://pawster.test";
-
-/** A distinct IP per test, so the per-IP request limit cannot leak between them. */
-let ip = 0;
-const nextIp = () => `203.0.113.${++ip % 250}`;
-
-interface PostOptions {
-  cookie?: string;
-  ip?: string;
-  /** Overridden only by the test that checks a cross-site post is refused. */
-  origin?: string;
-}
-
-/**
- * `redirect: "manual"` throughout, because the redirect *is* the response under test: which
- * page a code request sends you to is the whole of ADR 0008's identical-response rule.
- */
-function post(
-  path: string,
-  fields: Record<string, string | string[]>,
-  options: PostOptions = {},
-): Promise<Response> {
-  const body = new FormData();
-  for (const [name, value] of Object.entries(fields)) {
-    for (const item of Array.isArray(value) ? value : [value]) {
-      body.append(name, item);
-    }
-  }
-  /**
-   * `Origin` is sent because a browser sends it on a form post, and Astro's built-in
-   * `security.checkOrigin` refuses a same-site form submission without it with a 403. That
-   * check is a CSRF defence worth keeping on these endpoints — see the test at the bottom of
-   * this file — so the tests match what a browser does rather than turning it off.
-   */
-  const headers = new Headers({
-    "cf-connecting-ip": options.ip ?? nextIp(),
-    origin: options.origin ?? ORIGIN,
-  });
-  if (options.cookie) headers.set("cookie", options.cookie);
-
-  return SELF.fetch(`${ORIGIN}${path}`, {
-    method: "POST",
-    body,
-    headers,
-    redirect: "manual",
-  });
-}
-
-function get(path: string, cookie?: string): Promise<Response> {
-  return SELF.fetch(`${ORIGIN}${path}`, {
-    headers: cookie ? { cookie } : undefined,
-    redirect: "manual",
-  });
-}
-
-/** One `Set-Cookie` off a response, reduced to its `name=value` for sending back. */
-function cookieFrom(response: Response, name: string): string | null {
-  for (const header of response.headers.getSetCookie()) {
-    const [pair] = header.split(";");
-    if (pair?.startsWith(`${name}=`)) return pair;
-  }
-  return null;
-}
-
-const REGISTRATION = {
-  displayName: "Refugio Los Teques",
-  accountEmail: "hola@refugio.example",
-  baseRegion: "Miranda",
-  countryCode: "VE",
-  contactKind: ["whatsapp", "instagram", "email"],
-  contactValue: ["+58 412 5550001", "", ""],
-};
-
-async function register(overrides: Record<string, string | string[]> = {}) {
-  const response = await post("/refugios/registro", {
-    ...REGISTRATION,
-    ...overrides,
-  });
-  return response;
-}
-
-/** The code Pawster just emailed, read out of the interceptor's call log. */
-function emailedCode(): string {
-  const calls = outbound.callsTo("resend");
-  expect(calls).toHaveLength(1);
-  const body = JSON.parse(calls[0]!.body!) as { text: string };
-  const match = body.text.match(/\b(\d{6})\b/);
-  expect(match, "the code email should carry six digits").not.toBeNull();
-  return match![1]!;
-}
-
-/** Ask for a code and come back with the handle and the digits. */
-async function requestCode(accountEmail: string, options: PostOptions = {}) {
-  const response = await post("/api/refugios/codigo", { accountEmail }, options);
-  return {
-    response,
-    token: cookieFrom(response, "pawster_sign_in"),
-    code: emailedCode(),
-  };
-}
-
-/** Register, request a code, type it, and come back holding a session cookie. */
-async function signIn(): Promise<{ shelterId: string; cookie: string }> {
-  await register();
-  const { token, code } = await requestCode(REGISTRATION.accountEmail);
-
-  const response = await post("/api/refugios/sesion", { code }, { cookie: token! });
-  expect(response.status).toBe(303);
-  expect(response.headers.get("location")).toBe("/refugios/panel");
-
-  const cookie = cookieFrom(response, "pawster_session");
-  expect(cookie).not.toBeNull();
-
-  const db = createDb(env.DB);
-  const [row] = await db
-    .select({ id: shelters.id })
-    .from(shelters)
-    .where(eq(shelters.accountEmail, REGISTRATION.accountEmail));
-
-  return { shelterId: row!.id, cookie: cookie! };
-}
-
-/**
- * Move every ledger row further into the past, so the next request is outside the
- * five-minute per-address cooldown.
  *
- * The alternative would be faking a clock, and there is nothing to fake: the endpoints read
- * `new Date()` and compare it against `sign_in_requests.requested_at`, so shifting the rows
- * is the same arithmetic from the other side and it exercises the real query. A test that
- * needs a shelter to hold two codes in succession is describing a shelter that asked for one
- * ten minutes ago, which is what this makes true.
+ * The machinery for getting a shelter registered and signed in lives in `support/shelter.ts`,
+ * because `shelter-profile.test.ts` needs a session before it can test anything and a second
+ * copy of this flow would stop matching the real one the first time ADR 0013's mechanics
+ * move. What stays here is what only this suite asks: {@link snapshot}, which is the
+ * "no write happened" assertion.
  */
-async function ageMailLedger(ms: number): Promise<void> {
-  await env.DB.prepare(
-    "UPDATE sign_in_requests SET requested_at = requested_at - ?",
-  )
-    .bind(ms)
-    .run();
-}
 
 /** Every row the platform holds, for the "no write happened" assertion. */
 async function snapshot(): Promise<string> {
@@ -183,15 +61,7 @@ async function snapshot(): Promise<string> {
   return JSON.stringify(dump);
 }
 
-beforeEach(async () => {
-  // Children before parents: `one_time_codes`, `sign_in_requests` and
-  // `shelter_contact_points` all carry a foreign key to `shelters`.
-  await env.DB.exec("DELETE FROM animals");
-  await env.DB.exec("DELETE FROM one_time_codes");
-  await env.DB.exec("DELETE FROM sign_in_requests");
-  await env.DB.exec("DELETE FROM shelter_contact_points");
-  await env.DB.exec("DELETE FROM shelters");
-});
+beforeEach(clearShelterTables);
 
 describe("registration", () => {
   it("writes a shelter with a slug derived from the display name", async () => {

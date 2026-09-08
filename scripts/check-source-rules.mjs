@@ -1,10 +1,16 @@
 #!/usr/bin/env node
 /**
- * Two structural rules that no test can enforce, checked over the source instead.
+ * Four structural rules that no test can enforce, checked over the source instead.
  *
- * Both exist because the thing they forbid *passes* at runtime. A module-scope Drizzle
- * client runs fine locally and breaks in production; a `db/` import inside `domain/` is
- * just an import. Neither has a failing test to point at, so this is the enforcement.
+ * All four exist because the thing they forbid *passes* at runtime. A module-scope Drizzle
+ * client runs fine locally and breaks in production; a `db/` import inside `domain/` is just
+ * an import; a query that rewrites a shelter's slug succeeds and quietly breaks every URL an
+ * adopter already held; a query that selects a shelter's account email into something public
+ * succeeds and publishes a credential.
+ *
+ * None has a failing test to point at, and the last two share a reason for that worth naming:
+ * they could each have a test *per route*, which is the problem, because the route that breaks
+ * them is the one nobody has written yet.
  *
  *   node scripts/check-source-rules.mjs
  *
@@ -62,10 +68,179 @@ const files = SOURCE_DIRS.flatMap((dir) => walk(join(ROOT, dir))).filter(
   (file) => !EXEMPT.some((prefix) => relative(ROOT, file).startsWith(prefix)),
 );
 
+/**
+ * The one function allowed to write `shelters.slug`.
+ *
+ * `db/src/schema.ts`: the slug is "generated once at registration from the display name and
+ * **never rewritten afterwards**", because it is an address adopters and search engines
+ * already hold and ADR 0015 promises a departed shelter's archive pages stay reachable. That
+ * file also admits the gap this rule closes: "Nothing in SQLite enforces immutability, so the
+ * enforcement is narrower and worth stating: no query outside registration writes this
+ * column." Stating it is what this makes mechanical.
+ */
+const SLUG_INSERT_EXEMPT = "web/src/lib/auth/store.ts";
+
+/**
+ * The balanced `(...)` starting at the `(` at or after `from`, or `null` if unbalanced.
+ *
+ * Needed because the thing being looked for is a property inside a multi-line object
+ * literal, and the line-by-line pass below cannot see one. Parentheses are counted rather
+ * than braces so that `.set({ ... })` and `.values([{ ... }, { ... }])` are both one region.
+ * Quotes are not tracked: a `(` inside a string would throw the count off, and the failure
+ * direction is a region that ends early or late rather than a rule that stops applying.
+ */
+function balanced(source, from) {
+  const open = source.indexOf("(", from);
+  if (open === -1) return null;
+  let depth = 0;
+  for (let i = open; i < source.length; i++) {
+    if (source[i] === "(") depth++;
+    else if (source[i] === ")") {
+      depth--;
+      if (depth === 0) return source.slice(open, i + 1);
+    }
+  }
+  return null;
+}
+
+/**
+ * Rule 3: nothing outside registration writes `shelters.slug`.
+ *
+ * Two shapes, checked over the whole file text rather than per line:
+ *
+ *   .set({ slug })                       // an UPDATE — never allowed, anywhere
+ *   db.insert(shelters).values({ slug }) // an INSERT — only in registerShelter()
+ *
+ * The `.set(` form carries no exemption at all — not even for a test — because there is no
+ * legitimate one: the slug is written when the row is created and at no later moment, and a
+ * test that rewrote one would be asserting the behaviour this rule forbids.
+ *
+ * The insert form is exempted for exactly one source file, rather than for the whole of
+ * `web/src/lib/auth/`, so that a second write path added next door still fails. It is also
+ * exempted for tests, which is not a concession: a test seeding a `shelters` row is
+ * *creating* a shelter and choosing its slug, which is the one act the rule permits. What it
+ * must not do is change one afterwards, and the `.set(` half still stops that.
+ *
+ * Raw SQL is checked too. A migration writing the column is fine and expected — `0001`
+ * backfills it — and `db/migrations` is not scanned, so nothing needs exempting there.
+ */
+function checkSlugWrites(file, relPath, source) {
+  const lineOf = (index) => source.slice(0, index).split("\n").length;
+
+  for (const match of source.matchAll(/\.set\s*\(/g)) {
+    const region = balanced(source, match.index);
+    if (region && /\bslug\b/.test(region)) {
+      fail(
+        file,
+        lineOf(match.index),
+        "writes shelters.slug",
+        "A slug is generated once at registration and never rewritten — it is an address " +
+          "adopters and search engines already hold, and ADR 0015 promises a departed " +
+          "shelter's archive pages stay reachable. The display name is the field that " +
+          "changes; see db/src/schema.ts.",
+      );
+    }
+  }
+
+  const isTest = /\.test\.ts$/.test(relPath) || relPath.includes("/test/");
+  if (relPath === SLUG_INSERT_EXEMPT || isTest) return;
+
+  for (const match of source.matchAll(
+    /\.insert\s*\(\s*shelters\s*\)[\s\S]{0,120}?\.values\s*\(/g,
+  )) {
+    const region = balanced(source, match.index + match[0].length - 1);
+    if (region && /\bslug\b/.test(region)) {
+      fail(
+        file,
+        lineOf(match.index),
+        "writes shelters.slug",
+        `Only ${SLUG_INSERT_EXEMPT}'s registerShelter() may write a slug, because that is ` +
+          "the one moment it is chosen. See db/src/schema.ts.",
+      );
+    }
+  }
+
+  const rawUpdate = source.match(/update\s+`?shelters`?\s+set[\s\S]{0,200}?\bslug\b/i);
+  if (rawUpdate) {
+    fail(
+      file,
+      lineOf(rawUpdate.index),
+      "writes shelters.slug in raw SQL",
+      "Same rule, and the same reason: no query outside registration writes this column.",
+    );
+  }
+}
+
+/**
+ * The only source files allowed to read `shelters.account_email`.
+ *
+ * `CONTEXT.md`, *Account Email*: "Never published — adopters reach a shelter through its
+ * contact points", and issue #52 requires it to appear "in no public response, in no page
+ * source, and in no filter index". The first two are testable and tested; **the third is not,
+ * because the filter index does not exist yet** (issue #56), and a requirement whose only
+ * enforcement is a test that cannot be written is a requirement that quietly lapses.
+ *
+ * So the column itself is fenced. `web/src/lib/auth/store.ts` reads it to find the shelter an
+ * address belongs to at sign-in; `web/src/lib/shelter/store.ts` reads it to render the
+ * shelter's own two authenticated pages and to move it. Nothing else has a reason to, and the
+ * point of the list being short is that adding to it is a deliberate edit rather than an
+ * import.
+ *
+ * **Every page is absent from the list on purpose**, including the three authenticated ones
+ * that display the address: they receive a `ShelterProfile` and never name the column. That
+ * is what makes the fence worth having — a page that could name it by writing its own select
+ * would fence nothing, and `panel.astro` had exactly such a select until this rule found it.
+ */
+const ACCOUNT_EMAIL_READERS = [
+  /** Declares the column. Defining it is not reading it, and something has to. */
+  "db/src/schema.ts",
+  /** `findShelterByEmail()`: which shelter an address belongs to, at sign-in. */
+  "web/src/lib/auth/store.ts",
+  /** `readShelterProfile()` renders it to the shelter; `changeAccountEmail()` moves it. */
+  "web/src/lib/shelter/store.ts",
+];
+
+/**
+ * Rule 4: only {@link ACCOUNT_EMAIL_READERS} may name the account-email column.
+ *
+ * Matches the Drizzle reference (`shelters.accountEmail`) and the raw column name
+ * (`account_email`), which between them are every way to reach it. Tests are exempt: a test
+ * asserting the address is *absent* from a public page has to name it to do so, and several
+ * do.
+ *
+ * A false positive here is a file that mentions the column without reading it, which is
+ * cheap to resolve — either it does not need to, or it is a reader and belongs on the list.
+ */
+function checkAccountEmailReaders(file, relPath, source) {
+  if (/\.test\.ts$/.test(relPath) || relPath.includes("/test/")) return;
+  if (ACCOUNT_EMAIL_READERS.includes(relPath)) return;
+
+  const lines = source.split("\n");
+  lines.forEach((line, index) => {
+    if (!/shelters\.accountEmail|\baccount_email\b/.test(line)) return;
+    fail(
+      file,
+      index + 1,
+      "reads shelters.account_email",
+      "The account email is a shelter's credential and is never published — not in a " +
+        "public response, not in a page source, not in the filter index (issue #52). If " +
+        `this file genuinely needs it, add it to ACCOUNT_EMAIL_READERS in ${relative(
+          ROOT,
+          fileURLToPath(import.meta.url),
+        )} and say why. If it needs a shelter's public identity, that is displayName and ` +
+        "its contact points.",
+    );
+  });
+}
+
 for (const file of files) {
   const relPath = relative(ROOT, file);
-  const lines = readFileSync(file, "utf8").split("\n");
+  const source = readFileSync(file, "utf8");
+  const lines = source.split("\n");
   const inDomain = relPath.startsWith("domain/");
+
+  checkSlugWrites(file, relPath, source);
+  checkAccountEmailReaders(file, relPath, source);
 
   /**
    * Every name declared at column 0 — the file's module scope. A client assigned to one of
@@ -176,5 +351,6 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `source rules ok — ${files.length} files checked for module-scope Drizzle clients and domain/ purity`,
+  `source rules ok — ${files.length} files checked for module-scope Drizzle clients, ` +
+    "domain/ purity, writes to shelters.slug and reads of the account-email column",
 );

@@ -18,9 +18,11 @@ import {
   shelters,
   signInRequests,
 } from "@pawster/db";
-import type { ContactPointKind, OneTimeCode } from "@pawster/db";
+import type { OneTimeCode } from "@pawster/db";
 import type { ShelterFacts } from "@pawster/domain";
 import { and, count, desc, eq, gte, like, or, sql } from "drizzle-orm";
+import type { ContactPointInput } from "../shelter/fields.ts";
+import { writeContactPoints } from "../shelter/store.ts";
 import { slugCandidates } from "../slug.ts";
 import { generateOneTimeCode, generateRequestToken, hashOneTimeCode } from "./crypto.ts";
 import type { MailBudgetUsage } from "./policy.ts";
@@ -31,17 +33,16 @@ import {
   mailBudgetWindowStart,
 } from "./policy.ts";
 
-export interface ContactPointInput {
-  readonly kind: ContactPointKind;
-  readonly value: string;
-}
-
 export interface RegistrationInput {
   readonly displayName: string;
   readonly accountEmail: string;
   readonly baseRegion: string;
   readonly countryCode: string;
-  /** At least one, enforced before this is built — see `registration.ts`. */
+  /**
+   * At least one, enforced before this is built — see `registration.ts`. In the order the
+   * form submitted them, which is the order they are stored in: the first is the one an
+   * adopter is offered.
+   */
   readonly contactPoints: readonly ContactPointInput[];
 }
 
@@ -93,15 +94,12 @@ export async function registerShelter(
     createdAt: now,
   });
 
-  await db.insert(shelterContactPoints).values(
-    input.contactPoints.map((point) => ({
-      id: crypto.randomUUID(),
-      shelterId: id,
-      kind: point.kind,
-      value: point.value,
-      createdAt: now,
-    })),
-  );
+  /**
+   * The same function the profile form saves through, so the ordering rule — position is the
+   * index in the submitted list — has one implementation rather than one per form. Its
+   * delete is a no-op here, because this shelter did not exist a line ago.
+   */
+  await writeContactPoints(db, id, input.contactPoints, now);
 
   return { id, slug };
 }
