@@ -21,7 +21,7 @@ import {
   citedArtifactsDrifted,
   refuseAdminMail,
   requiresMethod,
-  snapshotOf,
+  storedCitedArtifacts,
 } from "../src/lib/verification/policy.ts";
 
 /**
@@ -245,6 +245,15 @@ describe("minting and verifying an admin link", () => {
       AT,
     );
     expect(await verifyAdminLink(SECRETS, token, at(PENDING_LIST_LINK_TTL_MS))).not.toBeNull();
+    /**
+     * Alive on the sixth day and dead on the seventh, so both directions are pinned. Only the
+     * dead direction was asserted at first, which a TTL of *any* length under a week would
+     * have satisfied — including one that had accidentally become the pending list's.
+     */
+    expect(
+      await verifyAdminLink(SECRETS, token, at(6 * 24 * 60 * 60_000)),
+    ).not.toBeNull();
+    expect(await verifyAdminLink(SECRETS, token, at(DECISION_LINK_TTL_MS - 1))).not.toBeNull();
     expect(await verifyAdminLink(SECRETS, token, at(DECISION_LINK_TTL_MS))).toBeNull();
   });
 
@@ -299,16 +308,22 @@ describe("minting and verifying an admin link", () => {
       ),
       AT,
     );
-    expect(authorises(decision, "decision", "shelter-1")).toBe(true);
-    expect(authorises(decision, "revocation", "shelter-1")).toBe(false);
+    expect(authorises(decision, "decision")).toBe(true);
+    expect(authorises(decision, "revocation")).toBe(false);
     expect(authorises(decision, "pending")).toBe(false);
-    // And a decision token for one shelter authorises nothing about another.
-    expect(authorises(decision, "decision", "shelter-2")).toBe(false);
+    /**
+     * A decision token for one shelter authorises nothing about another, and that is a
+     * property of *where the subject comes from* rather than of a check: every route reads
+     * its shelter id out of `claims.shelterId` and from nowhere else, so there is no second
+     * value for a cross-check to compare against. `authorises()` used to take one and no
+     * caller ever passed it.
+     */
+    expect(decision!.shelterId).toBe("shelter-1");
   });
 });
 
 describe("the dead-man's switch's predicate", () => {
-  const cited = snapshotOf({
+  const cited = storedCitedArtifacts({
     displayName: "Refugio Los Teques",
     contactPoints: [point("whatsapp", "+58 412 5550001"), point("instagram", "@refugio")],
   });

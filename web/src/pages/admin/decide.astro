@@ -6,10 +6,7 @@ import Admin from "../../layouts/Admin.astro";
 import { readShelterFacts } from "../../lib/auth/store.ts";
 import { CONTACT_POINT_LABELS } from "../../lib/shelter/fields.ts";
 import { readShelterProfile } from "../../lib/shelter/store.ts";
-import {
-  decideVerification,
-  parseCitedContactPoints,
-} from "../../lib/verification/decide.ts";
+import { decideVerification } from "../../lib/verification/decide.ts";
 import type { DecisionError } from "../../lib/verification/decision.ts";
 import { decodeMethods, parseDecision } from "../../lib/verification/decision.ts";
 import {
@@ -24,6 +21,7 @@ import {
   MAX_EVIDENCE,
   VERIFICATION_METHODS,
   VERIFICATION_METHOD_LABELS,
+  parseCitedContactPoints,
 } from "../../lib/verification/policy.ts";
 import { readVerificationLog } from "../../lib/verification/store.ts";
 

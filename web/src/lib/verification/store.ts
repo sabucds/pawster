@@ -23,7 +23,7 @@ import { shelterContactPoints, shelters, verifications } from "@pawster/db";
 import type { VerificationOutcome } from "@pawster/domain";
 import { count, desc, eq, gte, notInArray, sql } from "drizzle-orm";
 import type { CitedArtifacts } from "./policy.ts";
-import { snapshotOf } from "./policy.ts";
+import { storedCitedArtifacts } from "./policy.ts";
 import type { VerificationMethod } from "./policy.ts";
 import { encodeMethods } from "./decision.ts";
 
@@ -56,7 +56,7 @@ export async function appendVerification(
   entry: VerificationEntryInput,
   now: Date,
 ): Promise<void> {
-  const snapshot = snapshotOf(entry.cited);
+  const cited = storedCitedArtifacts(entry.cited);
   await db.insert(verifications).values({
     shelterId: entry.shelterId,
     outcome: entry.outcome,
@@ -64,8 +64,8 @@ export async function appendVerification(
     evidence: entry.evidence,
     decidedAt: now,
     decidedBy: entry.decidedBy,
-    citedDisplayName: snapshot.citedDisplayName,
-    citedContactPoints: snapshot.citedContactPoints,
+    citedDisplayName: cited.citedDisplayName,
+    citedContactPoints: cited.citedContactPoints,
   });
 }
 

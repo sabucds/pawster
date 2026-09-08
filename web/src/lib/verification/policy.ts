@@ -16,7 +16,9 @@
  */
 
 import type { VerificationOutcome } from "@pawster/domain";
+import type { ContactPointKind } from "@pawster/db";
 import type { StoredContactPoint } from "../shelter/store.ts";
+import { CONTACT_POINT_KINDS } from "../shelter/fields.ts";
 import { MAIL_BUDGET_WINDOW_MS } from "../auth/policy.ts";
 
 /**
@@ -254,23 +256,75 @@ export function canonicalCitedContactPoints(
   return JSON.stringify(pairs);
 }
 
-/** What is stored on an entry, as the two canonical strings. */
-export interface CitedSnapshot {
+/**
+ * The Cited Artifacts as an entry stores them: the two canonical strings that go into
+ * `verifications.cited_display_name` and `cited_contact_points`.
+ *
+ * Named for the glossary term rather than as a "snapshot", which is on *Cited Artifact*'s
+ * own **_Avoid_** list in `CONTEXT.md` — and that list "bind[s] identifiers, types". The
+ * prose in this repository still says *snapshot* where it is describing the idea, which the
+ * Language section permits; what it must not do is let a second word for the concept into
+ * the code, where two names for one thing is how a glossary stops being one.
+ */
+export interface StoredCitedArtifacts {
   readonly citedDisplayName: string;
   readonly citedContactPoints: string;
 }
 
-export function snapshotOf(artifacts: CitedArtifacts): CitedSnapshot {
+export function storedCitedArtifacts(
+  artifacts: CitedArtifacts,
+): StoredCitedArtifacts {
   return {
     citedDisplayName: artifacts.displayName,
     citedContactPoints: canonicalCitedContactPoints(artifacts.contactPoints),
   };
 }
 
-function matches(snapshot: CitedSnapshot, artifacts: CitedArtifacts): boolean {
+/**
+ * The reverse of {@link canonicalCitedContactPoints}, beside its encoder rather than in the
+ * module that happens to call it.
+ *
+ * Here for the reason `encodeMethods`/`decodeMethods` are one pair in one file: a codec split
+ * across two modules is two things that have to agree about a format neither of them owns.
+ * This half lived in `decide.ts` until review pointed that out.
+ *
+ * **Tolerant of anything it cannot read, and filtered rather than cast.** This parses
+ * *history*: a snapshot written under an older encoding, or naming a channel the platform has
+ * since dropped, must not make the drift email throw — that email is the only thing telling
+ * the admin a verified shelter has moved, and failing to send it is worse than sending one
+ * with a shorter list. The filter is what `decodeMethods` already does and this did not: an
+ * unfiltered cast let an unknown kind through to `CONTACT_POINT_LABELS`, which would render
+ * `undefined: value` in the very mail this comment says must not fail.
+ */
+export function parseCitedContactPoints(
+  stored: string,
+): readonly StoredContactPoint[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stored);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+
+  const points: StoredContactPoint[] = [];
+  for (const entry of parsed) {
+    if (!Array.isArray(entry) || entry.length !== 2) continue;
+    const [kind, value] = entry;
+    if (typeof kind !== "string" || typeof value !== "string") continue;
+    if (!(CONTACT_POINT_KINDS as readonly string[]).includes(kind)) continue;
+    points.push({ kind: kind as ContactPointKind, value });
+  }
+  return points;
+}
+
+function matches(
+  stored: StoredCitedArtifacts,
+  artifacts: CitedArtifacts,
+): boolean {
   return (
-    snapshot.citedDisplayName === artifacts.displayName &&
-    snapshot.citedContactPoints ===
+    stored.citedDisplayName === artifacts.displayName &&
+    stored.citedContactPoints ===
       canonicalCitedContactPoints(artifacts.contactPoints)
   );
 }
@@ -290,9 +344,9 @@ function matches(snapshot: CitedSnapshot, artifacts: CitedArtifacts): boolean {
  * none, which is the honest reading: the site again says what the admin checked.
  */
 export function citedArtifactsDrifted(
-  snapshot: CitedSnapshot,
+  stored: StoredCitedArtifacts,
   before: CitedArtifacts,
   after: CitedArtifacts,
 ): boolean {
-  return matches(snapshot, before) && !matches(snapshot, after);
+  return matches(stored, before) && !matches(stored, after);
 }

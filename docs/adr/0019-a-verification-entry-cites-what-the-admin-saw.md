@@ -66,10 +66,20 @@ just read counted is a question with no wrong-looking answer.
   ADR 0002 already declined to guard the queue with a cron: the shelter was promised an answer in
   three days and invited to chase, and the pending list still holds every registration whose mail was
   refused. The queue can lose a notification; it cannot lose an entry.
-- **Revocation stays off every link, and gets an endpoint rather than a hand-written `INSERT`.** ADR
-  0002 keeps revocation "off any link" and issue #53 builds no revoke button; both hold. What this
-  adds is that the *by-hand* path goes through the same writer a refusal does, because an `INSERT`
-  delists a shelter's animals and tells the shelter nothing — and being told, replyably, is the half
-  of a revocation issue #45 cares most about. The capability is a `revocation` token, mintable only
-  from the platform's signing secret at a terminal (`scripts/admin-link.mjs`), which is a higher bar
-  than the inbox a verification arrives in.
+- **This ADR amends ADR 0002's revocation bullet, and that bullet now says so.** ADR 0002 wrote
+  "**Revocation is deliberately not on a signed link.** It is the rare adversarial action and is done
+  by hand", and the implementation here does put it on one — a `revocation` capability, posted to
+  `/api/admin/revoke`. Recording the amendment rather than quietly reinterpreting the sentence is the
+  point of these files, so: what holds is the *reason*, which is that the rare adversarial action
+  must never be one click from an inbox. There is no revoke button, no revoke page and no revoke
+  form; no email has ever carried a `revocation` token; and `DECIDABLE_OUTCOMES` structurally
+  excludes `Revoked` from what an emailed link's parser can even return.
+
+  What changed is the alternative it was measured against. ADR 0002 was weighing a link against *by
+  hand*, and by hand meant a `INSERT` in a database console — which delists every animal a shelter
+  has published and tells the shelter nothing. Issue #45 requires that "a refusal or a Revocation
+  arrive as a real email inviting a reply, so that a mistake about me is correctable by a human", and
+  a console cannot send that email. So the capability exists to make the entry and the mail one act,
+  the same act a refusal is. The bar it sets is higher than the button ADR 0002 refused, not lower:
+  revoking needs the platform's own signing secret and a command (`scripts/admin-link.mjs`), where
+  verifying needs only the inbox a link arrived in.

@@ -26,7 +26,7 @@ import type { VerificationOutcome } from "@pawster/domain";
 import type { ShelterProfile } from "../shelter/store.ts";
 import { readShelterProfile } from "../shelter/store.ts";
 import type { CitedArtifacts, VerificationMethod } from "./policy.ts";
-import { citedArtifactsDrifted } from "./policy.ts";
+import { citedArtifactsDrifted, parseCitedContactPoints } from "./policy.ts";
 import type { AdminLinkSecrets } from "./link.ts";
 import { ADMIN_DECISION_PATH, adminLinkUrl, mintAdminLink } from "./link.ts";
 import type { VerificationMailEnv } from "./mail.ts";
@@ -188,38 +188,4 @@ export function citedOf(shelter: {
     displayName: shelter.displayName,
     contactPoints: shelter.contactPoints,
   };
-}
-
-/**
- * A stored snapshot's contact points, back into pairs, for the mail that shows the admin
- * what changed.
- *
- * Tolerant of anything it cannot read, and that is not laziness: this parses *history*. A
- * snapshot written under an older encoding must not make the drift email throw, because the
- * email is the only thing telling the admin that a verified shelter has moved — failing to
- * send it is a worse outcome than sending one with an empty "as verified" list.
- */
-export function parseCitedContactPoints(
-  stored: string,
-): CitedArtifacts["contactPoints"] {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(stored);
-  } catch {
-    return [];
-  }
-  if (!Array.isArray(parsed)) return [];
-
-  const points: { kind: CitedArtifacts["contactPoints"][number]["kind"]; value: string }[] =
-    [];
-  for (const entry of parsed) {
-    if (!Array.isArray(entry) || entry.length !== 2) continue;
-    const [kind, value] = entry;
-    if (typeof kind !== "string" || typeof value !== "string") continue;
-    points.push({
-      kind: kind as CitedArtifacts["contactPoints"][number]["kind"],
-      value,
-    });
-  }
-  return points;
 }

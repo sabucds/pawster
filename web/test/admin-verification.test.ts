@@ -1,10 +1,13 @@
-import { createDb, shelters, verifications } from "@pawster/db";
+import { animals, createDb, shelters, verifications } from "@pawster/db";
 import { env, SELF } from "cloudflare:test";
+import { isListed } from "@pawster/domain";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { outbound } from "../../test/outbound.ts";
 import { mintAdminLink } from "../src/lib/verification/link.ts";
+import { readShelterFacts } from "../src/lib/auth/store.ts";
 import {
+  ADMIN_MAIL_DAILY_CEILING,
   DECISION_LINK_TTL_MS,
   PENDING_LIST_LINK_TTL_MS,
 } from "../src/lib/verification/policy.ts";
@@ -119,6 +122,43 @@ describe("a registration asks the admin for a decision", () => {
     const response = await register();
     expect(response.status).toBe(303);
     expect(outbound.callsTo("resend")).toHaveLength(0);
+  });
+
+  /**
+   * The ceiling is a **deliberate deviation** from the ticket's "a registration sends the
+   * admin exactly one decision email", and it is tested rather than left implicit because a
+   * silent send-nothing is the failure mode that would otherwise hide.
+   *
+   * The reason it exists: `registro/index.astro` says in its own module comment that the
+   * route is unauthenticated and its writes unbounded, and issue #53 hands that route an
+   * *email*. Without a cap, a script posting valid registrations spends Resend's 100 a day,
+   * and the first thing that starves is sign-in mail — a shelter that cannot get a code
+   * cannot publish at all, which is an outage rather than an inconvenience.
+   *
+   * The reason it is safe: ADR 0002 already declined to guard the queue with a cron, making
+   * the shelter "an external dead-man's switch" — it was promised an answer in three days and
+   * invited to chase. So the registration past the ceiling is still written, still in the
+   * pending list, and still expecting an answer. The queue loses a notification; it never
+   * loses an entry, which is what this asserts.
+   */
+  it("stops mailing past the daily ceiling, and still registers the shelter", async () => {
+    for (let i = 0; i <= ADMIN_MAIL_DAILY_CEILING; i++) {
+      await register({
+        accountEmail: `refugio-${i}@refugio.example`,
+        displayName: `Refugio ${i}`,
+      });
+    }
+
+    // One per registration up to the ceiling, and nothing for the one past it.
+    expect(outbound.callsTo("resend")).toHaveLength(ADMIN_MAIL_DAILY_CEILING);
+
+    // The unmailed shelter exists, has no entry, and is therefore still in the queue.
+    const unmailed = await shelterIdFor(
+      `refugio-${ADMIN_MAIL_DAILY_CEILING}@refugio.example`,
+    );
+    expect(await entriesFor(unmailed)).toHaveLength(0);
+    const pending = await (await get(await pendingLink())).text();
+    expect(pending).toContain(`Refugio ${ADMIN_MAIL_DAILY_CEILING}`);
   });
 
   it("registers the shelter even when Resend refuses the decision email", async () => {
@@ -354,6 +394,72 @@ describe("a verified shelter's animals, and a revoked one's", () => {
     expect(entries[1]!.outcome).toBe("Revoked");
   });
 
+  /**
+   * The ticket's criterion says the animals are delisted "through the listing rule, with no
+   * new state anywhere", and the panel notice above is a page's paraphrase of that. This
+   * asks the rule itself, about a **real animal row**, with the facts read the way every
+   * caller reads them — which is the only form of the assertion that could catch
+   * `readShelterFacts()` failing to consult the log at all.
+   */
+  it("delists a real animal through isListed(), with nothing written but the entry", async () => {
+    await signIn();
+    const shelterId = await shelterIdFor();
+    await createDb(env.DB).insert(animals).values({
+      id: "animal-revoked",
+      shelterId,
+      name: "Canela",
+      species: "dog",
+      estimatedBirthDate: new Date("2025-01-01"),
+      region: "Miranda",
+      lastConfirmedAt: new Date("2026-08-30"),
+    });
+    const animal = { availability: "Available" } as const;
+
+    await post("/admin/decide", {
+      t: tokenOf(await decisionLink(shelterId)),
+      outcome: "Verified",
+      methods: ["instagram"],
+      evidence: "instagram.com/refugio, active",
+    });
+    expect(isListed(animal, (await readShelterFacts(createDb(env.DB), shelterId))!)).toBe(
+      true,
+    );
+
+    const readAnimal = async () => {
+      const [row] = await createDb(env.DB)
+        .select()
+        .from(animals)
+        .where(eq(animals.id, "animal-revoked"));
+      return row!;
+    };
+    const beforeRevocation = await readAnimal();
+
+    const token = await mintAdminLink(
+      SECRETS,
+      { kind: "revocation", shelterId, admin: ADMIN },
+      new Date(),
+    );
+    await post("/api/admin/revoke", {
+      t: token,
+      outcome: "Revoked",
+      evidence: "the account was sold",
+    });
+
+    expect(isListed(animal, (await readShelterFacts(createDb(env.DB), shelterId))!)).toBe(
+      false,
+    );
+
+    /**
+     * And **the animal row is byte for byte what it was**, which is the "with no new state
+     * anywhere" half. Asserted as the whole row rather than as one column, because there is
+     * no availability column to check yet — it lands with the ticket that owns it — and a
+     * whole-row comparison is the assertion that keeps working when there is. ADR 0003:
+     * revocation "delists a shelter's animals via the existing rule, but does **not** archive
+     * them, so re-verification restores everything with no data loss".
+     */
+    expect(await readAnimal()).toEqual(beforeRevocation);
+  });
+
   it("refuses a revocation presented with a decision link", async () => {
     await register();
     const shelterId = await shelterIdFor();
@@ -424,6 +530,23 @@ describe("no admin route takes a session", () => {
     const { cookie } = await signIn();
     expect((await get("/admin/pending", cookie)).status).toBe(404);
     expect((await get("/admin/decide", cookie)).status).toBe(404);
+  });
+
+  it("refuses the revoke endpoint to a signed-in shelter with no token", async () => {
+    /**
+     * The third admin route, which the two assertions above cannot reach because it renders
+     * no page. A shelter holding a live session posting a well-formed revocation of *itself*
+     * is the attack this closes, and the answer is the same 404 a stranger gets.
+     */
+    const { cookie } = await signIn();
+    const shelterId = await shelterIdFor();
+    const response = await post(
+      "/api/admin/revoke",
+      { outcome: "Revoked", evidence: "revoking myself with a session cookie" },
+      { cookie },
+    );
+    expect(response.status).toBe(404);
+    expect(await entriesFor(shelterId)).toHaveLength(0);
   });
 
   it("sets no cookie of its own on any admin response", async () => {

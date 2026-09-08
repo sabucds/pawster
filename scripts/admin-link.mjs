@@ -33,12 +33,29 @@
  * a plain Node script, which the repo's `engines` field does not promise (`node >= 20`, where
  * type stripping is behind a flag).
  *
- * The duplication is safe in the one way that matters: **drift fails closed and immediately.**
- * A token this file mints differently is a token the Worker's `verifyAdminLink()` rejects, so
- * the first command a maintainer runs after a divergence prints a 404 — it cannot mint
- * something that is quietly wrong, or that authorises more than it should. The signature is
- * the whole format, and the format is asserted from the Worker's side by
- * `web/test/verification-policy.test.ts`.
+ * **Half of that duplication fails closed and half of it does not**, and the difference is
+ * worth being exact about, because the first draft of this comment claimed all of it did.
+ *
+ * The *signature* fails closed. A payload this file encodes differently, or signs with a
+ * different label or key, is a token `verifyAdminLink()` rejects: the first command run after
+ * such a divergence prints a 404, and nothing can be minted that authorises more than it
+ * should. That covers the encoding, the label and the secret.
+ *
+ * `PATHS` fails **loudly but open**: a wrong path is signed into nothing, so the token is
+ * valid and the URL 404s — visibly, on the first use, at the terminal.
+ *
+ * `TTL_MS` fails **open and silently**, and it is the one real hazard here. The expiry is
+ * *inside* the signed payload, so a figure that drifted from `link.ts` mints a link that
+ * verifies perfectly and lives the wrong length — which is exactly the weakening `link.ts`
+ * refused to allow when it made the TTL a lookup rather than an argument. There is no test
+ * that can compare the two tables: this file is plain Node and cannot import the Worker's
+ * TypeScript, and the Worker's suite runs in a `workerd` isolate with no file system to read
+ * this file from.
+ *
+ * So the mitigation is to make it **visible instead of silent**: every command below prints
+ * the expiry it actually minted, read back out of the payload rather than restated from the
+ * table. A maintainer who is handed "good until" a date seven days out when they expected
+ * twenty-four hours can see it, which is the most this arrangement can honestly offer.
  */
 
 import { argv, env, exit } from "node:process";
@@ -102,11 +119,24 @@ async function sign(secret, message) {
   return toBase64Url(new Uint8Array(signature));
 }
 
+/**
+ * Returns the token **and the expiry that is actually inside it**, so the caller prints what
+ * it minted rather than what the table above says it should have minted. See the module
+ * comment: this is the only check available on a `TTL_MS` that has drifted from `link.ts`.
+ */
 async function mint(secret, { kind, shelterId, admin }) {
-  const payload = { k: kind, a: admin, x: Date.now() + TTL_MS[kind] };
+  const expiresAt = Date.now() + TTL_MS[kind];
+  const payload = { k: kind, a: admin, x: expiresAt };
   if (shelterId) payload.s = shelterId;
   const encoded = toBase64Url(new TextEncoder().encode(JSON.stringify(payload)));
-  return `${encoded}.${await sign(secret, encoded)}`;
+  return { token: `${encoded}.${await sign(secret, encoded)}`, expiresAt };
+}
+
+/** `Good until <ISO minute> (in N hours)`, read off the payload the token carries. */
+function until(expiresAt) {
+  const hours = Math.round((expiresAt - Date.now()) / (60 * 60_000));
+  const stamp = new Date(expiresAt).toISOString().slice(0, 16).replace("T", " ");
+  return `Good until ${stamp}Z — ${hours} hours from now.`;
 }
 
 const [command, ...rest] = argv.slice(2);
@@ -130,21 +160,23 @@ if (!admin) fail("PAWSTER_ADMIN_EMAIL is not set — it is who the decision is a
 if (!origin) fail("SITE_ORIGIN (or PAWSTER_DOMAIN) is not set");
 
 if (command === "pending") {
-  const token = await mint(secret, { kind: "pending", admin });
+  const { token, expiresAt } = await mint(secret, { kind: "pending", admin });
   console.log(`${origin}${PATHS.pending}?t=${encodeURIComponent(token)}`);
-  console.log("\nGood for 24 hours. It lists every waiting shelter, so do not forward it.");
+  console.log(`\n${until(expiresAt)}`);
+  console.log("It lists every waiting shelter, so do not forward it.");
   exit(0);
 }
 
 if (command === "decide") {
   if (!flags.shelter) fail("--shelter <shelter-id> is required");
-  const token = await mint(secret, {
+  const { token, expiresAt } = await mint(secret, {
     kind: "decision",
     shelterId: flags.shelter,
     admin,
   });
   console.log(`${origin}${PATHS.decision}?t=${encodeURIComponent(token)}`);
-  console.log("\nGood for 7 days. Opening it decides nothing.");
+  console.log(`\n${until(expiresAt)}`);
+  console.log("Opening it decides nothing.");
   exit(0);
 }
 
@@ -154,7 +186,7 @@ if (command === "revoke") {
     fail("--evidence <text> is required: a revocation with no reasoning cannot answer an appeal");
   }
 
-  const token = await mint(secret, {
+  const { token } = await mint(secret, {
     kind: "revocation",
     shelterId: flags.shelter,
     admin,

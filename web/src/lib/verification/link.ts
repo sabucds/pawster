@@ -224,33 +224,42 @@ function decodePayload(encoded: string): Payload | null {
 }
 
 /**
- * Whether these claims authorise this act on this subject.
+ * Whether these claims authorise this act.
  *
- * Both halves in one call, because checking the kind and forgetting the subject is the
- * mistake worth designing against: a decision token for shelter A posted to shelter B's form
- * would otherwise verify. The `shelterId` a route passes comes from the *token* in practice,
- * so this is mostly a guard against a route that reads a subject from anywhere else.
+ * **The kind and nothing else**, because there is no second thing to check. This took a
+ * `shelterId` to cross-check against as well, on the reasoning that a decision token for
+ * shelter A posted to shelter B's form should not verify — but no caller ever passed one,
+ * and no caller can: every route takes its subject *out of* `claims.shelterId` and reads it
+ * from nowhere else, so the cross-check compared a value against itself. A parameter whose
+ * only argument came from its own tests is a guard that was never guarding, and keeping it
+ * would suggest the routes have a second source of subject that they must not grow.
+ *
+ * The kind check is the load-bearing one and is what makes ADR 0002's "revocation is not on
+ * a link an email carries" structural: a decision token presented to the revoke endpoint is
+ * refused exactly as a stranger's guess is.
  */
 export function authorises(
   claims: AdminLinkClaims | null,
   kind: AdminLinkKind,
-  shelterId?: string,
 ): claims is AdminLinkClaims {
   if (!claims) return false;
-  if (claims.kind !== kind) return false;
-  if (shelterId !== undefined && claims.shelterId !== shelterId) return false;
-  return true;
+  return claims.kind === kind;
 }
 
 /**
- * The one response every admin route gives to a link it will not honour.
+ * The refusal every admin *page* gives to a link it will not honour.
  *
- * It lives beside {@link verifyAdminLink} rather than in each route, because *identical* is
- * the security property: absent, malformed, expired, tampered with, minted for another kind
- * or naming a shelter that is gone all have to look the same from outside. Three routes
- * writing their own refusal is three chances for one of them to be more informative than the
- * others — and the thing an attacker learns from a distinguishable refusal is whether the
- * inbox they are guessing at is the admin's.
+ * It lives beside {@link verifyAdminLink} rather than in each route, because *indistinguish-
+ * able* is the security property: absent, malformed, expired, tampered with, or minted for
+ * another kind all have to look the same from outside. Routes writing their own refusals is
+ * one chance each for one of them to be more informative than the rest — and what an attacker
+ * learns from a distinguishable refusal is whether the inbox they are guessing at is the
+ * admin's.
+ *
+ * There are **two bodies and one status**, and the split is by audience rather than by route:
+ * {@link refuseAdminLinkAsText} below answers the revoke endpoint's caller, which is a script
+ * printing to a terminal. Both live here so the property that matters — the same 404, saying
+ * nothing about which check failed — is held in one file rather than asserted about three.
  *
  * **404 and not 403**, which is a deliberate reversal of `api/originales/[...key].ts`. That
  * route answers a machine — Cloudflare's image pipeline, which needs to know its token was
@@ -273,6 +282,22 @@ export function refuseAdminLink(): Response {
     ].join("\n"),
     { status: 404, headers: { "content-type": "text/html; charset=utf-8" } },
   );
+}
+
+/**
+ * The same refusal for the one admin route whose caller is not a browser.
+ *
+ * `POST /api/admin/revoke` is reached by `scripts/admin-link.mjs` and by nothing else, so an
+ * HTML page would be a page nobody renders. The status and the silence are what carry the
+ * security property, and both are identical to {@link refuseAdminLink}'s — only the body
+ * differs, and it differs because a person reading a terminal is a different audience from a
+ * person holding a URL.
+ */
+export function refuseAdminLinkAsText(): Response {
+  return new Response("not found\n", {
+    status: 404,
+    headers: { "content-type": "text/plain; charset=utf-8" },
+  });
 }
 
 /**

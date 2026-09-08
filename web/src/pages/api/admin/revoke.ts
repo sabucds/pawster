@@ -38,21 +38,14 @@ import type { APIRoute } from "astro";
 import { env } from "cloudflare:workers";
 import { decideVerification } from "../../../lib/verification/decide.ts";
 import { parseDecision } from "../../../lib/verification/decision.ts";
-import { authorises, verifyAdminLink } from "../../../lib/verification/link.ts";
+import {
+  authorises,
+  refuseAdminLinkAsText,
+  verifyAdminLink,
+} from "../../../lib/verification/link.ts";
 import { HAND_ONLY_OUTCOMES } from "../../../lib/verification/policy.ts";
 
 export const prerender = false;
-
-/**
- * The same 404 every other admin route answers with, and for the same reason: an absent,
- * forged, expired or wrong-kind token must be indistinguishable. Plain text here because the
- * caller is a script.
- */
-const refused = () =>
-  new Response("not found\n", {
-    status: 404,
-    headers: { "content-type": "text/plain; charset=utf-8" },
-  });
 
 export const POST: APIRoute = async ({ request }) => {
   const db = createDb(env.DB);
@@ -70,7 +63,7 @@ export const POST: APIRoute = async ({ request }) => {
    * refused here exactly as a stranger's guess is, which is what makes ADR 0002's sentence
    * structural: the capability to revoke is a different capability, not a different button.
    */
-  if (!authorises(claims, "revocation") || !claims.shelterId) return refused();
+  if (!authorises(claims, "revocation") || !claims.shelterId) return refuseAdminLinkAsText();
 
   const parsed = parseDecision(form, HAND_ONLY_OUTCOMES);
   if (!parsed.ok) {
@@ -93,7 +86,7 @@ export const POST: APIRoute = async ({ request }) => {
     now,
   );
 
-  if (!result.recorded) return refused();
+  if (!result.recorded) return refuseAdminLinkAsText();
 
   return new Response(
     [
