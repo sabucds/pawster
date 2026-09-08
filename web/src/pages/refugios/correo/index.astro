@@ -1,0 +1,188 @@
+---
+import { createDb } from "@pawster/db";
+import { env } from "cloudflare:workers";
+import FormErrors from "../../../components/FormErrors.astro";
+import Refugios from "../../../layouts/Refugios.astro";
+import { authenticate, endSession } from "../../../lib/auth/guard.ts";
+import { MAX_FIELD } from "../../../lib/shelter/fields.ts";
+import { parseAccountEmailChange } from "../../../lib/shelter/profile.ts";
+import { changeAccountEmail, readShelterProfile } from "../../../lib/shelter/store.ts";
+
+/**
+ * Changing the account email: the one act that hands a shelter to a successor.
+ *
+ * A page of its own rather than a field on `perfil.astro`, because it is not an edit. The
+ * account email is the shelter's whole credential (ADR 0013), so moving it:
+ *
+ * - ends **every** live session, including the one making the change, by bumping
+ *   `sessionEpoch`;
+ * - kills the outstanding One-Time Code, which was mailed to the old address;
+ * - and, once issue #60 exists, the outstanding Confirmation Nudge link with it — ADR 0008:
+ *   "changing the account email invalidates every outstanding link".
+ *
+ * All of that is one function, `changeAccountEmail()`, so it is not a cleanup list this page
+ * has to remember. What this page owns is the *consequence*: it signs the shelter out here,
+ * on this response, rather than leaving a session alive that the next request would refuse
+ * for reasons the shelter cannot see.
+ *
+ * Separating it from the profile form is also what keeps the profile form cheap to use. A
+ * shelter fixing a typo in its own name must not be one mis-click from signing every
+ * volunteer's phone out.
+ *
+ * ## The wording, which is a settled constraint rather than a choice
+ *
+ * `CONTEXT.md`'s *Session* row: the concept is rendered **as the act** — `Entra a tu
+ * refugio`, `Salir` — and "a shelter is never told it 'has a session', because the word it
+ * would hear is `sesión` and the thing it is doing is entering". So the consequences below
+ * say what the shelter will have to *do* (enter again, everywhere) rather than naming a thing
+ * it did not know it held, and the button says `salir`.
+ *
+ * The explanation lives here and not beside the markup for a duller reason: this route is
+ * server-rendered, and Astro emits template `<!-- -->` comments into the response — so a
+ * comment explaining why a word is avoided would ship that word to every shelter that opened
+ * the page, on the metered connection ADR 0007 is built around. Frontmatter comments are
+ * compiled away.
+ *
+ * The consequences are also stated **before** the form and in full, not after it. This is
+ * the act ADR 0013 answers a lost inbox for "not as a password reset but as a question of
+ * identity, answered out of band", so the shelter has to understand it is handing over the
+ * keys rather than editing a field.
+ */
+export const prerender = false;
+
+const db = createDb(env.DB);
+const now = new Date();
+
+const session = await authenticate(Astro.request, db, env, now);
+if (!session) return Astro.redirect("/refugios/entrar", 303);
+
+if (session.refreshedCookie) {
+  Astro.response.headers.append("set-cookie", session.refreshedCookie);
+}
+
+let reason: string | null = null;
+let submitted: FormData | null = null;
+
+if (Astro.request.method === "POST") {
+  submitted = await Astro.request.formData();
+  const parsed = parseAccountEmailChange(submitted);
+
+  if (parsed.ok) {
+    const outcome = await changeAccountEmail(db, session.shelterId, parsed.value);
+
+    if (outcome === "changed") {
+      /**
+       * Signed out on the way out the door.
+       *
+       * The cookie this request arrived with is already dead — its epoch is one behind the
+       * row's, so `guard.ts` refuses it — and clearing it is what makes the browser agree.
+       * Without this the shelter would be bounced to the sign-in form on its next click with
+       * nothing having told it why, which is the same event described twice as badly as
+       * possible.
+       *
+       * Built as a `Response` rather than through `Astro.redirect()` plus
+       * `Astro.response.headers`, because a redirect is a fresh response and does not carry
+       * the headers staged on `Astro.response` — measured: the `Set-Cookie` was silently
+       * dropped, leaving a browser holding a cookie the server had revoked. The same shape
+       * `api/refugios/salir.ts` uses, for the same reason.
+       *
+       * Setting the cookie here also deliberately drops any sliding refresh staged above:
+       * re-issuing one under the *new* epoch would keep this session alive and undo the
+       * revocation.
+       */
+      return new Response(null, {
+        status: 303,
+        headers: { location: "/refugios/correo/listo", "set-cookie": endSession() },
+      });
+    }
+
+    /**
+     * `unchanged` is refused rather than silently accepted, because succeeding at it would
+     * cost the shelter every session it has for no change at all. `taken` is refused
+     * explicitly, and `changeAccountEmail()` carries the reasoning for why this one path
+     * departs from ADR 0008's identical-response rule — the alternative is a shelter told its
+     * email moved when it did not, locked out at the moment it next needs a code.
+     */
+    reason =
+      outcome === "unchanged"
+        ? "Ese ya es el correo del refugio, así que no hay nada que cambiar."
+        : "No se puede usar ese correo. Prueba con otro del refugio.";
+  } else {
+    reason = parsed.reason;
+  }
+}
+
+const profile = await readShelterProfile(db, session.shelterId);
+if (!profile) return Astro.redirect("/refugios/entrar", 303);
+
+const priorValue = (field: string): string => {
+  const value = submitted?.get(field);
+  return typeof value === "string" ? value : "";
+};
+---
+
+<Refugios title="Cambiar el correo del refugio" heading="Cambiar el correo del refugio">
+  <p>
+    Ahora mismo el correo del refugio es <strong data-testid="account-email"
+      >{profile.accountEmail}</strong
+    >. Con ese correo es que se entra, y no se publica en ningún lado.
+  </p>
+
+  <div data-testid="consequences">
+    <p><strong>Al cambiarlo pasa todo esto, de una vez:</strong></p>
+    <ul>
+      <li>Hay que volver a entrar en todos los teléfonos y computadoras, incluido este.</li>
+      <li>El código que hayas pedido y no hayas usado deja de servir.</li>
+      <li>
+        Los correos del refugio empiezan a llegar al correo nuevo, y para volver a entrar
+        hace falta un código que llega ahí.
+      </li>
+    </ul>
+    <p>
+      Solo cambia el correo si de verdad puedes recibir mensajes en el nuevo. Si te
+      equivocas, no lo podemos arreglar desde aquí: escríbenos.
+    </p>
+  </div>
+
+  <FormErrors errors={reason ? [{ reason }] : []} />
+
+  <form method="post" action="/refugios/correo">
+    <p>
+      <label for="accountEmail">Correo nuevo del refugio</label><br />
+      <input
+        id="accountEmail"
+        name="accountEmail"
+        type="email"
+        required
+        maxlength={MAX_FIELD}
+        value={priorValue("accountEmail")}
+        aria-describedby="accountEmail-hint"
+      />
+      <small id="accountEmail-hint">
+        Que sea un correo del refugio y no de una persona, para que siga sirviendo cuando
+        cambien los voluntarios.
+      </small>
+    </p>
+
+    <p>
+      <label for="accountEmailAgain">Escríbelo otra vez</label><br />
+      <!--
+        Not form politeness. A typo here is not a validation message, it is an account nobody
+        can reach: the new address is the only thing that can authenticate this shelter
+        afterwards. One input against the one mistake with no undo.
+      -->
+      <input
+        id="accountEmailAgain"
+        name="accountEmailAgain"
+        type="email"
+        required
+        maxlength={MAX_FIELD}
+        value={priorValue("accountEmailAgain")}
+      />
+    </p>
+
+    <p><button type="submit">Cambiar el correo y salir de todos lados</button></p>
+  </form>
+
+  <p><a href="/refugios/perfil">Volver sin cambiar nada</a></p>
+</Refugios>

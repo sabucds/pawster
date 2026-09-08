@@ -44,7 +44,14 @@ export const shelters = sqliteTable("shelters", {
    * stating: no query outside registration writes this column.
    */
   slug: text("slug").notNull().unique(),
-  /** The shelter's public identity. Survives a Departure — ADR 0015. */
+  /**
+   * The shelter's public identity. Survives a Departure — ADR 0015.
+   *
+   * Editable in a session for as long as the shelter exists, before and after verification
+   * (issue #52), which is the counterpart to `slug`'s immutability above: a shelter fixing a
+   * typo in its own name must not break the URLs adopters already hold, and holding the two
+   * apart is what lets both be true.
+   */
   displayName: text("display_name").notNull(),
   /**
    * The one address the platform writes to, and the shelter's whole credential
@@ -71,6 +78,21 @@ export const shelters = sqliteTable("shelters", {
    */
   sessionEpoch: integer("session_epoch").notNull().default(0),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  /**
+   * **No `verified` column and no legal-name column**, and both absences are decisions
+   * rather than columns a later ticket adds (issue #52).
+   *
+   * `verified` is ruled out by ADR 0003: standing is an append-only log and a shelter's
+   * current standing is its latest entry, so a boolean beside that log is a second answer
+   * that can disagree with it — and one that cannot express *why* a judgement was made,
+   * which is the thing the log exists to keep. Pending is the absence of an entry.
+   *
+   * A legal name is ruled out by having no reader. `displayName` is the public identity and
+   * the account email is the credential; a registered charity number or a legal entity name
+   * would be evidence for a verification entry, which ADR 0003 already records inside the
+   * entry alongside the methods used. A column here would be personal data held on every
+   * shelter for the sake of the few whose verification happened to turn on it.
+   */
 });
 
 /**
@@ -105,6 +127,23 @@ export const shelterContactPoints = sqliteTable(
     }).notNull(),
     /** As the shelter typed it. Shelter-authored text is never translated (ADR 0018). */
     value: text("value").notNull(),
+    /**
+     * Where this point sits in the shelter's own order, counting from 0.
+     *
+     * **The order is a decision the shelter makes, not a rendering detail.** Position 0 is
+     * the channel an adopter is offered as a filled button on an animal's page, so a
+     * shelter that answers WhatsApp and merely owns an Instagram account puts WhatsApp
+     * first and the hand-off follows. That is the relationship `CONTEXT.md` already gives
+     * *Primary Photo* — "a shelter chooses it by ordering, and reordering makes a different
+     * photo primary" — and it is why there is no `primary` boolean here: a flag beside an
+     * order is a second answer that can disagree with it.
+     *
+     * Contiguous from 0 by construction rather than by constraint. Every write replaces a
+     * shelter's whole set (`web/src/lib/shelter/store.ts`), so no path can leave a gap — and
+     * a unique index on `(shelter_id, position)` would refuse the one write that matters,
+     * because a reorder that swaps two rows collides on it halfway through.
+     */
+    position: integer("position").notNull(),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
   (table) => [index("shelter_contact_points_shelter_idx").on(table.shelterId)],
