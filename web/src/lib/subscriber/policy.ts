@@ -71,18 +71,26 @@ export const OPT_IN_GLOBAL_DAILY_CEILING = 6;
 export const SIGNUP_IP_WINDOW_MS = 60 * 60_000;
 
 /**
- * Requests one IP may make per {@link SIGNUP_IP_WINDOW_MS}, counted whether or not they cost
- * mail.
- *
- * As with sign-in, this is the only limit that counts *requests* rather than *sends*: the
- * other limits are keyed on the address submitted, so a caller submitting addresses that are
- * all inside a cooldown or all on the Do-Not-Contact list is invisible to every one of them
- * while still spending a database write per request.
+ * Signups one IP may have outstanding per {@link SIGNUP_IP_WINDOW_MS}.
  *
  * Twenty rather than sign-in's ten because the shapes differ. A shelter signs itself in; a
  * subscriber signup is a public form, and two people in a household, or a volunteer walking
  * several visitors through it on shared wifi, are ordinary use that must not read as an
  * attack.
+ *
+ * **Counted over unconfirmed opt-in rows, which means it counts sends and not requests**, and
+ * the difference is forced rather than chosen. ADR 0013's version of this limit counts every
+ * request, sent or refused, over the sign-in ledger — but that ledger holds an IP, and ADR
+ * 0010 allows the subscriber model exactly one table that does. A second ledger keyed on the
+ * caller would be a second such table, so the count is taken over `pending_opt_ins`
+ * (`web/src/lib/subscriber/store.ts`).
+ *
+ * What that costs, stated rather than glossed: a caller submitting addresses that are all
+ * inside a cooldown, all already at the cap, or all on the Do-Not-Contact list writes no row
+ * and so is invisible to this limit. What it does *not* cost is the thing the limit exists
+ * for — every one of those requests is silently refused, spends no mail and writes nothing,
+ * so a caller that wants twenty rows in an hour still needs twenty addresses it has not used
+ * today, which is the mailbomb this refuses. The unbounded residue is reads.
  */
 export const SIGNUP_IP_REQUEST_LIMIT = 20;
 
@@ -221,7 +229,10 @@ export interface SignupState {
   readonly lastOptInMailAt: Date | null;
   /** Opt-in mails sent across the whole platform inside the trailing day. */
   readonly optInMailsInWindow: number;
-  /** Requests from this IP inside {@link SIGNUP_IP_WINDOW_MS}, mail or not. */
+  /**
+   * Unconfirmed opt-ins this IP has created inside {@link SIGNUP_IP_WINDOW_MS} — see
+   * {@link SIGNUP_IP_REQUEST_LIMIT} for why this counts sends rather than requests.
+   */
   readonly ipRequestsInWindow: number;
 }
 
@@ -274,7 +285,7 @@ export function signupIpWindowStart(now: Date): Date {
   return new Date(now.getTime() - SIGNUP_IP_WINDOW_MS);
 }
 
-/** The single fact an opt-in link's validity turns on — see {@link OPT_IN_TTL_MS}. */
+/** What redeeming an opt-in link turns on — see {@link OPT_IN_TTL_MS} and {@link refuseOptIn}. */
 export interface PendingOptInFacts {
   /**
    * When the row was written, which is also when the mail was sent: the row exists only
@@ -282,22 +293,51 @@ export interface PendingOptInFacts {
    * rate-limit ledger. That is what keeps the IP off every other table.
    */
   readonly createdAt: Date;
+  /**
+   * Subscriptions the address already holds, read at the moment the link is followed and not
+   * when it was sent.
+   *
+   * Read again rather than carried, because up to seven days pass in between and the answer
+   * moves: a subscriber holding two searches who signs up twice more gets two links, and
+   * whichever is followed second finds a full account. {@link refuseSignup} checked the same
+   * fact at signup and could not have known this.
+   */
+  readonly subscriptionCount: number;
 }
 
 /**
  * Why an opt-in link cannot be redeemed, or `null` when it can.
  *
- * One member today. It is a union rather than a boolean because single-use is enforced by
- * the row's absence — a redeemed row is deleted, so "already used" never reaches this
- * function — and whatever #62 adds will land here beside `expired`.
+ * Two members, and **"already used" is not one of them**: single-use is enforced by the row's
+ * absence, since redemption deletes it, so a spent link finds nothing and never reaches this
+ * function. That is also why the two it does have both need a page of their own — a
+ * subscriber who followed a dead link and one who followed a live link into a full account
+ * are owed different sentences.
  */
-export type OptInRefusal = "expired";
+export type OptInRefusal = "expired" | "subscription-cap";
 
+/**
+ * The redemption decision.
+ *
+ * Expiry first, because a link that has run out is not a fact about the account behind it: a
+ * subscriber whose link died at seven days should be told to sign up again, and telling them
+ * their account is full instead sends them to a manage page to delete a search they did not
+ * need to lose.
+ *
+ * The cap check here is the **early** refusal, exactly as
+ * {@link MAX_SUBSCRIPTIONS_PER_SUBSCRIBER} is at signup. The enforcer is still the unique
+ * index on `(subscriber_id, slot)`, which is what makes two links redeemed in the same second
+ * safe; this is what keeps that from surfacing as a failed insert in the ordinary case.
+ */
 export function refuseOptIn(
   facts: PendingOptInFacts,
   now: Date,
 ): OptInRefusal | null {
-  return isOptInExpired(facts.createdAt, now) ? "expired" : null;
+  if (isOptInExpired(facts.createdAt, now)) return "expired";
+  if (facts.subscriptionCount >= MAX_SUBSCRIPTIONS_PER_SUBSCRIBER) {
+    return "subscription-cap";
+  }
+  return null;
 }
 
 export function isOptInExpired(createdAt: Date, now: Date): boolean {

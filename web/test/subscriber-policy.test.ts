@@ -174,8 +174,11 @@ describe("refuseSignup", () => {
 });
 
 describe("refuseOptIn", () => {
+  /** A subscriber with room to spare, so only the clock is under test. */
+  const roomToSpare = (createdAt: Date) => ({ createdAt, subscriptionCount: 0 });
+
   it("accepts a link inside its life", () => {
-    expect(refuseOptIn({ createdAt: new Date(AT.getTime() - DAY_MS) }, AT)).toBeNull();
+    expect(refuseOptIn(roomToSpare(new Date(AT.getTime() - DAY_MS)), AT)).toBeNull();
   });
 
   /**
@@ -187,10 +190,48 @@ describe("refuseOptIn", () => {
    */
   it("refuses a link older than the row it names is allowed to live", () => {
     const born = new Date(AT.getTime() - OPT_IN_TTL_MS);
-    expect(refuseOptIn({ createdAt: born }, AT)).toBe("expired");
+    expect(refuseOptIn(roomToSpare(born), AT)).toBe("expired");
 
     const justInside = new Date(AT.getTime() - OPT_IN_TTL_MS + 1);
-    expect(refuseOptIn({ createdAt: justInside }, AT)).toBeNull();
+    expect(refuseOptIn(roomToSpare(justInside), AT)).toBeNull();
+  });
+
+  /**
+   * **Expiry is tested before the cap, and the order is the specification.** A subscriber
+   * whose link died at seven days is owed "sign up again"; telling them their account is
+   * full instead sends them to delete a search they did not need to lose. A dead link is not
+   * a fact about the account behind it.
+   */
+  it("reports a dead link rather than a full account when both are true", () => {
+    const born = new Date(AT.getTime() - OPT_IN_TTL_MS);
+    expect(
+      refuseOptIn(
+        { createdAt: born, subscriptionCount: MAX_SUBSCRIPTIONS_PER_SUBSCRIBER },
+        AT,
+      ),
+    ).toBe("expired");
+  });
+
+  /**
+   * The cap re-checked at redemption, which `refuseSignup` could not have known: up to seven
+   * days pass between the mail and the click, so somebody who signed up four times in a week
+   * holds four live links and the fourth finds a full account.
+   */
+  it("refuses a live link into an account that is already full", () => {
+    const fresh = new Date(AT.getTime() - DAY_MS);
+    expect(
+      refuseOptIn(
+        { createdAt: fresh, subscriptionCount: MAX_SUBSCRIPTIONS_PER_SUBSCRIBER },
+        AT,
+      ),
+    ).toBe("subscription-cap");
+
+    expect(
+      refuseOptIn(
+        { createdAt: fresh, subscriptionCount: MAX_SUBSCRIPTIONS_PER_SUBSCRIBER - 1 },
+        AT,
+      ),
+    ).toBeNull();
   });
 
   it("expires exactly when the purge would have taken the row", () => {

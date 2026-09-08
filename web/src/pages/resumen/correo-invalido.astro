@@ -1,0 +1,40 @@
+---
+import Resumen from "../../layouts/Resumen.astro";
+
+/**
+ * The address cannot be an address.
+ *
+ * **The one refusal on this path that is about the submitted field and is still safe to
+ * speak**, and the distinction is worth being exact about, because the identical-response
+ * rule looks like it forbids this page.
+ *
+ * It does not. That rule closes an *enumeration oracle*: the form must not answer whether an
+ * address belongs to a subscriber. This page answers something else entirely — that what was
+ * typed is not shaped like an email at all — and it says nothing whatsoever about
+ * `perez@gmail.com` when the form was given `perez@gmial`. The sign-in form takes the
+ * opposite line and refuses to speak at all, because there the address either belongs to a
+ * shelter or belongs to nobody, and "no such address" *is* the enumeration answer.
+ *
+ * What speaking buys is the case silence handles worst: an adopter with a typo who would
+ * otherwise wait three days for a mail that was never going anywhere.
+ */
+---
+
+<Resumen title="Revisa el correo" heading="Ese correo no se puede usar">
+  <p data-testid="bad-address">
+    Como está escrito no es una dirección de correo, así que no hay dónde mandarte el resumen.
+    Revísalo y vuelve a intentar.
+  </p>
+
+  <p>
+    <!--
+      Said plainly, because the page above it is the one that cannot say it. A subscriber who
+      has just been told "we cannot use that address" should not be left wondering whether we
+      looked it up.
+    -->
+    No buscamos el correo en ninguna parte: lo único que vimos es que le falta algo para ser
+    una dirección.
+  </p>
+
+  <p><a href="/resumen">Volver al formulario</a></p>
+</Resumen>

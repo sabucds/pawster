@@ -1,0 +1,162 @@
+---
+import { createDb } from "@pawster/db";
+import { env } from "cloudflare:workers";
+import Resumen from "../../layouts/Resumen.astro";
+import { hashOptInToken } from "../../lib/subscriber/crypto.ts";
+import { describeCriteria } from "../../lib/subscriber/labels.ts";
+import { isOptInExpired, refuseOptIn } from "../../lib/subscriber/policy.ts";
+import { parseOptInToken } from "../../lib/subscriber/signup.ts";
+import {
+  consumePendingOptIn,
+  countSubscriptionsFor,
+  findPendingOptIn,
+  optIn,
+  pendingCriteria,
+} from "../../lib/subscriber/store.ts";
+
+export const prerender = false;
+
+/**
+ * Activate a saved search — the opt-in link's landing page, and the `POST` that redeems it.
+ *
+ * ## Why the link does not just work
+ *
+ * ADR 0008: "A confirmation link must never mutate on `GET`. Outlook Safe Links, corporate
+ * mail scanners and link prefetchers fetch URLs with no human behind them", and it says the
+ * rule "applies equally" wherever a fetched link would manufacture a signal the platform
+ * relies on. An opt-in is the sharpest case in the whole design: the *entire* value of a
+ * double opt-in is that a person read the mail, and a scanner that could complete one would
+ * turn "proof the address is theirs" into "proof the address exists" — while ADR 0010 leans
+ * on that proof for the platform's whole consent record ("we record no consent evidence
+ * beyond the click itself").
+ *
+ * So the `GET` renders live state and is free of side effects, and the opt-in is the `POST`
+ * from the button below. A prefetcher that fetches this URL renders a page and subscribes
+ * nobody — which is also why there is no "one tap" version of this and should not be.
+ *
+ * ## Single use is the row's absence
+ *
+ * The `POST` **deletes the row and acts on what the delete returned**, in one statement, so
+ * of two concurrent redemptions one gets the row and the other gets nothing (`store.ts`).
+ * That is what makes the link single-use, and it is why a second visit is indistinguishable
+ * from an invented token: there is nothing left to have a state.
+ *
+ * A server-rendered route, and the only one the subscriber path adds. It cannot be otherwise
+ * — the page's whole content is one row that has to be read at request time — and it is paid
+ * for at most twice per subscription.
+ */
+
+const DEAD_LINK = "/resumen/enlace-vencido";
+const CAPPED = "/resumen/limite";
+
+const db = createDb(env.DB);
+const now = new Date();
+
+if (Astro.request.method === "POST") {
+  const submitted = parseOptInToken(
+    (await Astro.request.formData()).get("t")?.toString(),
+  );
+  if (submitted === null) return Astro.redirect(DEAD_LINK, 303);
+
+  const consumed = await consumePendingOptIn(
+    db,
+    await hashOptInToken(env, submitted),
+  );
+  /**
+   * Never real, already used, expired-and-purged: one answer, because the row is gone in
+   * every one of those cases and there is nothing to tell them apart with.
+   */
+  if (consumed === null) return Astro.redirect(DEAD_LINK, 303);
+
+  /**
+   * The cap is read again here rather than carried from signup, because up to seven days
+   * passed in between and the answer moves — somebody who signed up four times in a week
+   * holds four links, and the fourth finds a full account.
+   */
+  const refusal = refuseOptIn(
+    {
+      createdAt: consumed.createdAt,
+      subscriptionCount: await countSubscriptionsFor(db, consumed.email),
+    },
+    now,
+  );
+  if (refusal === "expired") return Astro.redirect(DEAD_LINK, 303);
+  if (refusal === "subscription-cap") return Astro.redirect(CAPPED, 303);
+
+  /**
+   * `null` is the same refusal reached from the other side: the count above predicted a free
+   * slot and the unique index disagreed, which is what happens when two links are redeemed in
+   * the same second. The database's answer is the one that holds.
+   */
+  const opted = await optIn(db, consumed, now);
+  if (opted === null) return Astro.redirect(CAPPED, 303);
+
+  /**
+   * 303 to a page rather than rendering the result here, so a refresh does not re-post a
+   * token that no longer exists — which would send a subscriber who reloaded their own
+   * success page to the dead-link page.
+   */
+  return Astro.redirect(`/resumen/listo?dia=${opted.sendDay}`, 303);
+}
+
+const token = parseOptInToken(Astro.url.searchParams.get("t"));
+const pending =
+  token === null ? null : await findPendingOptIn(db, await hashOptInToken(env, token));
+
+/**
+ * Expiry is checked on the `GET` too, so a subscriber holding an eight-day-old link is told
+ * so before being offered a button that cannot work. The `POST` checks it again rather than
+ * trusting this — the two requests are minutes apart at least, and the one that writes is the
+ * one that has to be sure.
+ */
+if (pending === null || isOptInExpired(pending.createdAt, now)) {
+  return Astro.redirect(DEAD_LINK, 302);
+}
+
+const described = describeCriteria(pendingCriteria(pending));
+---
+
+<Resumen title="Activa tu búsqueda" heading="Activa tu búsqueda">
+  <p>
+    Esto es lo que pediste. Si está bien, dale al botón y desde la semana que viene te empieza
+    a llegar el resumen.
+  </p>
+
+  {
+    described.length === 0 ? (
+      <p data-testid="criteria-everything">
+        <!--
+          The legitimate empty criteria the signup form promises: ticking nothing means every
+          animal. Rendered as a sentence rather than as an empty list, because a blank space
+          where a summary should be reads as something having gone wrong.
+        -->
+        <strong>Todos los animales</strong> que aparezcan, sin filtrar por nada.
+      </p>
+    ) : (
+      <dl data-testid="criteria">
+        {described.map((axis) => (
+          <>
+            <dt>{axis.heading}</dt>
+            <dd>{axis.values.join(", ")}</dd>
+          </>
+        ))}
+      </dl>
+    )
+  }
+
+  <form method="post" action="/resumen/activar">
+    <!--
+      The token travels in the body of the post rather than being re-read from the URL, so the
+      act of redeeming is a form submission with everything it needs in it. `Astro.url` would
+      have worked identically here; a hidden field is what keeps the `POST` handler from
+      depending on the query string of a request a browser may have followed a redirect to.
+    -->
+    <input type="hidden" name="t" value={token} />
+    <p><button type="submit">Activar mi búsqueda</button></p>
+  </form>
+
+  <p data-testid="not-me">
+    Si no pediste esto, cierra esta página y no pasa nada: sin darle al botón no se guarda
+    nada y borramos la solicitud en unos días.
+  </p>
+</Resumen>

@@ -1,0 +1,54 @@
+---
+import Resumen from "../../layouts/Resumen.astro";
+import { OPT_IN_TTL_MS } from "../../lib/subscriber/policy.ts";
+
+const days = Math.round(OPT_IN_TTL_MS / (24 * 60 * 60_000));
+
+/**
+ * **The identical response**, and the whole of issue #61's third acceptance criterion.
+ *
+ * Four different things bring a subscriber here and the page cannot tell them apart, which is
+ * the point: a brand-new address that has just been mailed a link, an address that is already
+ * subscribed and has just been mailed another, an address inside its 24-hour cooldown that was
+ * mailed nothing, and an address on the Do-Not-Contact list that will never be mailed again.
+ * All four get this page, byte for byte.
+ *
+ * Every one of those is a fact about *the address*, which is why none of them may be spoken.
+ * A form that said "you are already subscribed" would answer, for any address anyone cares
+ * to type, whether its owner uses Pawster — and a form that said "that address reported us
+ * as spam" would publish a complaint. The two refusals that *are* spoken, the per-IP limit
+ * and the platform's daily ceiling, have pages of their own because neither is about the
+ * address: one is about the caller and one is about us.
+ *
+ * So the words below have to be true of all four cases at once, which is why they say "if
+ * it was you" and never "we sent you an email". The one they are least comfortable for is
+ * Do-Not-Contact, and that discomfort is the correct trade: the alternative is telling a
+ * stranger something about somebody else's inbox.
+ */
+---
+
+<Resumen title="Revisa tu correo" heading="Revisa tu correo">
+  <p data-testid="check-your-inbox">
+    Si el correo que escribiste está bien y todo está en orden, te llega un mensaje con un
+    enlace para activar tu búsqueda. Ábrelo y quedas listo.
+  </p>
+
+  <p>
+    El enlace sirve una sola vez y vence en {days} días. Si no te llega en unos minutos,
+    revisa la carpeta de spam y que el correo esté bien escrito.
+  </p>
+
+  <p data-testid="identical-response-notice">
+    <!--
+      The rule stated to the subscriber rather than only enforced, the same way
+      `refugios/entrar/index.astro` states it to a shelter. Somebody who reads this page as
+      confirmation and never receives mail would otherwise blame the platform; told that the
+      page cannot know, they think to check the spelling.
+    -->
+    Esta página responde igual siempre, incluso si el correo ya estaba anotado o si escribiste
+    uno que no es tuyo. Así nadie puede usar este formulario para averiguar quién recibe el
+    resumen.
+  </p>
+
+  <p><a href="/resumen">Volver</a></p>
+</Resumen>

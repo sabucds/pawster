@@ -1,0 +1,48 @@
+---
+import Resumen from "../../layouts/Resumen.astro";
+import { OPT_IN_TTL_MS } from "../../lib/subscriber/policy.ts";
+
+const days = Math.round(OPT_IN_TTL_MS / (24 * 60 * 60_000));
+
+/**
+ * The link does not work, and this page cannot say which kind of not working it is.
+ *
+ * Four cases land here and all four are the same sentence to the person reading it: the token
+ * was never real, the seven days ran out, the daily purge already destroyed the row, or
+ * **the link was already used**. That last one is the ticket's second acceptance criterion,
+ * and the reason it arrives here rather than at a page of its own is structural: single use is
+ * enforced by deleting the row, so a second visit finds exactly what an invented token finds,
+ * and there is nothing left to tell the difference from.
+ *
+ * That is not a shortcut, it is the design working. A page saying "this link was already
+ * used" would need the row to survive its own redemption, which is the state flag
+ * `consumePendingOptIn()` exists not to have — and it would answer, for any token anyone
+ * cares to try, whether it was ever a real one.
+ *
+ * The way back is the form and not a "resend" button. Re-sending would need the address, and
+ * the only place it was held is the row that is gone.
+ */
+---
+
+<Resumen title="El enlace ya no sirve" heading="Ese enlace ya no sirve">
+  <p data-testid="dead-link">
+    Puede que ya lo hayas usado — sirve una sola vez — o que se haya vencido: los enlaces
+    duran {days} días y después borramos la solicitud.
+  </p>
+
+  <p>
+    Si todavía quieres recibir el resumen, vuelve a llenar el formulario y te mandamos un
+    enlace nuevo.
+  </p>
+
+  <p>
+    <!--
+      Worth saying, because somebody who already activated and then clicks the link again in
+      an old mail would otherwise read this page as having lost their search.
+    -->
+    Si ya lo habías activado antes, tu búsqueda sigue guardada y el resumen te va a llegar
+    igual.
+  </p>
+
+  <p><a href="/resumen">Ir al formulario</a></p>
+</Resumen>

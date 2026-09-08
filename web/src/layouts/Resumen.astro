@@ -1,0 +1,44 @@
+---
+/**
+ * The frame the subscriber-facing pages share.
+ *
+ * A sibling of `Refugios.astro` rather than a generalisation of it, and the difference is
+ * one line: **these pages are indexed and those are not.** Every shelter-facing page is a
+ * credential form or a shelter's own publishing area, and nobody arrives at one through
+ * search; the signup form is the opposite — an adopter looking for a Venezuelan adoption
+ * digest should find it, and it is the page the whole platform exists to be found by.
+ *
+ * The outcome pages are still `noindex`, because a cached "check your inbox" in a search
+ * result is a page that answers nothing for whoever lands on it. So the property is a prop
+ * with the safe value as its default: a page has to *ask* to be indexed.
+ *
+ * **No stylesheet and no script**, for the reason `Refugios.astro` gives: ADR 0007's rule is
+ * that the Worker runs as rarely as possible and the payload is small on a metered
+ * Venezuelan connection, and every page in this group has to work before any of that
+ * arrives. The look belongs to the listing (#56, #57).
+ *
+ * The copy is es-VE, hard-coded, and `lib/subscriber/labels.ts` records why that is the
+ * shape ADR 0018 asks for until `strings/` exists.
+ */
+interface Props {
+  title: string;
+  heading: string;
+  /** Only the signup form sets this. Everything else is an outcome page. */
+  indexable?: boolean;
+}
+
+const { title, heading, indexable = false } = Astro.props;
+---
+
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title} — Pawster</title>
+    {!indexable && <meta name="robots" content="noindex" />}
+  </head>
+  <body>
+    <h1>{heading}</h1>
+    <slot />
+  </body>
+</html>

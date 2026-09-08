@@ -49,6 +49,7 @@ import {
   readMailBudgetUsage,
   recordSignInRequest,
 } from "../../../lib/auth/store.ts";
+import { clientIp } from "../../../lib/client-ip.ts";
 
 export const prerender = false;
 
@@ -100,27 +101,6 @@ function codeFormResponse(requestToken: string): Response {
  */
 function refusalResponse(location: string): Response {
   return new Response(null, { status: 303, headers: { location } });
-}
-
-/**
- * The caller's address, as a bucket key rather than as an identity.
- *
- * Read from the header directly instead of through `Astro.clientAddress`, which throws when
- * the adapter cannot supply one — an exception on the sign-in path is a worse failure than a
- * coarse bucket. The fallback lumps every request with no `CF-Connecting-IP` into one
- * bucket, which is the conservative direction: unattributable traffic shares a single
- * allowance rather than each getting a fresh one.
- *
- * **The bucket is the whole address, which an IPv6 caller can walk out of.** A residential
- * IPv6 allocation is typically a /64, so rotating the low 64 bits gives a caller a fresh
- * `SIGN_IN_IP_REQUEST_LIMIT` as often as it likes. Bucketing IPv6 by its /64 would close
- * that, and is not done here because the limit it backs is the *cheap* one — the per-address
- * caps and the global ceiling are what actually protect the mail budget, and none of them
- * can be walked out of this way. What an IPv6 rotator gets is unbounded D1 writes, which is
- * a cost worth naming and the reason this is a note rather than a shrug.
- */
-function clientIp(request: Request): string {
-  return request.headers.get("cf-connecting-ip") ?? "unattributed";
 }
 
 export const POST: APIRoute = async ({ request }) => {
