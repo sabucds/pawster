@@ -1,4 +1,6 @@
+import { sql } from "drizzle-orm";
 import {
+  check,
   index,
   integer,
   sqliteTable,
@@ -288,16 +290,143 @@ export const animals = sqliteTable(
       mode: "timestamp_ms",
     }).notNull(),
     /**
+     * The upload session whose photos this animal was assembled from.
+     *
+     * The **only** link between an animal and its photographs, and it points this way
+     * because the animal row is written last (ADR 0012): the animal names the session it
+     * was built from, and the session never names the animal. Reading an animal's photos is
+     * a lookup on `upload_session_photos.session_id` in `position` order with position 0
+     * primary — which is why there is no animal-photo table and no `is_primary` column.
+     *
+     * Unique, because a session is consumed by exactly one animal. Without the constraint a
+     * resubmitted form would produce two animals sharing one set of photographs, and each
+     * would then be one delete away from having none.
+     */
+    uploadSessionId: text("upload_session_id")
+      .notNull()
+      .references(() => uploadSessions.id),
+    sex: text("sex", { enum: ["Male", "Female", "Unknown"] }).notNull(),
+    /**
+     * The expected **adult** size, and `null` for every cat.
+     *
+     * Dog-only, which the CHECK below states as one equivalence rather than as two rules.
+     * The bands are dog weight classes (`domain/`'s `SIZE_ADULT_KILOGRAMS`), so a cat
+     * carrying one is a category error rather than a missing feature, and a dog without one
+     * has left a filter axis an adopter will actually use unanswered.
+     *
+     * `null` rather than an `Unspecified` member of the vocabulary, because the vocabulary
+     * is shared with the filter panel: a fifth value would be one every dog query had to
+     * remember to exclude.
+     */
+    size: text("size", { enum: ["Small", "Medium", "Large", "Giant"] }),
+    /**
+     * How `estimatedBirthDate` was arrived at, required alongside it so that a stored date
+     * is never rendered as a birthday nobody claimed. `domain/`'s `AGE_ESTIMATE_BASES`.
+     */
+    ageEstimateBasis: text("age_estimate_basis", {
+      enum: ["Documented", "VetEstimate", "ShelterGuess"],
+    }).notNull(),
+    /**
+     * The three good-with axes, each `Yes | No | Unknown`. Three columns rather than one
+     * encoded field because each is filtered on independently.
+     *
+     * `Unknown` is stored and **displayed**, and it costs the shelter no reach: a filter on
+     * one axis still shows an animal whose answer is unknown. That is deliberate — were
+     * not-known excluded, shelters would learn that claiming `Yes` is the price of being
+     * seen, and the flag would stop describing the animal.
+     */
+    goodWithChildren: text("good_with_children", {
+      enum: ["Yes", "No", "Unknown"],
+    }).notNull(),
+    goodWithDogs: text("good_with_dogs", {
+      enum: ["Yes", "No", "Unknown"],
+    }).notNull(),
+    goodWithCats: text("good_with_cats", {
+      enum: ["Yes", "No", "Unknown"],
+    }).notNull(),
+    /** The shelter's own prose. Bounded by `web/`'s `MAX_DESCRIPTION`, not by the column. */
+    description: text("description").notNull(),
+    /**
+     * Free text, and `null` where there is nothing to say.
+     *
+     * Deliberately unstructured. A closed vocabulary of conditions would silently drop the
+     * one a shelter actually needed to mention, and "leishmaniasis, on treatment until
+     * March" is worth more to an adopter than any enum the platform could close.
+     */
+    medicalNeeds: text("medical_needs"),
+    /**
+     * Three answers rather than two — `domain/`'s `STERILISATIONS`. A boolean could not say
+     * `No se sabe`, which is the honest answer for an animal taken in last week.
+     */
+    sterilisation: text("sterilisation", {
+      enum: ["Sterilised", "NotSterilised", "Unknown"],
+    }).notNull(),
+    /** One of three, and there is no fourth: no `Draft`, and no persisted `Stale`. */
+    availability: text("availability", {
+      enum: ["Available", "Adopted", "NoLongerAvailable"],
+    }).notNull(),
+    /**
+     * When the animal first became matchable. Set once at publication and never moved.
+     *
+     * Distinct from `lastConfirmedAt`, and the pair is the point: a confirmation records
+     * that the animal is still true *now*, while this records when it entered the pool. The
+     * digest's "what is new" reads this one, so folding the two together would make every
+     * edit re-announce an animal that subscribers were shown weeks ago.
+     */
+    matchableSince: integer("matchable_since", {
+      mode: "timestamp_ms",
+    }).notNull(),
+    /**
+     * The written reason for the urgency mark, or `null` for an animal not carrying one.
+     *
+     * **There is no `is_urgent` boolean; this column's presence is the mark.** Two columns
+     * could disagree — urgent with no reason, or a reason with the flag off — and
+     * `CONTEXT.md` builds the reason into the definition ("always carrying a written
+     * reason"), so a mark without one is not a mark. One column cannot reach that
+     * inconsistent state, and `domain/`'s cap of three counts the rows where it is not null.
+     */
+    urgentReason: text("urgent_reason"),
+    /**
      * No `listed` column, and this is a deliberate omission rather than a gap. CONTEXT.md
-     * defines a Listing as *derived*: "an animal is listed while it is available, its
-     * shelter is verified, and that shelter offers at least one contact point." Storing a
-     * boolean alongside those three inputs creates a second answer that can disagree with
-     * them — which is exactly the drift ADR 0004 avoids for age bands. The three inputs
-     * (availability, verification standing, contact points) land with the tickets that own
-     * them, and `listed` is computed from them at read time.
+     * defines a Listing as *derived*: an animal is listed while it is available, its shelter
+     * is verified, that shelter offers at least one contact point, and that shelter has not
+     * departed. Storing a boolean alongside those four inputs creates a second answer that
+     * can disagree with them — which is exactly the drift ADR 0004 avoids for age bands.
+     * `availability` above is the one input this table owns; the other three belong to the
+     * shelter, and `listed` is computed from all four at read time.
+     *
+     * No `ageBand` column either, for the same reason and stated by ADR 0004: the band is
+     * derived from `estimatedBirthDate` so that an animal graduates on its own.
      */
   },
-  (table) => [index("animals_shelter_idx").on(table.shelterId)],
+  (table) => [
+    index("animals_shelter_idx").on(table.shelterId),
+    uniqueIndex("animals_upload_session_idx").on(table.uploadSessionId),
+    /**
+     * The dog-only size pairing, as a single equivalence rather than two rules.
+     *
+     * Here as well as in `domain/`'s `refuseAnimal` because it is **cross-column**, which is
+     * the bar a CHECK has to clear in this file: a closed vocabulary is expressed as a
+     * Drizzle `enum` and rejected by a `domain/` guard at the parse layer (the convention
+     * `shelter_contact_points.kind` and `storage_measurements.mode` already set), so no
+     * single-column CHECKs appear above. These two earn theirs by stating facts no column
+     * type can carry, and by holding on the paths that bypass the parse layer entirely — a
+     * migration, a seed script, a console session.
+     */
+    check(
+      "animals_size_is_dog_only",
+      sql`(${table.species} = 'dog') = (${table.size} is not null)`,
+    ),
+    /**
+     * An urgency mark with a blank reason is not a mark. `notNull` cannot say this, because
+     * the column is nullable by design — the absence of a reason is the absence of the mark.
+     * What has to be impossible is the third state: present but empty.
+     */
+    check(
+      "animals_urgent_reason_not_blank",
+      sql`${table.urgentReason} is null or length(trim(${table.urgentReason})) > 0`,
+    ),
+  ],
 );
 
 export const subscribers = sqliteTable(

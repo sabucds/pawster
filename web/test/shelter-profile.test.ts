@@ -1,6 +1,5 @@
 import { env } from "cloudflare:test";
 import {
-  animals,
   createDb,
   oneTimeCodes,
   shelterContactPoints,
@@ -10,6 +9,7 @@ import { isListed } from "@pawster/domain";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { outbound } from "../../test/outbound.ts";
+import { seedAnimal } from "./support/animal.ts";
 import {
   SESSION_REFRESH_AFTER_MS,
   SIGN_IN_ADDRESS_COOLDOWN_MS,
@@ -76,19 +76,6 @@ async function storedShelter(shelterId: string) {
   const db = createDb(env.DB);
   const [row] = await db.select().from(shelters).where(eq(shelters.id, shelterId));
   return row!;
-}
-
-/** One published animal, so the public surfaces have something to render. */
-async function seedAnimal(shelterId: string): Promise<void> {
-  await createDb(env.DB).insert(animals).values({
-    id: "animal-1",
-    shelterId,
-    name: "Canela",
-    species: "dog",
-    estimatedBirthDate: new Date("2025-01-01"),
-    region: "Miranda",
-    lastConfirmedAt: new Date("2026-08-30"),
-  });
 }
 
 beforeEach(clearShelterTables);
@@ -190,19 +177,28 @@ describe("editing the display name and the base region", () => {
     expect(body).toContain("se guardaron los cambios");
   });
 
-  it("reaches the public page an adopter reads", async () => {
+  it("is what the public page would quote, once the shelter is verified", async () => {
     /**
-     * The point of the display name being editable: an adopter sees the new one. The animal
-     * page joins `shelters.display_name`, so this is the same edit arriving at the one
-     * surface that quotes it.
+     * The point of the display name being editable: an adopter sees the new one. The animal page
+     * joins `shelters.display_name`, so an edit here arrives at the one surface that quotes it.
+     *
+     * **The adopter-facing half of this is not assertable yet**, and deliberately so rather than
+     * forgotten. Issue #55 gates that page on `isListed()`, which requires a verified shelter,
+     * and `readShelterFacts()` reports every shelter as pending until issue #53 lands the
+     * verification log. So the page 404s for every animal and the join cannot be observed from
+     * outside.
+     *
+     * What is asserted instead is the half that is true today: the edit is stored, and the page
+     * is withheld by the listing rule rather than by anything about the name. **When #53 lands,
+     * this test should go back to fetching the animal page and expecting the new name.**
      */
     const { shelterId, cookie } = await signIn();
-    await seedAnimal(shelterId);
+    await seedAnimal({ shelterId });
 
     await post(PROFILE, { ...PROFILE_FORM, displayName: "Patitas de Miranda" }, { cookie });
 
-    const body = await (await get("/animales/animal-1")).text();
-    expect(body).toContain("Patitas de Miranda");
+    expect((await storedShelter(shelterId)).displayName).toBe("Patitas de Miranda");
+    expect((await get("/animales/animal-1")).status).toBe(404);
   });
 
   it("edits while the shelter is still awaiting verification", async () => {
@@ -657,12 +653,17 @@ describe("changing the account email", () => {
 describe("the account email is never published", () => {
   it("appears in no public page's source", async () => {
     const { shelterId, cookie } = await signIn();
-    await seedAnimal(shelterId);
+    await seedAnimal({ shelterId });
 
     /**
      * `CONTEXT.md`, *Account Email*: "Never published — adopters reach a shelter through its
      * contact points." The two surfaces that exist today are the listing and the animal page,
      * and both are fetched **without a cookie**, the way an adopter fetches them.
+     *
+     * The animal page's half of this is weaker than it looks right now: since issue #55 gated it
+     * on `isListed()`, it 404s for every animal until #53 lands verification, so that path
+     * currently proves the address is absent from a 404 body. It is kept in the loop rather than
+     * removed because it strengthens by itself the moment an animal can be listed.
      *
      * The filter index and the public shelter page are not checked here because neither
      * exists yet (issues #56 and #57). What protects them is upstream of a test: the address

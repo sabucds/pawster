@@ -1,4 +1,5 @@
 import { createDb, shelters } from "@pawster/db";
+import { clearAnimalTables } from "./animal.ts";
 import { env, SELF } from "cloudflare:test";
 import { eq } from "drizzle-orm";
 import { expect } from "vitest";
@@ -167,7 +168,13 @@ export async function ageMailLedger(ms: number): Promise<void> {
 
 /** Every table a shelter's rows reach, children before parents. */
 export async function clearShelterTables(): Promise<void> {
-  await env.DB.exec("DELETE FROM animals");
+  /**
+   * Delegated rather than repeated. Since issue #55 an animal owns an upload session and its
+   * photos, and clearing the animals while leaving those behind would let the unique index on
+   * `upload_session_id` refuse the *next* suite's seed — a failure that surfaces in whichever
+   * test happened to run second rather than in the one that caused it.
+   */
+  await clearAnimalTables();
   await env.DB.exec("DELETE FROM one_time_codes");
   await env.DB.exec("DELETE FROM sign_in_requests");
   await env.DB.exec("DELETE FROM shelter_contact_points");

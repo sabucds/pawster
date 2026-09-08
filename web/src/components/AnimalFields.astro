@@ -1,0 +1,314 @@
+---
+import {
+  AGE_ESTIMATE_BASES,
+  AVAILABILITIES,
+  GOOD_WITH_AXES,
+  GOOD_WITH_FLAGS,
+  SEXES,
+  SIZES,
+  SPECIES,
+  STERILISATIONS,
+} from "@pawster/domain";
+import {
+  MAX_ANIMAL_NAME,
+  MAX_DESCRIPTION,
+  MAX_MEDICAL_NEEDS,
+  MAX_URGENT_REASON,
+  goodWithControlName,
+} from "../lib/animals/fields.ts";
+import type { AnimalError } from "../lib/animals/publish.ts";
+import {
+  AGE_BASIS_LABELS,
+  AGE_BASIS_QUESTION,
+  AVAILABILITY_OPTION_LABELS,
+  GOOD_WITH_ANSWER_LABELS,
+  GOOD_WITH_QUESTIONS,
+  GOOD_WITH_UNKNOWN_IS_FREE_NOTE,
+  SEX_LABELS,
+  SIZE_IS_ADULT_NOTE,
+  SPECIES_OPTION_LABELS,
+  STERILISATION_OPTION_LABELS,
+  sizeOptionLabel,
+} from "../lib/animals/words.ts";
+
+/**
+ * The animal fields both publishing forms render.
+ *
+ * Extracted on the bar `FormErrors.astro` sets for itself: publishing an animal and editing one
+ * ask for the same fourteen fields down to the `data-testid`, and two copies of that markup
+ * would be two things that had to keep agreeing about attributes neither of them owned. The
+ * failure would not be cosmetic — a control renamed on one page only is a field that silently
+ * stops being submitted, and `parsePublish` would report it as missing.
+ *
+ * **No stylesheet and no script**, matching `layouts/Refugios.astro`: ADR 0007 keeps the payload
+ * small on a metered connection and every one of these controls has to work before anything
+ * arrives. That is also why the size control is always rendered rather than revealed when the
+ * shelter picks a dog — nothing is here to reveal it, so instead it says who it is for.
+ *
+ * Every value is handed in already resolved to "what the shelter typed, else what is stored",
+ * because only the page knows which of those it has. A component that reached for a `FormData`
+ * itself would have to know whether this was a refusal or a first render.
+ */
+interface Props {
+  /** Every refusal, so each control can show the one that belongs to it. */
+  errors: readonly AnimalError[];
+  /**
+   * The current value of every control, keyed by its form name — `goodWith.children` included.
+   * Absent keys render as unset, which is correct for a blank publishing form.
+   */
+  values: Readonly<Record<string, string>>;
+  /**
+   * Whether to offer the availability control.
+   *
+   * Only the edit form does. Publishing an animal *is* making it available, so a shelter that
+   * could publish one as `Adopted` would be creating a listing nobody can see in order to record
+   * something the platform has no use for.
+   */
+  withAvailability?: boolean;
+}
+
+const { errors, values, withAvailability = false } = Astro.props;
+
+const errorFor = (field: AnimalError["field"]): string | undefined =>
+  errors.find((error) => error.field === field)?.reason;
+
+const value = (name: string): string => values[name] ?? "";
+const chose = (name: string, option: string): boolean => value(name) === option;
+---
+
+<p>
+  <label for="name">Nombre</label>
+  <input
+    id="name"
+    name="name"
+    type="text"
+    maxlength={MAX_ANIMAL_NAME}
+    value={value("name")}
+    required
+  />
+  <!--
+    Said on the form rather than only in the schema: a shelter that believes the name is part of
+    the animal's address will leave a misspelling alone, and correcting it costs nothing.
+  -->
+  <small>Lo puedes cambiar cuando quieras. El enlace del animal no cambia.</small>
+  {errorFor("name") && <span role="alert" data-testid="error-name">{errorFor("name")}</span>}
+</p>
+
+<fieldset>
+  <legend>¿Perro o gato?</legend>
+  {
+    SPECIES.map((species) => (
+      <label>
+        <input
+          type="radio"
+          name="species"
+          value={species}
+          checked={chose("species", species)}
+        />
+        {SPECIES_OPTION_LABELS[species]}
+      </label>
+    ))
+  }
+  {errorFor("species") && <span role="alert">{errorFor("species")}</span>}
+</fieldset>
+
+<fieldset>
+  <legend>Sexo</legend>
+  {
+    SEXES.map((sex) => (
+      <label>
+        <input type="radio" name="sex" value={sex} checked={chose("sex", sex)} />
+        {SEX_LABELS[sex]}
+      </label>
+    ))
+  }
+  {errorFor("sex") && <span role="alert">{errorFor("sex")}</span>}
+</fieldset>
+
+<p>
+  <label for="size">Tamaño adulto</label>
+  <small data-testid="size-note">{SIZE_IS_ADULT_NOTE}</small>
+  <small>Solo para perros. Si es un gato, déjalo en blanco.</small>
+  <select id="size" name="size">
+    <option value="">Sin escoger</option>
+    {
+      SIZES.map((size) => (
+        <option value={size} selected={chose("size", size)}>
+          {sizeOptionLabel(size)}
+        </option>
+      ))
+    }
+  </select>
+  {errorFor("size") && <span role="alert" data-testid="error-size">{errorFor("size")}</span>}
+</p>
+
+<p>
+  <label for="estimatedBirthDate">Fecha de nacimiento aproximada</label>
+  <input
+    id="estimatedBirthDate"
+    name="estimatedBirthDate"
+    type="date"
+    value={value("estimatedBirthDate")}
+    required
+  />
+  <small>
+    Puede ser un cálculo. La etapa (cachorro, joven, adulto) sale de esta fecha, así que el
+    animal va cambiando de etapa solo.
+  </small>
+  {
+    errorFor("estimatedBirthDate") && (
+      <span role="alert">{errorFor("estimatedBirthDate")}</span>
+    )
+  }
+</p>
+
+<p>
+  <label for="ageEstimateBasis">{AGE_BASIS_QUESTION}</label>
+  <select id="ageEstimateBasis" name="ageEstimateBasis">
+    <option value="">Sin escoger</option>
+    {
+      AGE_ESTIMATE_BASES.map((basis) => (
+        <option value={basis} selected={chose("ageEstimateBasis", basis)}>
+          {AGE_BASIS_LABELS[basis]}
+        </option>
+      ))
+    }
+  </select>
+  {
+    errorFor("ageEstimateBasis") && (
+      <span role="alert">{errorFor("ageEstimateBasis")}</span>
+    )
+  }
+</p>
+
+<p>
+  <label for="region">¿Dónde está?</label>
+  <input id="region" name="region" type="text" value={value("region")} required />
+  <small>
+    Donde está el animal, que puede no ser donde está el refugio. Si está en una casa de acogida,
+    pon dónde queda esa casa.
+  </small>
+  {errorFor("region") && <span role="alert">{errorFor("region")}</span>}
+</p>
+
+<fieldset data-testid="good-with">
+  <legend>Convivencia</legend>
+  <small data-testid="unknown-is-free">{GOOD_WITH_UNKNOWN_IS_FREE_NOTE}</small>
+  {
+    GOOD_WITH_AXES.map((axis) => (
+      <fieldset>
+        <legend>{GOOD_WITH_QUESTIONS[axis]}</legend>
+        {GOOD_WITH_FLAGS.map((flag) => (
+          <label>
+            <input
+              type="radio"
+              name={goodWithControlName(axis)}
+              value={flag}
+              checked={chose(goodWithControlName(axis), flag)}
+            />
+            {GOOD_WITH_ANSWER_LABELS[flag]}
+          </label>
+        ))}
+      </fieldset>
+    ))
+  }
+  {errorFor("goodWith") && <span role="alert">{errorFor("goodWith")}</span>}
+</fieldset>
+
+<fieldset>
+  <legend>Esterilización</legend>
+  {
+    STERILISATIONS.map((option) => (
+      <label>
+        <input
+          type="radio"
+          name="sterilisation"
+          value={option}
+          checked={chose("sterilisation", option)}
+        />
+        {STERILISATION_OPTION_LABELS[option]}
+      </label>
+    ))
+  }
+  {errorFor("sterilisation") && <span role="alert">{errorFor("sterilisation")}</span>}
+</fieldset>
+
+{
+  withAvailability && (
+    <p data-testid="availability">
+      <label for="availability">Situación</label>
+      <select id="availability" name="availability">
+        {AVAILABILITIES.map((option) => (
+          <option value={option} selected={chose("availability", option)}>
+            {AVAILABILITY_OPTION_LABELS[option]}
+          </option>
+        ))}
+      </select>
+      <small>
+        Solo tú puedes sacar un animal del sitio. Nosotros no lo quitamos por falta de
+        actividad.
+      </small>
+      {errorFor("availability") && <span role="alert">{errorFor("availability")}</span>}
+    </p>
+  )
+}
+
+<p>
+  <label for="description">Cuéntanos del animal</label>
+  <textarea
+    id="description"
+    name="description"
+    maxlength={MAX_DESCRIPTION}
+    rows="6"
+    required>{value("description")}</textarea
+  >
+  <small>Hasta {MAX_DESCRIPTION} caracteres. Es lo que más leen los adoptantes.</small>
+  {errorFor("description") && <span role="alert">{errorFor("description")}</span>}
+</p>
+
+<p>
+  <label for="medicalNeeds">Necesidades médicas</label>
+  <textarea
+    id="medicalNeeds"
+    name="medicalNeeds"
+    maxlength={MAX_MEDICAL_NEEDS}
+    rows="3">{value("medicalNeeds")}</textarea
+  >
+  <small>
+    Si no hay nada que decir, déjalo en blanco. Escríbelo con tus palabras: no hay una lista de
+    la que escoger.
+  </small>
+  {errorFor("medicalNeeds") && <span role="alert">{errorFor("medicalNeeds")}</span>}
+</p>
+
+<fieldset data-testid="urgency">
+  <legend>Urgencia</legend>
+  <label>
+    <input
+      type="checkbox"
+      name="urgent"
+      value="si"
+      checked={value("urgent").length > 0}
+    />
+    Es urgente
+  </label>
+  <p>
+    <label for="urgentReason">¿Por qué?</label>
+    <input
+      id="urgentReason"
+      name="urgentReason"
+      type="text"
+      maxlength={MAX_URGENT_REASON}
+      value={value("urgentReason")}
+    />
+    <small>
+      Solo puedes tener 3 animales urgentes a la vez. Es a propósito: si todos son urgentes, la
+      marca no dice nada.
+    </small>
+  </p>
+  {
+    errorFor("urgency") && (
+      <span role="alert" data-testid="error-urgency">{errorFor("urgency")}</span>
+    )
+  }
+</fieldset>

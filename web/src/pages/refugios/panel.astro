@@ -5,6 +5,8 @@ import { env } from "cloudflare:workers";
 import Refugios from "../../layouts/Refugios.astro";
 import { authenticate } from "../../lib/auth/guard.ts";
 import { readShelterFacts } from "../../lib/auth/store.ts";
+import { listShelterAnimals } from "../../lib/animals/store.ts";
+import { AVAILABILITY_OPTION_LABELS } from "../../lib/animals/words.ts";
 import { readShelterProfile } from "../../lib/shelter/store.ts";
 
 /**
@@ -81,6 +83,18 @@ const facts = await readShelterFacts(db, session.shelterId);
  */
 const anythingVisible =
   facts !== null && isListed({ availability: "Available" }, facts);
+
+/**
+ * The shelter's own animals, newest first.
+ *
+ * Here because without it a published animal would be unreachable. The public page is gated on
+ * `isListed()` and every shelter is awaiting verification until issue #53, so the only route to
+ * an animal is this list — and the animal's own page is the only place its edit form lives.
+ *
+ * Every availability is shown, including adopted ones: an adopted animal is still the shelter's,
+ * and hiding it would read as the row having been lost.
+ */
+const animals = await listShelterAnimals(db, session.shelterId);
 ---
 
 <Refugios title="Tu refugio" heading={shelter.displayName}>
@@ -105,6 +119,27 @@ const anythingVisible =
         quede verificado el refugio. Te respondemos en tres días o menos, y si pasan tres
         días sin respuesta, escríbenos.
       </p>
+    )
+  }
+
+  <h2>Tus animales</h2>
+
+  {
+    animals.length === 0 ? (
+      <p data-testid="no-animals">
+        Todavía no has publicado ningún animal. Para publicar uno, primero sube sus fotos.
+      </p>
+    ) : (
+      <ul data-testid="animal-list">
+        {animals.map((animal) => (
+          <li>
+            <a href={`/refugios/animales/${animal.id}`}>{animal.name}</a>
+            {" — "}
+            {AVAILABILITY_OPTION_LABELS[animal.availability]}
+            {animal.urgentReason !== null && " · urgente"}
+          </li>
+        ))}
+      </ul>
     )
   }
 

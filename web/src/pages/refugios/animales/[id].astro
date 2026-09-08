@@ -1,0 +1,223 @@
+---
+import { createDb } from "@pawster/db";
+import { deriveAgeBand, isListed } from "@pawster/domain";
+import { env } from "cloudflare:workers";
+import AnimalFields from "../../../components/AnimalFields.astro";
+import FormErrors from "../../../components/FormErrors.astro";
+import Refugios from "../../../layouts/Refugios.astro";
+import { readSubmittedValues } from "../../../lib/animals/fields.ts";
+import type { AnimalError } from "../../../lib/animals/publish.ts";
+import { parseEdit } from "../../../lib/animals/publish.ts";
+import {
+  countUrgentAnimals,
+  editAnimal,
+  findAnimal,
+} from "../../../lib/animals/store.ts";
+import { describeAnimal } from "../../../lib/animals/words.ts";
+import { authenticate } from "../../../lib/auth/guard.ts";
+import { readShelterFacts } from "../../../lib/auth/store.ts";
+
+/**
+ * A shelter's own page for one of its animals: what it looks like, why it may not be visible
+ * yet, and the form that edits it.
+ *
+ * This page exists because the public one cannot serve as it. `animales/[id].astro` is gated on
+ * `isListed()`, and every shelter is awaiting verification until issue #53 lands the log — so
+ * the public page 404s for every animal on the platform right now. Without a page here, a
+ * shelter that published something would have no way to see it, and no way to reach the edit
+ * form at all.
+ *
+ * ## Every edit is a Confirmation
+ *
+ * `CONTEXT.md` makes a Confirmation "a shelter's deliberate write to one animal — an edit, a new
+ * photo, or an explicit 'still available' click", so saving this form moves `lastConfirmedAt` and
+ * that is not a side effect: it is what the ticket requires of any edit. `matchableSince` does
+ * not move, because the animal did not re-enter the pool — see `lib/animals/store.ts`.
+ *
+ * ## Why the visibility notice is computed and not stored
+ *
+ * `isListed()` is asked here about this animal and this shelter, exactly as `panel.astro` asks
+ * it about the shelter alone. Nothing is read from a `listed` column, because there is none —
+ * so the notice cannot drift out of agreement with the listing, since it *is* the listing rule.
+ */
+export const prerender = false;
+
+const db = createDb(env.DB);
+const now = new Date();
+
+const session = await authenticate(Astro.request, db, env, now);
+if (!session) return Astro.redirect("/refugios/entrar", 303);
+
+if (session.refreshedCookie) {
+  Astro.response.headers.append("set-cookie", session.refreshedCookie);
+}
+
+const { id } = Astro.params;
+const found = id ? await findAnimal(db, id) : null;
+
+/**
+ * Another shelter's animal answers **404 and not 403**, matching the upload endpoints and
+ * `nuevo.astro`: an animal that is not yours is one you have no business learning exists.
+ */
+if (!found || found.shelterId !== session.shelterId) {
+  return new Response("No encontrado", { status: 404 });
+}
+
+let errors: readonly AnimalError[] = [];
+let submitted: FormData | null = null;
+/**
+ * The animal as it was *before* this request's edit, and it stays that way on purpose. A
+ * refused save re-renders from `values` below — what the shelter typed — while the headings and
+ * the visibility notice describe the animal that is actually stored. Re-reading the row after a
+ * successful save would be a wasted query, because that path redirects instead of rendering.
+ */
+const animal = found;
+
+if (Astro.request.method === "POST") {
+  submitted = await Astro.request.formData();
+
+  const parsed = parseEdit(submitted, {
+    now,
+    /**
+     * This animal is excluded from its own count, which is the point of the parameter: a shelter
+     * on its third urgent animal rewording that animal's reason is adding no mark, and counting
+     * it would refuse the edit.
+     */
+    otherUrgentCount: await countUrgentAnimals(db, session.shelterId, animal.id),
+  });
+
+  if (parsed.ok) {
+    await editAnimal(db, animal.id, parsed.value, now);
+
+    // By hand rather than `Astro.redirect()`, so the sliding refresh survives — see
+    // `perfil.astro`, which measured the loss.
+    const headers = new Headers({
+      location: `/refugios/animales/${animal.id}?guardado`,
+    });
+    if (session.refreshedCookie) {
+      headers.set("set-cookie", session.refreshedCookie);
+    }
+    return new Response(null, { status: 303, headers });
+  }
+
+  errors = parsed.errors;
+}
+
+const facts = await readShelterFacts(db, session.shelterId);
+/**
+ * `authenticate()` already proved the shelter row exists by reading its epoch. A miss here means
+ * it was deleted between the two reads, which is a signed-out shelter rather than an error — the
+ * same reading `perfil.astro` takes.
+ */
+if (!facts) return Astro.redirect("/refugios/entrar", 303);
+
+const listed = isListed({ availability: animal.availability }, facts);
+const ageBand = deriveAgeBand(animal.species, animal.estimatedBirthDate, now);
+
+/** The one place a stored `Date` becomes what `<input type="date">` wants. */
+const asDateInput = (date: Date): string => date.toISOString().slice(0, 10);
+
+/**
+ * What the shelter typed if it typed something, otherwise what is stored.
+ *
+ * Reading the typed values back is what makes a refused save non-destructive: without it a
+ * shelter told "you already have three urgent animals" would also silently lose the description
+ * it had just rewritten.
+ */
+const stored: Record<string, string> = {
+  name: animal.name,
+  species: animal.species,
+  sex: animal.sex,
+  size: animal.size ?? "",
+  estimatedBirthDate: asDateInput(animal.estimatedBirthDate),
+  ageEstimateBasis: animal.ageEstimateBasis,
+  region: animal.region,
+  "goodWith.children": animal.goodWith.children,
+  "goodWith.dogs": animal.goodWith.dogs,
+  "goodWith.cats": animal.goodWith.cats,
+  description: animal.description,
+  medicalNeeds: animal.medicalNeeds ?? "",
+  sterilisation: animal.sterilisation,
+  availability: animal.availability,
+  urgent: animal.urgentReason === null ? "" : "si",
+  urgentReason: animal.urgentReason ?? "",
+};
+
+/**
+ * Replaced wholesale rather than merged, which is what lets a shelter *clear* something. An
+ * unticked checkbox is not submitted at all, so merging would keep showing the urgency mark of
+ * an animal whose mark had just been removed — `readSubmittedValues` returns `""` for every
+ * control the browser left out.
+ */
+const values = submitted ? readSubmittedValues(submitted) : stored;
+
+const saved = Astro.url.searchParams.has("guardado") && submitted === null;
+const published = Astro.url.searchParams.has("publicado") && submitted === null;
+---
+
+<Refugios title={animal.name} heading={animal.name}>
+  {published && <p data-testid="published">Publicado. Ya quedó guardado.</p>}
+  {saved && <p data-testid="saved">Guardado.</p>}
+
+  <!--
+    The gendered meta line, and the only place these words are composed. `describeAnimal()` runs
+    every part through `agree()` and the whole through `sentence()`, so an animal whose sex was
+    never recorded is described in the masculine *and told so*, once — ADR 0018's rule.
+  -->
+  <p data-testid="describe">{describeAnimal(animal)}</p>
+
+  <dl>
+    <dt>Etapa</dt>
+    <dd data-testid="age-band">{ageBand}</dd>
+    <dt>Dónde está</dt>
+    <dd data-testid="region">{animal.region}</dd>
+    <dt>Última confirmación</dt>
+    <dd data-testid="last-confirmed">{asDateInput(animal.lastConfirmedAt)}</dd>
+    <dt>En el sitio desde</dt>
+    <dd data-testid="matchable-since">{asDateInput(animal.matchableSince)}</dd>
+  </dl>
+
+  {
+    animal.urgentReason !== null && (
+      <p data-testid="urgent-reason">Urgente: {animal.urgentReason}</p>
+    )
+  }
+
+  {
+    listed ? (
+      <p data-testid="visibility">Este animal está apareciendo en el sitio.</p>
+    ) : (
+      /**
+       * Says *why*, not merely that it is not visible. A shelter told only "no aparece" would
+       * look for something it did wrong on this form, and the reason is almost always that
+       * verification has not happened yet — which is not something it can fix here.
+       */
+      <p data-testid="visibility">
+        Este animal todavía no aparece en el sitio público.
+        {
+          facts.latestVerificationOutcome !== "Verified" &&
+            " El refugio está esperando la verificación."
+        }
+        {
+          facts.contactPointCount === 0 &&
+            " Y hace falta al menos una forma de contacto en el perfil, porque si no, nadie" +
+              " podría escribirte por él."
+        }
+        {
+          animal.availability !== "Available" &&
+            " Además está marcado como no disponible."
+        }
+      </p>
+    )
+  }
+
+  <h2>Editar</h2>
+  <FormErrors errors={errors} />
+
+  <form method="post" data-testid="edit-form">
+    <AnimalFields errors={errors} values={values} withAvailability />
+    <p>
+      <button type="submit">Guardar</button>
+    </p>
+  </form>
+</Refugios>
