@@ -1,0 +1,534 @@
+---
+import { createDb } from "@pawster/db";
+import {
+  GOOD_WITH_AXES,
+  deriveAgeBand,
+  deriveStalenessBand,
+} from "@pawster/domain";
+import { env } from "cloudflare:workers";
+import { animalUrl, messageAddress } from "../../../lib/animals/address.ts";
+import {
+  OFF_PLATFORM_NOTE,
+  PREFILL_NOTE,
+  contactHandoffs,
+  prefillMessage,
+} from "../../../lib/animals/contact.ts";
+import { readAnimalGallery } from "../../../lib/animals/gallery.ts";
+import { findAnimal } from "../../../lib/animals/store.ts";
+import { publicView } from "../../../lib/animals/visibility.ts";
+import {
+  ARCHIVE_ELSEWHERE,
+  ARCHIVE_PHOTOS_DROPPED,
+  ageWithBasis,
+  archiveExplanation,
+  archiveHeadline,
+  confirmationSentence,
+  goodWithPhrase,
+  metaLine,
+  sizeLabel,
+  sterilisationLabel,
+} from "../../../lib/animals/words.ts";
+import { readShelterFacts } from "../../../lib/auth/store.ts";
+import {
+  readShelterPublicIdentity,
+  readStoredContactPoints,
+} from "../../../lib/shelter/store.ts";
+
+/**
+ * The animal page, the contact hand-off and the archive page — one route, because they are one
+ * address.
+ *
+ * ## The address
+ *
+ * `/a/<id>/<anything>`, and **only the id resolves**
+ * ([ADR 0020](../../../../../docs/adr/0020-an-animals-address-is-a-short-id-and-never-404s.md)).
+ * The rest parameter is read by nothing: it is the animal's name as a slug, for the human who
+ * receives a pasted link, and a shelter renaming Callejero to Luna must not break every forward
+ * of the old URL. `lib/animals/address.ts` builds the canonical spelling and the page declares
+ * it with a `<link rel="canonical">`, because a route that answers to infinitely many URLs owes
+ * a search engine exactly one of them.
+ *
+ * ## Why this is server-rendered
+ *
+ * One of the three exceptions to ADR 0007's prerender-first rule, and it is spent here rather
+ * than saved. Prerendering a page per animal makes every publish, every edit and every
+ * confirmation a site rebuild, and there is no build to trigger at 3am when a shelter confirms
+ * an animal from a nudge. The cost is a Worker invocation per view, measured against the Free
+ * plan's 10 ms CPU ceiling in `docs/measurements.md` — `npm run check:ssr-cpu` reproduces it.
+ *
+ * ## The three answers, and there are exactly three
+ *
+ * `lib/animals/visibility.ts` holds the rule and the reasoning; this page only renders it.
+ *
+ * - **listed** — the live page, ending in the contact hand-off.
+ * - **archived** — the animal has left the listing, and the page says which of the four ways.
+ *   `CONTEXT.md`: "Its page stays reachable and says what happened [...] an animal is never
+ *   deleted." A dead link is the one outcome ruled out, so an archived animal is a 200.
+ * - **hidden** — the shelter is not verified, and there is no public page at all. A 404, which
+ *   is issue #55's criterion holding: an unlisted animal of an unverified shelter has no public
+ *   existence to describe, and a page saying "this is hidden" would leak that the id is real.
+ *
+ * **A Departure cannot be observed yet.** `readShelterFacts()` returns `departedAt: null` for
+ * every shelter until issue #65 adds the column, so the `ShelterDeparted` wording is written,
+ * unit-tested in `visibility.test.ts`, and unreachable from here — the same position issue #55
+ * was in with verification before #53 landed the log. Nothing about this page changes when #65
+ * arrives.
+ *
+ * ## The one thing on the prototype's field budget that is missing
+ *
+ * The public-listing prototype lists "shelter, its verification badge **and any dormancy
+ * notice**" among what only this page shows, and the dormancy notice is not here. A Dormant
+ * Shelter is one with no activity of any kind for ninety days (`CONTEXT.md`), and nothing on the
+ * platform records activity yet — the fact the notice would be derived from does not exist, so a
+ * notice would either never fire or fire on something else. It arrives with issue #65, which
+ * owns shelter-level notices, and it is a block above the contact hand-off rather than anything
+ * that changes the rules on this page.
+ *
+ * ## Copy
+ *
+ * es-VE, hard-coded, through `lib/animals/words.ts` — the position ADR 0018 leaves the codebase
+ * in until the `strings/` workspace exists. Every phrase that inflects goes through `agree()`
+ * and `sentence()` there, so an animal of unrecorded sex is disclosed once for the page rather
+ * than silently rendered masculine.
+ */
+export const prerender = false;
+
+const { id } = Astro.params;
+
+/** Per request, in the frontmatter — never module scope. See `db/src/index.ts`. */
+const db = createDb(env.DB);
+
+const animal = await findAnimal(db, id!);
+if (!animal) return new Response("No encontrado", { status: 404 });
+
+/**
+ * The shelter's three clauses, through the one function that assembles them, rather than a
+ * wider join here. `scripts/check-source-rules.mjs` fences the account-email column to the
+ * store modules, and a page writing its own shelter select is how that fence gets stepped over.
+ */
+const facts = await readShelterFacts(db, animal.shelterId);
+if (!facts) return new Response("No encontrado", { status: 404 });
+
+const view = publicView(animal, facts);
+if (view.kind === "hidden") return new Response("No encontrado", { status: 404 });
+
+const shelter = await readShelterPublicIdentity(db, animal.shelterId);
+if (!shelter) return new Response("No encontrado", { status: 404 });
+
+/**
+ * One clock for the whole render. Two `new Date()` calls could put the age band and the
+ * confirmation line on opposite sides of a midnight, which is a bug that reproduces once a day
+ * for a millisecond.
+ */
+const now = new Date();
+
+const listed = view.kind === "listed";
+const band = deriveAgeBand(animal.species, animal.estimatedBirthDate, now);
+const meta = metaLine(animal, band);
+const gallery = await readAnimalGallery(db, animal, env.MEDIA_PUBLIC_ORIGIN);
+const canonical = animalUrl(env.SITE_ORIGIN, animal.id, animal.name);
+
+/** Built once and used twice: it goes into the links, and it is quoted to the adopter. */
+const prefill = prefillMessage(
+  animal.name,
+  messageAddress(env.SITE_ORIGIN, animal.id),
+);
+
+/**
+ * Read only for a listed animal, and the saving is not the point — an archive page must not
+ * offer a contact button. There is nothing left to ask about, and a departed shelter's points
+ * have been destroyed anyway (ADR 0015).
+ */
+const contacts = listed
+  ? contactHandoffs(
+      await readStoredContactPoints(db, animal.shelterId),
+      animal.name,
+      prefill,
+    )
+  : [];
+
+/**
+ * `firstContact` and not `primaryContact`: `CONTEXT.md` puts "primary contact" on *Contact
+ * Point*'s _Avoid_ list, and the reason is the design rather than the vocabulary. There is no
+ * primary contact point, in the way there *is* a Primary Photo — a shelter holds an ordered set
+ * and the first one is what an adopter is offered, so "first" is the whole of what is true about
+ * it. A name implying a flag would be describing a column that deliberately does not exist.
+ */
+const [firstContact, ...remainingContacts] = contacts;
+
+/**
+ * The provenance line's emphasis, and only its emphasis. The sentence itself is unconditional
+ * — see `confirmationSentence()` for why the consequence is printed even on a fresh animal.
+ */
+const staleness = deriveStalenessBand(animal.lastConfirmedAt, now);
+
+const archive =
+  view.kind === "archived"
+    ? {
+        headline: archiveHeadline(view.reason, animal.sex),
+        explanation: archiveExplanation(view.reason, animal.sex),
+      }
+    : null;
+
+/**
+ * The social preview's text. Truncated because Open Graph descriptions are cut by every
+ * consumer at somewhere between 150 and 300 characters and a sentence cut mid-word by WhatsApp
+ * looks like a broken page — better to choose where it ends.
+ */
+const socialDescription =
+  animal.description.length > 160
+    ? `${animal.description.slice(0, 157).trimEnd()}…`
+    : animal.description;
+const socialTitle = `${animal.name} — ${meta}`;
+---
+
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{animal.name} — Pawster</title>
+    <link rel="canonical" href={canonical} />
+
+    {/*
+      **Sharing is how a listing actually spreads here**, so these are load-bearing rather than
+      SEO hygiene: a Venezuelan adopter meets Pawster through a WhatsApp forward from a
+      shelter's status, and a forward with no preview card is a bare URL nobody taps.
+
+      WhatsApp reads `og:title`, `og:description` and `og:image` and nothing else — it does not
+      read Twitter cards, and it does not read JSON-LD — so the Open Graph trio is what has to
+      be right. `og:image` points at the **1200×630 JPEG derivative**, generated once at upload
+      (ADR 0012) and served straight from R2: WhatsApp's crawler fetches it from outside any
+      page, which is why the URL is absolute, and it fetches an image ratio it will not re-crop,
+      which is why the derivative is `cover` at exactly those dimensions rather than the detail
+      image scaled down.
+
+      JPEG and not WebP, and that is the same decision `digestThumbnail` made for Outlook:
+      WhatsApp's preview fetcher has historically not rendered WebP, and a format a consumer
+      silently drops leaves a card with an empty image box.
+    */}
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="Pawster" />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:title" content={socialTitle} />
+    <meta property="og:description" content={socialDescription} />
+    <meta property="og:locale" content="es_VE" />
+    {
+      gallery.socialPreviewUrl !== null && (
+        <>
+          <meta property="og:image" content={gallery.socialPreviewUrl} />
+          {/* Both, because some fetchers only follow the `secure_url`. */}
+          <meta
+            property="og:image:secure_url"
+            content={gallery.socialPreviewUrl}
+          />
+          <meta property="og:image:type" content="image/jpeg" />
+          {/*
+            Stated so a consumer can reserve the card's image box before fetching the bytes —
+            the same reason every `<img>` below carries its dimensions.
+          */}
+          <meta property="og:image:width" content="1200" />
+          <meta property="og:image:height" content="630" />
+          <meta property="og:image:alt" content={`Foto de ${animal.name}`} />
+          {/*
+            The **only** `twitter:` tag, and the one that is not redundant: X falls back to Open
+            Graph for the title, the description and the image, but it has no `og:` equivalent
+            for "render this as a large image rather than a thumbnail". A `twitter:title` beside
+            an identical `og:title` is bytes on a metered connection and a second place for the
+            copy to drift.
+          */}
+          <meta name="twitter:card" content="summary_large_image" />
+        </>
+      )
+    }
+    <meta name="description" content={socialDescription} />
+
+    {/*
+      No stylesheet, matching every other page here: ADR 0007's rule is that the payload is small
+      on a metered Venezuelan connection, and the look of the public surface belongs to the ticket
+      that designs it. **This is not that ticket, so every rule below has to earn its line by
+      implementing something the issue or the prototype's measurements actually require** — and
+      four do. Nothing here sets a typeface, a scale, a spacing system or a brand colour.
+
+      1. `img { max-width: 100%; height: auto }` — the prototype's one recorded bug, quoted:
+         "`img { max-width: 100% }` **without `height: auto`** makes an `<img>` carrying
+         `width`/`height` attributes ignore the `aspect-ratio` on its box: a 688×516 photo
+         rendered 360×516, stretched and oversized". Both halves are needed, and the attributes
+         on the tags are the third: photos blocked and photos loaded measured an *identical*
+         document height because of them — no layout shift on a patchy connection.
+      2. `.gallery` scrolls horizontally. Without it six full-width photographs stack, and the
+         page an adopter has to scroll past to reach the contact button is six screens long.
+      3. `.provenance` goes amber past the fresh band. This is what lets `confirmationSentence()`
+         print the consequence unconditionally: the *sentence* is the same at one day and at four
+         months, and the escalation is the colour. Take the colour away and the choice is between
+         warning about every animal in the same voice and making the sentence's presence the
+         warning — the failure the prototype named.
+      4. `.contact-first` is filled and `.contact-rest` is not. The issue's criterion is "the
+         first contact point is a filled button; the rest are a compact row", and a filled button
+         that is not filled does not discharge it — the whole point is that an adopter handed
+         four equal choices has no basis for making one, so the difference has to be visible.
+    */}
+    <style is:global>
+      img { max-width: 100%; height: auto; }
+      .gallery { display: flex; gap: 6px; overflow-x: auto; scroll-snap-type: x mandatory; }
+      .gallery img { flex: none; width: calc(100% - 34px); scroll-snap-align: center; }
+      .provenance { padding: 9px 10px; border-radius: 9px; background: #f2f2ef; }
+      .provenance[data-staleness="Ageing"],
+      .provenance[data-staleness="Stale"] { background: #fdf1dc; }
+      .contact-first {
+        display: block; text-align: center; padding: 14px 12px; border-radius: 11px;
+        background: #1b6b4a; color: #fff; font-weight: 700; text-decoration: none;
+      }
+      .contact-rest { display: flex; gap: 7px; list-style: none; padding: 8px 0 0; }
+      .contact-rest a { padding: 9px 12px; border: 1px solid #d8d8d2; border-radius: 9px; }
+      .prefill { font-style: italic; }
+    </style>
+  </head>
+
+  <body>
+    <p><a href="/">Volver al listado</a></p>
+
+    {
+      /*
+        Rendered on an archive page too, and until the retention clock takes them. An adopter
+        who arrives late at a forwarded link came to see this animal; a page that answers
+        "she found a home" over her photograph is the good ending, and the same page with the
+        photograph withheld is a notice.
+      */
+      gallery.photos.length > 0 && (
+        <div class="gallery" data-testid="gallery">
+          {gallery.photos.map((photo) => (
+            <img
+              src={photo.url}
+              width={photo.width}
+              height={photo.height}
+              alt={photo.alt}
+              loading="lazy"
+              decoding="async"
+            />
+          ))}
+        </div>
+      )
+    }
+
+    <h1 data-testid="animal-name">{animal.name}</h1>
+    <p data-testid="animal-meta">{meta} · {animal.region}</p>
+
+    {
+      /*
+        The written reason and not the chip. `CONTEXT.md` builds the reason into the definition
+        of an Urgency — "always carrying a written reason" — and the prototype settled that the
+        chip belongs on the card and the note belongs here, where there is room for it.
+      */
+      listed && animal.urgentReason !== null && (
+        <p data-testid="urgency"><strong>Urgente.</strong> {animal.urgentReason}</p>
+      )
+    }
+
+    {
+      archive !== null ? (
+        <section data-testid="archive">
+          <h2 data-testid="archive-headline">{archive.headline}</h2>
+          <p data-testid="archive-explanation">{archive.explanation}</p>
+          {/*
+            Photos drop on the ordinary twelve-month clock, so an old archive page has nothing
+            to show. Said out loud rather than left as a gap, because a page with an empty space
+            where a photograph belongs reads as broken rather than as retained.
+          */}
+          {gallery.photos.length === 0 && (
+            <p data-testid="photos-dropped">{ARCHIVE_PHOTOS_DROPPED}</p>
+          )}
+          <p><a href="/">{ARCHIVE_ELSEWHERE}</a></p>
+        </section>
+      ) : (
+        <p class="provenance" data-testid="provenance" data-staleness={staleness}>
+          {confirmationSentence(animal.sex, animal.lastConfirmedAt, now)}
+        </p>
+      )
+    }
+
+    <section>
+      <h2>Sobre {animal.name}</h2>
+      <p data-testid="description">{animal.description}</p>
+    </section>
+
+    {
+      /*
+        The facts table is the live page's and not the archive's. Its job is to help someone
+        decide whether to write, and there is nobody left to write to — an archive page that
+        still laid out adult size and sterilisation would be describing an animal on offer.
+
+        Species, life stage and sex are all carried by the meta line above, so restating them
+        here would be three duplications; adult size stays, because a bare `Mediana` does not
+        say that for a puppy it is a prediction rather than an observation.
+      */
+      listed && (
+        <section>
+          <h2>Datos</h2>
+          <dl>
+            <dt>Edad</dt>
+            {/*
+              With its basis, which is the whole point: a shelter that ticked "lo estima el
+              refugio" is guessing, and `3 años` renders that guess as a fact about the animal.
+              `ageWithBasis()` hedges it to `unos 3 años (estimada por el refugio)` and drops
+              the hedge only for a documented date.
+            */}
+            <dd data-testid="age">
+              {ageWithBasis(animal.estimatedBirthDate, animal.ageEstimateBasis, now)}
+            </dd>
+
+            {animal.size !== null && (
+              <>
+                <dt>Tamaño adulto</dt>
+                <dd data-testid="size">{sizeLabel(animal.size, animal.sex)}</dd>
+              </>
+            )}
+
+            {/*
+              **No `Dónde está` row.** The region is already in the meta line directly above,
+              and the prototype's rule for this table is that it "drops what the heading already
+              says" — the rule that removed species, life stage and sex. The prototype's own
+              ficha kept region in both, which is the inconsistency rather than the rule: three
+              duplications were worth removing and the fourth is the same duplication.
+
+              Size does stay in both, and that is not a contradiction: the heading's bare
+              `Mediana` does not say the size is a prediction about the adult animal, and the
+              row's `Tamaño adulto` label does.
+            */}
+            <dt>Esterilización</dt>
+            <dd data-testid="sterilisation">
+              {sterilisationLabel(animal.sterilisation, animal.sex)}
+            </dd>
+
+            {animal.medicalNeeds !== null && (
+              <>
+                <dt>Salud</dt>
+                <dd data-testid="medical">{animal.medicalNeeds}</dd>
+              </>
+            )}
+          </dl>
+        </section>
+      )
+    }
+
+    {
+      /*
+        All three axes, `no se sabe` included. The listing card collapses the unknowns into one
+        line because three stacked "no se sabe" chips are the heaviest thing on a card that is
+        trying to say something; the page has the room, and a shelter's honest "not assessed" is
+        worth reading before you write.
+
+        Each row is the phrase and nothing appended to it. The first draft rendered
+        `{goodWithPhrase(...)} — {GOOD_WITH_ANSWER_LABELS[flag]}`, producing
+        `Sin evaluar: gatos — No se sabe`: that joins two translated strings in a template, which
+        is the one thing ADR 0018 forbids outright, and it says the same thing twice —
+        `CONTEXT.md` writes these renderings as whole phrases precisely because the negation and
+        the not-yet-assessed form are shaped differently and the answer is already inside the
+        phrase.
+
+        The flag still reaches the markup as an attribute, because the three answers earn three
+        visual weights: a known `No` is a safety fact and must stay legible, a known `Yes` is
+        quiet, and an unknown is labelled rather than hidden.
+      */
+      listed && (
+        <section>
+          <h2>Convivencia</h2>
+          <ul data-testid="good-with">
+            {GOOD_WITH_AXES.map((axis) => (
+              <li data-axis={axis} data-flag={animal.goodWith[axis]}>
+                {goodWithPhrase(axis, animal.goodWith[axis])}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )
+    }
+
+    <section>
+      <h2>Publicado por</h2>
+      {/*
+        The display name and the base region, and structurally nothing else: the store function
+        this comes from does not select the account email at all, which is what makes "the
+        shelter's account email appears nowhere on the page" a fact about the query rather than
+        a promise about the markup. A departed shelter still has a name here (ADR 0015).
+      */}
+      <p data-testid="shelter-name">{shelter.displayName}</p>
+      <p data-testid="shelter-region">{shelter.baseRegion}</p>
+      {/*
+        Every animal with a public page is published by a verified shelter — the badge is not
+        conditional because the state it would be conditional on is a 404.
+      */}
+      <p data-testid="verified">Refugio verificado</p>
+    </section>
+
+    {
+      listed && firstContact !== undefined && (
+        <section data-testid="contact">
+          <h2>Contactar al refugio</h2>
+
+          {/*
+            One filled button for the shelter's first contact point and a compact row for the
+            rest, keyed off the shelter's own ordering — position 0 is the channel it actually
+            answers (`CONTEXT.md`, *Contact Point*). Four equal buttons hand an adopter a
+            decision they have no basis for making, which is the alternative the prototype
+            measured and rejected.
+
+            A point whose value cannot become a link is rendered as text rather than as a dead
+            button: an adopter who taps a link that goes nowhere concludes the animal is gone.
+          */}
+          {firstContact.href === null ? (
+            <p data-testid="contact-first">
+              {firstContact.label}: {firstContact.value}
+            </p>
+          ) : (
+            <a
+              class="contact-first"
+              data-testid="contact-first"
+              data-kind={firstContact.kind}
+              href={firstContact.href}
+              rel="nofollow noopener"
+            >
+              {firstContact.label}
+            </a>
+          )}
+
+          {remainingContacts.length > 0 && (
+            <ul class="contact-rest" data-testid="contact-rest">
+              {remainingContacts.map((contact) => (
+                <li>
+                  {contact.href === null ? (
+                    <span data-kind={contact.kind}>
+                      {contact.shortLabel}: {contact.value}
+                    </span>
+                  ) : (
+                    <a
+                      data-kind={contact.kind}
+                      href={contact.href}
+                      rel="nofollow noopener"
+                    >
+                      {contact.shortLabel}
+                    </a>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {/*
+            Shown only where a channel actually carries it. `wa.me` takes a `?text=` and
+            `mailto:` takes a `?body=`; Instagram's profile URL has no message parameter and a
+            phone call has no text, so a shelter reachable only on Instagram would otherwise be
+            promising a prefill that never arrives.
+          */}
+          {contacts.some((contact) => contact.carriesPrefill) && (
+            <p data-testid="prefill">
+              {PREFILL_NOTE}
+              <q class="prefill">{prefill}</q>
+            </p>
+          )}
+
+          <p data-testid="off-platform">{OFF_PLATFORM_NOTE}</p>
+        </section>
+      )
+    }
+  </body>
+</html>

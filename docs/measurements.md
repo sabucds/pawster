@@ -48,6 +48,25 @@ The increase was not decomposed into its parts. Doing so honestly needs a build 
 parent commit to subtract, and the figure above is enough to answer the only question being
 asked of it today.
 
+
+### Recorded 2026-09-08, after the animal page (#57)
+
+| Worker | Raw | Gzipped | Of the 3 MB limit |
+|---|---|---|---|
+| `web` | 1223.96 KiB | **331.64 KiB** | 10.8% |
+| `digest` | 221.79 KiB | 49.29 KiB | 1.6% |
+
+**The parent commit was measured too, so this one is attributed rather than inferred.** At
+`ab40fad` — development with #53, #55 and #61 merged and none of them recorded here — `web` was
+**318.71 KiB** gzipped. So the animal page, the archive page, the contact hand-off and their five
+libraries cost **12.9 KiB**, and the other 90 KiB of the gap to the #54 row above belongs to the
+three tickets that landed between them.
+
+That is the decomposition the #54 row said it was not doing, and it is worth the extra build:
+without it this row reads as one page costing 103 KiB, which would be the loudest number in the
+file and false. The rate to watch is roughly 13 KiB per feature ticket, against 2.7 MB of
+headroom.
+
 ## Per-request SSR CPU
 
 ```sh
@@ -84,6 +103,58 @@ subtraction of two noisy process-tree totals is not a precise instrument, and re
 single run as *the* figure would be over-reading it. Treat the ceiling as ~10× away, not
 as a number known to two decimal places.
 
+**Superseded by the run below.** The route those figures were taken against rendered four
+fields; the page that replaced it is the real one, and it costs about 2.5× as much.
+
+
+### Recorded 2026-09-08, after the animal page (#57)
+
+The route measured is now `/a/:id/:name` — the real animal page, not the four-field stub the
+figures above were taken against. `/animales/:id` no longer exists.
+
+The seed changed with it, and had to: the page 404s unless all four of `isListed()`'s clauses
+hold, so the fixture now carries a verification entry and a contact point, and it carries
+**three photographs** because a photoless animal is not a page anybody sees. Three is the middle
+of `domain/`'s one-to-six range; six is the honest worst case and is worth a hand-run if this
+figure ever approaches the ceiling.
+
+Three runs, 500 samples each, local `workerd` on an Apple-silicon laptop, against a local D1
+created fresh from `db/migrations` each time.
+
+| | Run 1 | Run 2 | Run 3 |
+|---|---|---|---|
+| Prerendered `/` (control) | 1.100 ms | 1.140 ms | 1.120 ms |
+| SSR `/a/:id/:name` | 3.520 ms | 3.540 ms | 3.820 ms |
+| **Attributable to the render** | **2.420 ms** | **2.400 ms** | **2.700 ms** |
+
+**24–27% of the 10 ms ceiling**, against 9–12% for the stub. Roughly 2.5× for a page that went
+from one join and four fields to six queries, four SHA-256 digests and about 6 KB of markup. The
+spread is also much tighter than the earlier record's 40% disagreement, which is what a heavier
+route buys: the signal is now well clear of the process-tree noise.
+
+Where the extra milliseconds went, in the order they were spent:
+
+- **Six D1 queries instead of two.** The animal, the shelter's three listing clauses
+  (`readShelterFacts()` is itself three), the shelter's public identity, its contact points and
+  the session's photographs.
+- **Four SHA-256 digests.** A derivative's key is a hash of the source digest plus the spec and
+  `db/` deliberately stores none of them, so the page recomputes one per photograph plus the
+  social preview. Each hashes a ~70-character string.
+- **The page itself.** Gallery, facts, convivencia, the shelter block, the contact hand-off and
+  a dozen Open Graph tags.
+
+**The D1 half of that is an artefact of measuring locally, and it inflates the number.** Local
+D1 is SQLite inside the same process tree, so its CPU is counted here; on Cloudflare, D1 is a
+separate service and the isolate pays wall-clock waiting rather than CPU. The real figure is
+therefore *below* this one by whatever the six queries cost, which this method cannot separate
+out. Reading 24% as an upper bound is the honest reading, and it is still comfortably inside the
+ceiling.
+
+The obvious lever if it ever stops being comfortable: `readShelterFacts()` and
+`readShelterPublicIdentity()` read the same row twice, and folding them would cost one query.
+Not done, because the first is `domain/`-shaped and hands back the listing clauses and nothing
+else, and the second exists precisely so the page never selects the account-email column.
+
 ### What this number is not
 
 Local `workerd` on a developer's machine, not an edge isolate. Treat it as an order of
@@ -93,8 +164,8 @@ contrast with [issue #34](https://github.com/sabucds/pawster/issues/34), where t
 `env.IMAGES` binding cost 22–56 ms against `cf.image`'s 0–2 ms, is the reminder of what a
 real measurement can overturn.
 
-The honest reading: about a millisecond leaves room, and nothing automated will tell us
-when it stops doing so.
+The honest reading: two and a half milliseconds against ten leaves room, the number moved by
+2.5× in one ticket, and nothing automated will tell us when it stops leaving room.
 
 ## Upright derivatives from a rotated source — unverified offline
 

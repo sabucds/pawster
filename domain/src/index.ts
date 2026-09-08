@@ -65,6 +65,7 @@ export {
   DERIVATIVE_PREFIX,
   DERIVATIVES,
   derivativeContentType,
+  derivativeDimensions,
   derivativeKeyFor,
   derivativeKeyMaterial,
   derivativeSpecFingerprint,

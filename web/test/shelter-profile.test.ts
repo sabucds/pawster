@@ -201,7 +201,7 @@ describe("editing the display name and the base region", () => {
     await post(PROFILE, { ...PROFILE_FORM, displayName: "Patitas de Miranda" }, { cookie });
 
     expect((await storedShelter(shelterId)).displayName).toBe("Patitas de Miranda");
-    expect((await get("/animales/animal-1")).status).toBe(404);
+    expect((await get("/a/animal-1/canela")).status).toBe(404);
   });
 
   it("edits while the shelter is still awaiting verification", async () => {
@@ -663,17 +663,20 @@ describe("the account email is never published", () => {
      * contact points." The two surfaces that exist today are the listing and the animal page,
      * and both are fetched **without a cookie**, the way an adopter fetches them.
      *
-     * The animal page's half of this is weaker than it looks right now: since issue #55 gated it
-     * on `isListed()`, it 404s for every animal until #53 lands verification, so that path
-     * currently proves the address is absent from a 404 body. It is kept in the loop rather than
-     * removed because it strengthens by itself the moment an animal can be listed.
+     * The animal page's half of this is weaker than it looks *here*: this shelter is not
+     * verified, so the page 404s and the path proves only that the address is absent from a 404
+     * body. The strong version — a fully rendered animal page, photographs, contact hand-off
+     * and all — is asserted in `animal-page.test.ts`, which is where an animal can be listed.
+     * It is kept in this loop anyway, because it is the assertion that catches an unlisted
+     * animal's *refusal* growing a body one day.
      *
-     * The filter index and the public shelter page are not checked here because neither
-     * exists yet (issues #56 and #57). What protects them is upstream of a test: the address
-     * is not in any type either of them will be built from — `ShelterProfile` is the only
-     * shape carrying it, and it is read by the two authenticated pages alone.
+     * The filter index is not checked here because it does not exist yet (issue #56). What
+     * protects it is upstream of a test: the address is not in any type it will be built from —
+     * `ShelterProfile` is the only shape carrying it, and it is read by the two authenticated
+     * pages alone. The animal page reads `readShelterPublicIdentity()`, which does not select
+     * the column at all.
      */
-    for (const path of ["/", "/animales/animal-1"]) {
+    for (const path of ["/", "/a/animal-1/canela"]) {
       const body = await (await get(path)).text();
       expect(body, path).not.toContain(REGISTRATION.accountEmail);
     }

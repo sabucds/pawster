@@ -47,7 +47,7 @@ const SAMPLES = 500;
 
 const ROUTES = [
   { label: "prerendered /", path: "/", control: true },
-  { label: "SSR /animales/:id", path: "/animales/measure-1", control: false },
+  { label: "SSR /a/:id/:name", path: "/a/measure01/canela", control: false },
 ];
 
 function npx(args, options = {}) {
@@ -124,16 +124,53 @@ npx([
   "--local", "--config", CONFIG, "--persist-to", PERSIST,
 ]);
 
-process.stderr.write("seeding one animal…\n");
+/**
+ * One **listed** animal, with everything the page actually reads.
+ *
+ * All four of `isListed()`'s clauses have to hold or the route answers 404, `hit()` aborts the
+ * run, and the script reports nothing — so the verification entry and the contact point below
+ * are load-bearing rather than realism. The three photographs are too: the page hashes a
+ * derivative key per photo, and measuring a photoless animal would measure a page no adopter
+ * ever sees.
+ *
+ * Three photos rather than one or six because it is the middle of `domain/`'s one-to-six range;
+ * six is the honest worst case and is worth re-running by hand when the figure gets close to
+ * the ceiling.
+ */
+process.stderr.write("seeding one listed animal…\n");
 npx([
   "wrangler", "d1", "execute", "pawster",
   "--local", "--config", CONFIG, "--persist-to", PERSIST,
   "--command",
-  `DELETE FROM animals; DELETE FROM shelters;
+  `DELETE FROM animals;
+   DELETE FROM upload_session_photos;
+   DELETE FROM upload_sessions;
+   DELETE FROM verifications;
+   DELETE FROM shelter_contact_points;
+   DELETE FROM shelters;
    INSERT INTO shelters (id, slug, display_name, account_email, base_region, country_code, created_at)
      VALUES ('measure-s', 'refugio-de-medicion', 'Refugio de Medición', 'medicion@example.org', 'Miranda', 'VE', 0);
-   INSERT INTO animals (id, shelter_id, name, species, estimated_birth_date, region, last_confirmed_at)
-     VALUES ('measure-1', 'measure-s', 'Canela', 'dog', 1735689600000, 'Miranda', 1756512000000);`,
+   INSERT INTO shelter_contact_points (id, shelter_id, kind, value, position, created_at)
+     VALUES ('measure-c', 'measure-s', 'whatsapp', '+58 412 5550001', 0, 0);
+   INSERT INTO verifications (shelter_id, outcome, methods, evidence, decided_at, decided_by, cited_display_name, cited_contact_points)
+     VALUES ('measure-s', 'Verified', 'instagram', 'instagram.com/refugio, active', 0, 'admin@example.org', 'Refugio de Medición', '[]');
+   INSERT INTO upload_sessions (id, shelter_id, created_at)
+     VALUES ('measure-u', 'measure-s', 0);
+   INSERT INTO upload_session_photos (id, session_id, position, source_digest, original_key, content_type, byte_size, width, height, created_at)
+     VALUES ('measure-p0', 'measure-u', 0, '${"0".repeat(64)}', 'o/measure-p0', 'image/jpeg', 1024, 1600, 1200, 0),
+            ('measure-p1', 'measure-u', 1, '${"0".repeat(63)}1', 'o/measure-p1', 'image/jpeg', 1024, 1600, 1200, 0),
+            ('measure-p2', 'measure-u', 2, '${"0".repeat(63)}2', 'o/measure-p2', 'image/jpeg', 1024, 1600, 1200, 0);
+   INSERT INTO animals (
+     id, shelter_id, upload_session_id, name, species, size, sex,
+     estimated_birth_date, age_estimate_basis, region,
+     good_with_children, good_with_dogs, good_with_cats,
+     description, sterilisation, availability, last_confirmed_at, matchable_since
+   ) VALUES (
+     'measure01', 'measure-s', 'measure-u', 'Canela', 'dog', 'Medium', 'Female',
+     1735689600000, 'ShelterGuess', 'Miranda',
+     'Yes', 'Yes', 'Unknown',
+     'Cariñosa y tranquila.', 'Sterilised', 'Available', 1756512000000, 1756512000000
+   );`,
 ]);
 
 process.stderr.write(`starting wrangler dev on :${PORT}…\n`);

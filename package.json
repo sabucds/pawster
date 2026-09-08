@@ -16,7 +16,8 @@
     "deploy:dry-run": "npm run deploy:dry-run --workspaces --if-present",
     "check:bundle-size": "node scripts/measure-bundle-size.mjs",
     "check:ssr-cpu": "node scripts/measure-ssr-cpu.mjs",
-    "check:i18n": "node scripts/measure-i18n.mjs"
+    "check:i18n": "node scripts/measure-i18n.mjs",
+    "check:short-id": "node scripts/measure-short-id.mjs"
   },
   "devDependencies": {
     "typescript": "^5.9.3"

@@ -179,3 +179,45 @@ export function derivativeContentType(name: DerivativeName): string {
   return `image/${DERIVATIVES[name].format}`;
 }
 
+
+/**
+ * The dimensions a derivative of a `sourceWidth × sourceHeight` photo will actually have.
+ *
+ * Dimensions rather than "size" throughout, and not only because `CONTEXT.md` puts *size* on
+ * *Derivative*'s _Avoid_ list: on this platform `Size` is a filter axis meaning a dog's expected
+ * adult size, rendered to an adopter as `Tamaño adulto`. A function called `derivativeSize` in a
+ * codebase that also asks whether a dog is `Medium` is a word doing two jobs.
+ *
+ * It exists for the `width` and `height` attributes on an `<img>`, and those attributes are
+ * not decoration. The public-listing prototype measured a page with photos blocked and a page
+ * with photos loaded at an **identical document height**, because every photo box was reserved
+ * before its bytes arrived — no layout shift on the patchy connection ADR 0007 assumes. A
+ * renderer that guessed the box, or omitted it, would give that back.
+ *
+ * Two spec shapes and two answers, which is why this is a function rather than the spec's own
+ * `width`/`height` read off directly:
+ *
+ * - `cover` crops to the box, so the derivative **is** the box. `socialPreview` is 1200×630
+ *   whatever it was made from, which is exactly what a social preview has to be.
+ * - `scale-down` fits the image inside the box without changing the aspect ratio and **never
+ *   enlarges**. So a 4032×3024 photo becomes 1280×960, a portrait 3024×4032 becomes 960×1280,
+ *   and an 800×600 photo already inside the box comes back at 800×600 untouched.
+ *
+ * A scaled edge is rounded to the nearest whole pixel and never to zero, because an
+ * `<img height="0">` reserves nothing — which is the one thing this function is for.
+ */
+export function derivativeDimensions(
+  name: DerivativeName,
+  sourceWidth: number,
+  sourceHeight: number,
+): { readonly width: number; readonly height: number } {
+  const spec = DERIVATIVES[name];
+  if (spec.fit === "cover") return { width: spec.width, height: spec.height };
+
+  // Never enlarge: `scale-down` is a ceiling rather than a target.
+  const scale = Math.min(spec.width / sourceWidth, spec.height / sourceHeight, 1);
+  return {
+    width: Math.max(1, Math.round(sourceWidth * scale)),
+    height: Math.max(1, Math.round(sourceHeight * scale)),
+  };
+}

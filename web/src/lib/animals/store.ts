@@ -37,6 +37,7 @@ import type {
 } from "@pawster/domain";
 import { and, count, desc, eq, isNotNull, ne } from "drizzle-orm";
 import type { AnimalEditInput, AnimalInput } from "./publish.ts";
+import { newShortId } from "./short-id.ts";
 
 /**
  * One of a shelter's animals, as its own pages render it.
@@ -255,12 +256,19 @@ export interface PublishAnimal {
  * The id is generated here rather than passed in because it is the animal's whole public address
  * — there is no slug, which is what makes the name freely renameable — and a caller that chose
  * it would be the second place that address was decided.
+ *
+ * **It is a short id and not a UUID** (issue #57, [ADR 0020](../../../../docs/adr/0020-an-animals-address-is-a-short-id-and-never-404s.md)).
+ * That address is read aloud, retyped off a screenshot and carried inside the prefilled message
+ * a stranger sends the shelter, so its length is a legibility property rather than a storage
+ * one; `./short-id.ts` holds the alphabet, the length and the arithmetic that chose them. The
+ * column is `text`, so nothing migrates and animals published before this keep the address they
+ * were given — which is the whole point of an address.
  */
 export async function publishAnimal(
   db: Database,
   request: PublishAnimal,
 ): Promise<string> {
-  const id = crypto.randomUUID();
+  const id = newShortId();
   const { animal } = request;
 
   await db.insert(animals).values({
