@@ -460,7 +460,18 @@ for (const file of files) {
       }
     }
 
-    if (!/\.test\.ts$/.test(relPath) && /\bfetch\s*\(/.test(line)) {
+    /**
+     * Comment lines are skipped here for the reason rules 5 and 6 already skip them: "a rule
+     * that fired on prose would be a rule that made the reasoning unwritable, and the
+     * reasoning is the more valuable half."
+     *
+     * That was an oversight rather than a distinction. This rule forbids a thing the package
+     * also has to be able to *write about* — `keyed-hash.ts` names the call it does not make,
+     * in order to say that moving the platform's keyed hash into `domain/` left the purity
+     * rules intact — and it fired on that sentence. Rules 3, 4 and 7 scan comments too, and
+     * should: the shapes they forbid never appear in prose.
+     */
+    if (!isComment && !/\.test\.ts$/.test(relPath) && /\bfetch\s*\(/.test(line)) {
       fail(file, lineNumber, "domain/ performs I/O", line.trim());
     }
   });

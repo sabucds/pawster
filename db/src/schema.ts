@@ -597,8 +597,98 @@ export const subscribers = sqliteTable(
      * per-subscription sent-set, which lands with the matching ticket.
      */
     lastDigestAt: integer("last_digest_at", { mode: "timestamp_ms" }),
+    /**
+     * When this subscriber asked us to stop, or `null` while they are still subscribed.
+     *
+     * **The row survives the unsubscribe, and that is the decision**
+     * ([ADR 0010](../../docs/adr/0010-subscriber-data-retention.md)). One-click unsubscribe
+     * has no confirmation page, deliberately, so a link prefetcher or a mis-tap can trip it —
+     * and erasing on the spot would turn every one of those into the permanent loss of three
+     * saved searches. So this column stops the sending and starts a ninety-day clock;
+     * `UNSUBSCRIBE_GRACE_MS` is the clock and `purgeUnsubscribedSubscribers()` is the job that
+     * spends it.
+     *
+     * It is a timestamp and not a flag for exactly that reason: a flag would say *whether* to
+     * send and could not say when the row is due to be destroyed, and a grace period nothing
+     * ends is indefinite retention with a nicer name.
+     *
+     * Every send path asks this column. `retiredAt` below is the platform's own decision to
+     * stop and is asked alongside it — two columns because they are two different facts, one
+     * the subscriber's and one ours, and `CONTEXT.md` separates *Retirement* from
+     * *Erasure* precisely so neither can be read off the other.
+     */
+    unsubscribedAt: integer("unsubscribed_at", { mode: "timestamp_ms" }),
+    /**
+     * Which generation of this subscriber's manage link is live. Bumping it is the rotation
+     * ADR 0010 requires on unsubscribe.
+     *
+     * **No token and no hash of one is stored, only this integer**, and that is the whole
+     * design of `domain/src/subscriber-links.ts`: the manage token is
+     * `HMAC(SUBSCRIBER_LINK_SECRET, "manage:" || id || ":" || version)`, so the live link is
+     * *derivable* at any later moment by anything holding the secret — which is what lets the
+     * ninety-day nudge carry a working link months after opt-in without one having been kept
+     * anywhere. A database read is therefore not a set of working links, the property
+     * `pendingOptIns.tokenHash` argues for from the other direction.
+     *
+     * Rotation is `version + 1` and nothing else. No revocation list, no second table, and
+     * every link handed out before the bump stops verifying at once.
+     */
+    manageTokenVersion: integer("manage_token_version").notNull().default(0),
+    /**
+     * When the *platform* decided to stop sending to this address, or `null`.
+     *
+     * `CONTEXT.md`, *Retirement*: "the platform's own decision to stop sending to a
+     * subscriber, because the address hard-bounced or its owner reported us as spam. Distinct
+     * from unsubscribing, which is the subscriber's decision."
+     *
+     * Kept in our own database rather than left to Resend's suppression list, and issue #62
+     * gives the reason in one line: **a suppressed send still spends quota.** A platform that
+     * asks the provider to remember who not to mail still pays, out of a hundred-a-day
+     * allowance, for every message the provider then drops.
+     */
+    retiredAt: integer("retired_at", { mode: "timestamp_ms" }),
+    /**
+     * Why we stopped, and the one column that decides whether the retirement is permanent.
+     *
+     * A `complaint` retirement is permanent and writes a Do-Not-Contact entry; a `bounce`
+     * retirement is neither. ADR 0010: "a hard bounce is self-healing — opt-in completes only
+     * if the mailbox works — and Resend re-suppresses bounces account-wide anyway", so a
+     * bounced address that later works can simply sign up again, while a complaint is a
+     * person telling us to stop.
+     *
+     * Nullable in step with {@link retiredAt}: a subscriber who was never retired has neither,
+     * and the pair is written in one update so they cannot disagree.
+     */
+    retirementReason: text("retirement_reason", {
+      enum: ["bounce", "complaint"],
+    }),
+    /**
+     * When this subscriber was sent the ninety-day "still nothing" nudge, or `null`.
+     *
+     * **The column is what makes the nudge happen once**, and the period is not. A cutoff
+     * alone would re-send it to the same silent subscriber every single day the cron ran, so
+     * the query asks for `nudged_at IS NULL` and this is written when the mail goes out.
+     *
+     * ADR 0010 wants that mail to exist because a subscriber who never matches anything
+     * receives no digest and therefore no footer — no digest means no link, and the manage
+     * page is the subject-access response. This guarantees a live link at least quarterly.
+     */
+    nudgedAt: integer("nudged_at", { mode: "timestamp_ms" }),
   },
-  (table) => [index("subscribers_send_day_idx").on(table.sendDay)],
+  (table) => [
+    index("subscribers_send_day_idx").on(table.sendDay),
+    /**
+     * The two retention jobs' whole access pattern, and neither is a scan.
+     *
+     * The erasure purge reads "unsubscribed before this instant"; the nudge reads "opted in
+     * before this instant, never sent to, never nudged". Both start from a nullable timestamp
+     * whose `NULL`s are the rows they must *not* touch — and SQLite indexes `NULL`s, so the
+     * common case (everybody still subscribed, everybody already receiving digests) is
+     * excluded by the index rather than by a filter over rows it returned.
+     */
+    index("subscribers_unsubscribed_at_idx").on(table.unsubscribedAt),
+    index("subscribers_nudge_idx").on(table.nudgedAt, table.lastDigestAt, table.optedInAt),
+  ],
 );
 
 /**
