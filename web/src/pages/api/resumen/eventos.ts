@@ -1,3 +1,9 @@
+/**
+ * Imported for its side effect: evaluating it is ADR 0010's boot check, so a Worker deployed
+ * without DO_NOT_CONTACT_PEPPER fails to start rather than quietly writing entries under an
+ * empty key. See ../../../lib/subscriber/pepper.ts.
+ */
+import "../../../lib/subscriber/pepper.ts";
 import type { APIRoute } from "astro";
 import { createDb } from "@pawster/db";
 import { env } from "cloudflare:workers";
