@@ -165,6 +165,19 @@ Needing only `pawster-media`, which exists (free, ~2 minutes):
   Derivatives load through `<img>` and need no CORS, so this is the product's
   first cross-origin `fetch`; without the header the listing is empty in a way
   that looks like a broken index rather than a missing response header.
+  **This one now blocks a working deploy rather than a future one**: issue #56
+  shipped the listing, so `web/src/lib/listing/island.ts` makes both of those
+  fetches on every page load. The island reports the failure as
+  *"No pudimos cargar la lista de animales"* rather than as an empty page, which
+  is the difference between a missing header and an empty platform — but an
+  adopter still sees no animals until the policy exists.
+- **verify that R2 serves the index's stored `Content-Encoding: gzip` back.**
+  ADR 0018's third open measurement, and the reason it is here rather than in a
+  test: the regenerator stores the object gzipped with the header set, and
+  nothing inside a `workerd` isolate can observe what the bucket puts on the
+  wire. If R2 drops it, an adopter downloads ~352 KB of uncompressed JSON
+  against ADR 0007's ~150 KB budget. One `curl -sI` against the key
+  `i/current.json` names, checking for `content-encoding: gzip`.
 
 Needing the digest Worker, which now exists as `digest/`:
 

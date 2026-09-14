@@ -35,6 +35,7 @@ import type {
   Sterilisation,
 } from "@pawster/domain";
 import {
+  GOOD_WITH_AXES,
   SIZE_ADULT_KILOGRAMS,
   daysBetween,
   monthsBetween,
@@ -67,10 +68,23 @@ export interface Resolved {
  * nothing else — ADR 0018: "sex enters as a field of the facts the phrase function is given,
  * and nowhere else."
  */
-export interface AnimalWords {
+/**
+ * The attributes {@link metaLine} composes — {@link AnimalWords} minus the one field only
+ * {@link describeAnimal} reads.
+ *
+ * Split out for the listing card (issue #56), which builds its meta line from a filter-index
+ * entry that deliberately carries no sterilisation: the card has no room for it and the index
+ * has no byte for it. Before this existed the card kept its own copy of {@link metaParts},
+ * which made the claim directly above {@link metaLine} — *the single composition point for
+ * these words* — false, and left two places for a puppy's species-and-band rule to be wrong in.
+ */
+export interface MetaWords {
   readonly species: Species;
   readonly sex: Sex;
   readonly size: Size | null;
+}
+
+export interface AnimalWords extends MetaWords {
   readonly sterilisation: Sterilisation;
 }
 
@@ -355,8 +369,56 @@ export const SPECIES_OPTION_LABELS = optionLabels(SPECIES_WORDS);
 /** The three sterilisation answers as the form offers them, masculine and unmarked. */
 export const STERILISATION_OPTION_LABELS = optionLabels(STERILISATION_WORDS);
 
+/**
+ * *There is deliberately no age-band option label here.* A filter panel's words for the six
+ * criteria vocabularies are `../axis-labels.ts`'s, which holds them for all three surfaces that
+ * render them and checks each record against `domain/`'s vocabulary with `satisfies`. A copy
+ * here would be a second list that can disagree with it — and the first draft of #56's panel
+ * was exactly that copy.
+ */
+
 /** The three availabilities as the shelter's own edit form offers them. */
 export const AVAILABILITY_OPTION_LABELS = optionLabels(AVAILABILITY_WORDS);
+
+/**
+ * Several known-`Yes` axes as one merged phrase — `Con niños y gatos`.
+ *
+ * Merged rather than one chip each, because a positive is useful and not urgent and three of
+ * them stacked is three lines saying "fine". The phrase is built here rather than by joining
+ * {@link goodWithPhrase}'s output, which would read `Convive con niños · Convive con gatos`.
+ *
+ * Spanish's list conjunction is `y`, and `e` before a word beginning with an `i` sound —
+ * none of the three nouns does, so the simple form is correct for the closed vocabulary this
+ * can ever be handed.
+ */
+export function goodWithPositivesPhrase(
+  axes: readonly GoodWithAxis[],
+): string | null {
+  if (axes.length === 0) return null;
+  const nouns = axes.map((axis) => GOOD_WITH_NOUNS[axis]);
+  if (nouns.length === 1) return `Con ${nouns[0]}`;
+  return `Con ${nouns.slice(0, -1).join(", ")} y ${nouns[nouns.length - 1]}`;
+}
+
+/**
+ * The unknown axes collapsed into **one named line** — `Sin evaluar: perros`, or
+ * `Convivencia sin evaluar` when all three are.
+ *
+ * Still labelled, as `CONTEXT.md` requires — just once, collectively, rather than three times.
+ * #17 measured the alternative: a tri-state chip row makes three stacked `no se sabe` chips
+ * the visually heaviest element on four of twelve cards, gives non-information the same weight
+ * as a genuine `No`, and costs +14% scroll to say less.
+ *
+ * The all-three case gets its own wording rather than listing every noun, because "nothing
+ * about how this animal lives with others was assessed" is one fact rather than three.
+ */
+export function goodWithUnknownLine(
+  axes: readonly GoodWithAxis[],
+): string | null {
+  if (axes.length === 0) return null;
+  if (axes.length === GOOD_WITH_AXES.length) return "Convivencia sin evaluar";
+  return `Sin evaluar: ${axes.map((axis) => GOOD_WITH_NOUNS[axis]).join(", ")}`;
+}
 
 /**
  * What every surface says about an animal before it says anything else: the species, the band
@@ -383,11 +445,11 @@ export const AVAILABILITY_OPTION_LABELS = optionLabels(AVAILABILITY_WORDS);
  * both on purpose: bare in the heading, and labelled `Tamaño adulto` in the table, because a bare
  * `Mediana` does not say that for a puppy it is a prediction rather than an observation.
  */
-export function metaLine(animal: AnimalWords, band: AgeBand): string {
+export function metaLine(animal: MetaWords, band: AgeBand): string {
   return sentence(metaParts(animal, band));
 }
 
-function metaParts(animal: AnimalWords, band: AgeBand): Resolved[] {
+function metaParts(animal: MetaWords, band: AgeBand): Resolved[] {
   const parts: Resolved[] = [speciesAndBand(animal.species, band, animal.sex)];
   if (animal.size !== null) {
     parts.push(agree(SIZE_WORDS[animal.size], animal.sex));
@@ -493,6 +555,33 @@ export function confirmedAgo(
 ): string {
   const confirmed = agree(CONFIRMED_WORDS, sex).word;
   return `${confirmed} ${agoPhrase(daysBetween(lastConfirmedAt, asOf))}`;
+}
+
+/**
+ * The listing card's provenance line: where the animal is, and when its shelter last said so —
+ * `Miranda · Confirmada ayer`.
+ *
+ * {@link confirmedAgo} with the region in front, and **nothing else**. The region is the card's
+ * because a card is scanned against "could I get there"; the shelter's name and the consequence
+ * sentence are the page's, for the reasons {@link confirmationSentence} gives.
+ *
+ * **The same line, in the same position, on every card — fresh animals included.** That is
+ * #17's finding and the opposite of an oversight: a line that appeared only when something was
+ * wrong would make its own *presence* the warning, and a badge that shows up on ageing animals
+ * and nowhere else reads as "don't bother" however neutrally it is worded. What makes the
+ * neutral label affordable is that the sort order already does the de-emphasising — ADR 0001
+ * gives staleness the ordering, so a stale animal has sunk by the time an adopter reads its
+ * label, and the label does not need to do that job twice.
+ *
+ * Not routed through {@link sentence}, on the same terms as {@link ageBandLabel}: the card
+ * renders {@link metaLine} directly above this, which discloses an assumed gender once for the
+ * whole card. A surface showing this line *without* that one would have to disclose.
+ */
+export function provenanceLine(
+  animal: { readonly sex: Sex; readonly region: string; readonly lastConfirmedAt: Date },
+  asOf: Date,
+): string {
+  return `${animal.region} · ${confirmedAgo(animal.sex, animal.lastConfirmedAt, asOf)}`;
 }
 
 /**
