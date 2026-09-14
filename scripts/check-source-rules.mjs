@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * Seven structural rules that no test can enforce, checked over the source instead.
+ * Eight structural rules that no test can enforce, checked over the source instead.
  *
- * All seven exist because the thing they forbid *passes* at runtime. A module-scope Drizzle
+ * All eight exist because the thing they forbid *passes* at runtime. A module-scope Drizzle
  * client runs fine locally and breaks in production; a `db/` import inside `domain/` is just
  * an import; a query that rewrites a shelter's slug succeeds and quietly breaks every URL an
  * adopter already held; a query that selects a shelter's account email into something public
@@ -10,7 +10,9 @@
  * while spending five times the Worker's CPU budget; S3 credentials in the Worker work
  * exactly as well as not having them, minus the credential that can leak; and an
  * `authenticate()` call on an admin route would work perfectly, which is the problem — it
- * would be an admin session, and ADR 0002 built none.
+ * would be an admin session, and ADR 0002 built none; and a subscriber written into Resend
+ * Contacts would be written successfully, which is the problem — consent would then have two
+ * owners that can disagree (#62).
  *
  * None has a failing test to point at. Four of them share a sharper reason for that, worth
  * naming: the slug, account-email and admin-cookie rules could each have a test *per route*,
@@ -434,6 +436,38 @@ for (const file of files) {
       );
     }
 
+    /**
+     * Rule 8: no subscriber is mirrored into Resend Contacts or an Audience.
+     *
+     * Issue #62: "We deliberately do **not** mirror subscribers into Resend Contacts — consent
+     * is the one piece of state that must have a single owner." Two systems that both believe
+     * they know whether somebody is subscribed will disagree, and the digest reads ours; a
+     * subscriber unsubscribed here and still present there is a person we would go on mailing.
+     *
+     * Here rather than in a test for the reason rules 3, 4 and 7 are: a test can assert that
+     * *today* no route posts to `/contacts`, and `subscriber-manage.test.ts` does exactly that
+     * over the paths it exercises. It can say nothing about the route nobody has written yet,
+     * which is where adding a contact would look like a convenience — and the call would
+     * succeed, which is the problem.
+     *
+     * Comment lines are skipped, because this decision has to be writable about: the webhook
+     * and ADR 0010 both name the API in order to rule it out.
+     */
+    const contacts = isComment
+      ? null
+      : line.match(/api\.resend\.com\/(?:contacts|audiences)|\/v1\/(?:contacts|audiences)\b/);
+    if (contacts) {
+      fail(
+        file,
+        lineNumber,
+        "a subscriber reaches Resend Contacts",
+        `${contacts[0]} — consent has a single owner, and it is our database (#62). Two ` +
+          "systems that both believe they know whether somebody is subscribed will disagree, " +
+          "and a subscriber unsubscribed here but still present there is a person we would go " +
+          "on mailing.",
+      );
+    }
+
     if (!inDomain) return;
 
     // Rule 2: `domain/` is pure — no I/O, and no `db/`.
@@ -490,5 +524,6 @@ if (failures.length > 0) {
 console.log(
   `source rules ok — ${files.length} files checked for module-scope Drizzle clients, ` +
     "domain/ purity, writes to shelters.slug, reads of the account-email column, " +
-    "the IMAGES binding, S3 credentials and cookies on an admin route",
+    "the IMAGES binding, S3 credentials, cookies on an admin route and writes to " +
+    "Resend Contacts",
 );

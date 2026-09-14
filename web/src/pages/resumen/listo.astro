@@ -25,6 +25,25 @@ export const prerender = false;
  * subscription, and no state anywhere has moved. An out-of-range value falls back rather than
  * throwing, because a 500 on a success page is a worse answer than a missing weekday.
  */
+/**
+ * The manage link, carried through the same redirect as the day and for a stronger reason.
+ *
+ * ADR 0010 requires it here: "the opt-in success page and the 90-day 'still nothing' nudge
+ * both carry the manage link, guaranteeing a live link at least quarterly." A subscriber whose
+ * searches never match gets no digest and therefore no footer, so without this they would hold
+ * consent we act on and no way to see, change or delete any of it for three months.
+ *
+ * **Not verified here, and deliberately not.** This page renders it into an anchor and reads
+ * nothing; the page it points at checks the MAC and the version before showing a single field.
+ * Verifying here would be a second implementation of the security boundary on the side of it
+ * that does not need one, and an invalid token in this query string is not a threat — it is a
+ * link that will land on the dead-link page.
+ *
+ * Absent rather than broken when the parameter is missing, for the reason the day falls back:
+ * a 500 on a success page is a worse answer than a missing paragraph.
+ */
+const manage = Astro.url.searchParams.get("t");
+
 const raw = Number(Astro.url.searchParams.get("dia"));
 const day = Number.isInteger(raw) && raw >= 0 && raw <= 6 ? raw : null;
 ---
@@ -52,11 +71,22 @@ const day = Number.isInteger(raw) && raw >= 0 && raw <= 6 ? raw : null;
     <a href="/resumen">Agregar otra</a>.
   </p>
 
+  {
+    manage !== null && (
+      <p data-testid="manage-link">
+        Guarda este enlace: es el único que tienes para ver lo que guardamos tuyo, cambiar tus
+        búsquedas o borrarlo todo.{" "}
+        <a href={`/resumen/mis-busquedas/${manage}`}>Ver lo que guardamos tuyo</a>.
+      </p>
+    )
+  }
+
   <p data-testid="unsubscribe-notice">
     <!--
-      Said here because it is the one place a subscriber is looking. ADR 0010 makes the digest
-      footer the guaranteed live link — the manage page (#62) does not exist yet, so this
-      points at the mail rather than at a route that would 404.
+      Said here because it is the one place a subscriber is looking, and it is now the second
+      of two live routes rather than the only one: the paragraph above hands them the manage
+      link directly, and this says the digest carries one too. ADR 0010 wants both, because a
+      subscriber who never matches anything receives no digest and so never sees the footer.
     -->
     Cada resumen trae al final un enlace para cambiar tus búsquedas o para darte de baja, sin
     contraseña y sin tener que escribirle a nadie.

@@ -583,6 +583,29 @@ describe("7 — the manage link a subscriber is handed at opt-in", () => {
   });
 });
 
+describe("7b — the success page renders the link it was handed", () => {
+  it("shows the manage link, so the redirect is not the only place it exists", async () => {
+    outbound.reset();
+    await post("/api/resumen/suscribir", {
+      email: SUBSCRIBER_EMAIL,
+      species: ["dog"],
+      locale: "es",
+    });
+    const body = JSON.parse(outbound.callsTo("resend")[0]!.body!) as { text: string };
+    const token = decodeURIComponent(
+      body.text.match(/\/resumen\/activar\?t=([\w%-]+)/)![1]!,
+    );
+    const activated = await post("/resumen/activar", { t: token });
+
+    const html = await (await get(activated.headers.get("location")!)).text();
+
+    // Carrying it in the redirect and then not rendering it would satisfy the redirect test
+    // above while leaving the subscriber with nothing — ADR 0010 asks for a link they hold.
+    expect(html).toContain("manage-link");
+    expect(html).toContain("/resumen/mis-busquedas/");
+  });
+});
+
 describe("8 — unsubscribing from the manage page", () => {
   it("stops the sending and lands on the page that carries the delete button", async () => {
     const { manage } = await subscribedWithLink();
