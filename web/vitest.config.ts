@@ -18,9 +18,9 @@ export default defineConfig({
         bindings: {
           TEST_MIGRATIONS: migrations,
           /**
-           * The six secrets `web/wrangler.jsonc` deliberately does not carry, supplied
+           * The nine secrets `web/wrangler.jsonc` deliberately does not carry, supplied
            * here as fixed values so the suite still needs no credentials — the same thing
-           * `digest/`'s seam does for `UNSUBSCRIBE_SECRET`.
+           * `digest/`'s seam does for `SUBSCRIBER_LINK_SECRET`.
            *
            * Fixed rather than random, because a test that signs a cookie in one request and
            * verifies it in the next needs both to have happened under the same key. They are
