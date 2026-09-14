@@ -1,0 +1,22 @@
+---
+export const prerender = true;
+
+/**
+ * `/privacy` → `/privacidad`.
+ *
+ * Issue #62's second acceptance criterion names this path — "`/privacy` renders the actual
+ * retention table" — and every user-facing route on the platform is Spanish, because ADR 0007
+ * makes es-VE the default and English the translation under `/en/`. Both are worth honouring,
+ * and a permanent redirect is what honours both: the English address works, and there is still
+ * exactly one page.
+ *
+ * A redirect rather than a second copy of the table, for the reason the table is derived from
+ * the constants in the first place. Two renderings of one policy is the drift this whole page
+ * is built to avoid, and it would be a strange thing to reintroduce for the sake of a URL.
+ *
+ * 308 rather than 302, because this will not change and a reader who bookmarked the English
+ * spelling should end up holding the Spanish one.
+ */
+
+return Astro.redirect("/privacidad", 308);
+---

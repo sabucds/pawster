@@ -1,0 +1,182 @@
+---
+import { createDb } from "@pawster/db";
+import { unsubscribeToken, verifyManageToken } from "@pawster/domain";
+import { env } from "cloudflare:workers";
+import Resumen from "../../../layouts/Resumen.astro";
+import { SEND_DAY_LABELS, describeCriteria } from "../../../lib/subscriber/labels.ts";
+import { readManageView, unsubscribeSubscriber } from "../../../lib/subscriber/manage.ts";
+
+export const prerender = false;
+
+/**
+ * The manage page — and **it is the subject-access response**, not a settings screen that
+ * happens to list some fields.
+ *
+ * ADR 0010: "Address, up to three subscriptions, send day, opt-in date, last-sent date is the
+ * whole of what we hold; an export flow would show nothing the page does not. One page, with
+ * the delete button on it, replaces a request process we would otherwise have to build and
+ * staff."
+ *
+ * That is why the list below is exhaustive to the point of being slightly odd to read — it
+ * shows when we last nudged this person and whether we retired them, facts nobody would think
+ * to ask for. A page that showed the friendly subset and kept the platform's own notes back
+ * would be the ordinary way this promise gets quietly broken. `ManageView` is column-for-column
+ * with the table so that omitting one is a type error rather than an oversight.
+ *
+ * ## Why a stale link is refused rather than renewed
+ *
+ * The token carries the generation it was built for, and unsubscribing bumps it. A link from
+ * before an unsubscribe still verifies as ours — that is what a MAC does — so the row is what
+ * decides, and the comparison below is the whole of the rotation ADR 0010 asks for. Renewing a
+ * stale link here, or offering a "send me a new one" button, would undo it: the rotation exists
+ * because a manage link may have been forwarded, logged or scraped.
+ *
+ * An unsubscribed subscriber therefore has exactly one route back, and it is the delete button
+ * on the unsubscribe landing page — not this page.
+ *
+ * ## The `POST` is unsubscribing, and erasure is somewhere else
+ *
+ * Erasure posts to `/resumen/borrar`, which is `POST`-only and accepts either credential. The
+ * two are kept apart because they are different asks with different consequences, which is the
+ * ADR's central point about this whole surface.
+ */
+
+const token = Astro.params.token ?? "";
+const claim = await verifyManageToken(env, token);
+const db = createDb(env.DB);
+
+const view = claim === null ? null : await readManageView(db, claim.subscriberId);
+
+/**
+ * Three failures, one answer: a token we did not sign, a row that is gone, and a link from
+ * before a rotation. A subscriber can act on none of them differently, and distinguishing them
+ * out loud would say whether a given subscriber id exists.
+ */
+if (claim === null || view === null || claim.version !== view.manageTokenVersion) {
+  return Astro.redirect("/resumen/enlace-vencido", 302);
+}
+
+if (Astro.request.method === "POST") {
+  await unsubscribeSubscriber(db, view.id, new Date());
+  /**
+   * To the unsubscribe landing page rather than back here, and not only because this link has
+   * just been rotated out from under the caller. That page is where the delete button lives
+   * for somebody who has unsubscribed, so sending them there is what keeps ADR 0010's promise
+   * that they always have a route to erasure.
+   *
+   * The token in the URL is theirs to keep: it is the versionless one, so the rotation that
+   * just happened does not touch it.
+   */
+  return Astro.redirect(`/resumen/baja/${await unsubscribeToken(env, view.id)}`, 303);
+}
+
+const dateOnly = (at: Date) => at.toISOString().slice(0, 10);
+---
+
+<Resumen title="Mis búsquedas" heading="Lo que Pawster guarda tuyo">
+  <p>
+    Esto es <strong>todo</strong> lo que tenemos sobre ti. No hay nada más en otra parte, y
+    desde aquí puedes borrarlo.
+  </p>
+
+  <dl data-testid="held">
+    <dt>Tu correo</dt>
+    <dd data-testid="held-email">{view.email}</dd>
+
+    <dt>Cuándo activaste</dt>
+    <dd data-testid="held-opted-in">{dateOnly(view.optedInAt)}</dd>
+
+    <dt>Qué día te llega el resumen</dt>
+    <dd data-testid="held-send-day">{SEND_DAY_LABELS[view.sendDay]}</dd>
+
+    <dt>Último resumen que te mandamos</dt>
+    <dd data-testid="held-last-digest">
+      {view.lastDigestAt === null ? "Ninguno todavía" : dateOnly(view.lastDigestAt)}
+    </dd>
+
+    <dt>Idioma</dt>
+    <dd data-testid="held-locale">{view.locale === "es" ? "Español" : "Inglés"}</dd>
+
+    <dt>Te avisamos de que no había coincidencias</dt>
+    <dd data-testid="held-nudged">
+      {view.nudgedAt === null ? "No" : dateOnly(view.nudgedAt)}
+    </dd>
+
+    <dt>Te diste de baja</dt>
+    <dd data-testid="held-unsubscribed">
+      {view.unsubscribedAt === null ? "No" : dateOnly(view.unsubscribedAt)}
+    </dd>
+
+    <!--
+      The platform's own note about this person, shown because a subject-access response that
+      hid it would not be one. `bounce` and `complaint` are said in plain words rather than as
+      the stored values — the subscriber is owed the fact, not our vocabulary.
+    -->
+    <dt>Dejamos de escribirte por nuestra cuenta</dt>
+    <dd data-testid="held-retired">
+      {
+        view.retiredAt === null
+          ? "No"
+          : view.retirementReason === "complaint"
+            ? `Sí, desde ${dateOnly(view.retiredAt)}, porque marcaste nuestro correo como spam`
+            : `Sí, desde ${dateOnly(view.retiredAt)}, porque tu correo nos rebotó`
+      }
+    </dd>
+  </dl>
+
+  <h2>Tus búsquedas</h2>
+
+  {
+    view.subscriptions.length === 0 ? (
+      <p data-testid="no-subscriptions">No te queda ninguna búsqueda guardada.</p>
+    ) : (
+      <ol data-testid="subscriptions">
+        {view.subscriptions.map((subscription) => {
+          const described = describeCriteria(subscription.criteria);
+          return (
+            <li data-testid="subscription">
+              {described.length === 0 ? (
+                <p><strong>Todos los animales</strong>, sin filtrar por nada.</p>
+              ) : (
+                <dl>
+                  {described.map((axis) => (
+                    <>
+                      <dt>{axis.heading}</dt>
+                      <dd>{axis.values.join(", ")}</dd>
+                    </>
+                  ))}
+                </dl>
+              )}
+              <p>Guardada el {dateOnly(subscription.createdAt)}.</p>
+            </li>
+          );
+        })}
+      </ol>
+    )
+  }
+
+  <h2>Si ya no quieres</h2>
+
+  {
+    view.unsubscribedAt === null && (
+      <form method="post" action={`/resumen/mis-busquedas/${token}`}>
+        <p>
+          <button type="submit" data-testid="unsubscribe">Darme de baja</button>
+          Dejamos de escribirte, pero guardamos tus búsquedas 90 días por si cambias de idea.
+        </p>
+      </form>
+    )
+  }
+
+  <form method="post" action="/resumen/borrar">
+    <input type="hidden" name="t" value={token} />
+    <p>
+      <button type="submit" data-testid="erase">Bórrenlo todo ahora</button>
+      Borra tu correo y tus búsquedas de una vez. No se puede deshacer.
+    </p>
+  </form>
+
+  <p data-testid="privacy-link">
+    <a href="/privacidad">Cuánto tiempo guardamos cada cosa</a>
+  </p>
+</Resumen>

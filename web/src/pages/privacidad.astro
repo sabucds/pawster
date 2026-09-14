@@ -1,0 +1,164 @@
+---
+import {
+  NEVER_MATCHED_NUDGE_MS,
+  OPT_IN_TTL_MS,
+  OPT_IN_WINDOW_MS,
+  UNSUBSCRIBE_GRACE_MS,
+} from "@pawster/domain";
+import Resumen from "../layouts/Resumen.astro";
+
+export const prerender = true;
+
+/**
+ * The privacy notice — and **the retention table is the privacy notice**, not a summary of
+ * one.
+ *
+ * The ticket puts it in those words: "the retention table *is* the privacy notice — what it
+ * says is what the code does, including the honest row about our email provider's own 30-day
+ * tail and its plaintext suppression list."
+ *
+ * ## Every period below is read from the constant that enforces it
+ *
+ * Not transcribed. A privacy notice whose figures are typed out by hand is a document that
+ * starts true and drifts, silently, the first time somebody tunes a purge — and the drift is
+ * invisible because nothing compares the two. Importing `@pawster/domain`'s retention module
+ * makes the page a *rendering of the policy* rather than a claim about it, so changing a period
+ * changes this page in the same commit or not at all.
+ *
+ * The three rows that cannot be derived are marked as such below. Two of them are facts about
+ * Resend rather than about our code, so there is no constant that could enforce them and
+ * pretending otherwise would be worse than saying where they come from; the third is
+ * "forever", which is the absence of a job rather than the presence of one.
+ *
+ * ## Why the provider's tail is in the table rather than in a footnote
+ *
+ * ADR 0010: "'Delete everything' is scoped honestly, because a subprocessor tail exists that
+ * we cannot clear. Resend retains email and log data for 30 days on every plan below
+ * Enterprise, keeps backups for 7 days, and maintains its own automatic suppression list
+ * holding addresses in *plaintext*. Local hashing protects our database, not theirs. The
+ * privacy notice says so in the row a careful reader will check."
+ *
+ * That row is the one that makes the rest of the table believable. A notice that claimed the
+ * delete button reached every copy of an address everywhere would be false, and a reader who
+ * found out would be right to disbelieve the eleven rows above it.
+ *
+ * Prerendered, because it is the same for everybody and ADR 0007 wants the Worker to run as
+ * rarely as possible. Indexed, unlike the rest of the subscriber surface: this is a page
+ * people should be able to find without holding a link.
+ */
+
+const days = (ms: number) => Math.round(ms / (24 * 60 * 60_000));
+const hours = (ms: number) => Math.round(ms / (60 * 60_000));
+
+interface Row {
+  /** What is kept, in the subscriber's words rather than the schema's. */
+  readonly what: string;
+  readonly howLong: string;
+  readonly why: string;
+  /**
+   * `true` when the figure is read from a constant a job spends, `false` when it is a fact
+   * about somebody else's system or the absence of a job. Rendered, because "we enforce this"
+   * and "we are told this" are different promises.
+   */
+  readonly enforced: boolean;
+}
+
+const ROWS: readonly Row[] = [
+  {
+    what: "Tu correo y tus búsquedas, mientras estés suscrito",
+    howLong: "Hasta que te des de baja o lo borres",
+    why: "Es lo que hace falta para mandarte el resumen. Nada más.",
+    enforced: false,
+  },
+  {
+    what: "Una solicitud que no llegaste a activar",
+    howLong: `${days(OPT_IN_TTL_MS)} días`,
+    why: "Si no le diste al enlace, no tenemos tu permiso para nada. El enlace vence y la solicitud se borra el mismo día.",
+    enforced: true,
+  },
+  {
+    what: "Tu IP, al pedir el enlace de activación",
+    howLong: `${days(OPT_IN_TTL_MS)} días`,
+    why: "Solo para que nadie use el formulario para llenarle el correo a otra persona. Va en esa misma solicitud y se borra con ella; si activas, no guardamos ninguna IP tuya.",
+    enforced: true,
+  },
+  {
+    what: "Que te mandamos un enlace de activación (sin tu correo, solo una huella)",
+    howLong: `${hours(OPT_IN_WINDOW_MS)} horas`,
+    why: "Para no mandarte el mismo correo dos veces en un día y para no pasarnos del límite diario de la plataforma.",
+    enforced: true,
+  },
+  {
+    what: "Tus búsquedas después de darte de baja",
+    howLong: `${days(UNSUBSCRIBE_GRACE_MS)} días, y luego se borran solas`,
+    why: "Darse de baja es un clic sin confirmación, a propósito, para que funcione desde el correo. A veces lo aprieta un programa o se aprieta sin querer, así que guardamos las búsquedas por si quieres volver. Después se borra todo sin que tengas que pedirlo.",
+    enforced: true,
+  },
+  {
+    what: "Que te avisamos de que no había coincidencias",
+    howLong: `Se manda una sola vez, a los ${days(NEVER_MATCHED_NUDGE_MS)} días`,
+    why: "Para que siempre tengas un enlace que sirva, aunque nunca te llegue un resumen.",
+    enforced: true,
+  },
+  {
+    what: "Una huella de tu correo, si nos marcaste como spam",
+    howLong: "Para siempre",
+    why: "Es lo único que queda si borras todo, y solo cuando nos marcaste como spam. No guarda tu correo: guarda un código del que no se puede sacar tu dirección, y sirve únicamente para que el formulario se niegue a inscribirte otra vez. La ley no nos deja borrar esto, porque es justo lo que nos impide volver a escribirte.",
+    enforced: false,
+  },
+  {
+    what: "Copias en Resend, la empresa que manda nuestros correos",
+    howLong: "30 días los correos y sus registros, 7 días sus copias de seguridad",
+    why: "Esto no lo controlamos nosotros y el botón de borrar no lo alcanza. Si borras todo, desaparece de Pawster de una vez, pero en Resend se va solo cuando se cumplen esos plazos.",
+    enforced: false,
+  },
+  {
+    what: "La lista de bloqueo de Resend",
+    howLong: "Mientras Resend la mantenga",
+    why: "Si tu correo rebota o nos marcas como spam, Resend guarda tu dirección en su propia lista, y la guarda tal cual, sin cifrar. Es de ellos, no nuestra, y es distinta de la huella de arriba.",
+    enforced: false,
+  },
+];
+---
+
+<Resumen title="Qué guardamos y por cuánto tiempo" heading="Qué guardamos y por cuánto tiempo" indexable={true}>
+  <p>
+    Esta tabla es la política completa. No hay letra pequeña en otra parte, y cada plazo que
+    dice "lo borramos solos" lo borra un programa que corre todos los días.
+  </p>
+
+  <table data-testid="retention">
+    <thead>
+      <tr>
+        <th>Qué</th>
+        <th>Cuánto tiempo</th>
+        <th>Por qué</th>
+      </tr>
+    </thead>
+    <tbody>
+      {
+        ROWS.map((row) => (
+          <tr data-testid="retention-row" data-enforced={String(row.enforced)}>
+            <td>{row.what}</td>
+            <td>{row.howLong}</td>
+            <td>{row.why}</td>
+          </tr>
+        ))
+      }
+    </tbody>
+  </table>
+
+  <h2>Lo que puedes hacer</h2>
+
+  <p>
+    Todo lo tuyo está en una sola página, la que abre el enlace que te mandamos por correo.
+    Ahí ves lo que guardamos, te puedes dar de baja y puedes borrarlo todo. No hay que
+    escribirle a nadie ni pedir permiso.
+  </p>
+
+  <p data-testid="no-account">
+    En Pawster no tienes cuenta ni contraseña: el enlace del correo es lo único que te
+    identifica. Por eso, si te das de baja, ese enlace deja de servir y el de darte de baja
+    sigue funcionando — es el que lleva el botón de borrar.
+  </p>
+</Resumen>

@@ -35,6 +35,19 @@ export default defineConfig({
           DO_NOT_CONTACT_PEPPER: "test-do-not-contact-pepper-not-a-real-key",
           RESEND_API_KEY: "re_test_not_a_real_key",
           /**
+           * The same value `digest/vitest.config.ts` binds, and it has to be: that Worker
+           * signs the unsubscribe and manage links, this one verifies them, and a suite where
+           * the two differed would pass while production rejected every link.
+           */
+          SUBSCRIBER_LINK_SECRET: "test-subscriber-link-secret",
+          /**
+           * Resend's own webhook key, `whsec_` plus base64 as Svix issues it. The prefix and
+           * the encoding are part of what is under test — `verifyDelivery()` strips one and
+           * decodes the other to get the HMAC key, and a plain string here would let a
+           * verifier that skipped both pass.
+           */
+          RESEND_WEBHOOK_SECRET: "whsec_dGVzdC13ZWJob29rLXNlY3JldC1ub3QtcmVhbA==",
+          /**
            * Also supplied here, even though these are all real `vars` in `web/wrangler.jsonc`.
            * The seam reads `dist/server/wrangler.json`, which `@astrojs/cloudflare`
            * generates, and depending on a generator to forward our `vars` would make the

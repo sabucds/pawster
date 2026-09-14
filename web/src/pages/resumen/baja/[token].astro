@@ -1,0 +1,124 @@
+---
+import { createDb } from "@pawster/db";
+import { verifyUnsubscribeToken } from "@pawster/domain";
+import { env } from "cloudflare:workers";
+import Resumen from "../../../layouts/Resumen.astro";
+import { readManageView, unsubscribeSubscriber } from "../../../lib/subscriber/manage.ts";
+
+export const prerender = false;
+
+/**
+ * One-click unsubscribe: the page the `List-Unsubscribe` header points at, and the `POST`
+ * RFC 8058 sends to the same URL.
+ *
+ * ## The `GET` mutates, and that is the deliberate exception
+ *
+ * ADR 0008's rule is that "a confirmation link must never mutate on `GET`", because link
+ * scanners and prefetchers fetch URLs with no human behind them and would manufacture the
+ * freshness signal the listing depends on. `activar.astro` obeys it strictly, and an opt-in is
+ * the sharpest case in the design.
+ *
+ * This is the opposite trade, and the ticket states it plainly: **"One-click unsubscribe must
+ * work from the mail client with no confirmation page."** A one-click header that needs a
+ * second click is not one-click, and mailbox providers measure us on it — the alternative to
+ * an easy unsubscribe is a spam report, which costs the sending reputation of every shelter on
+ * the platform.
+ *
+ * The asymmetry is safe because the two failures are not comparable. A scanner that
+ * unsubscribes somebody is a nuisance that stops some mail; a scanner that opts somebody in
+ * would be the platform manufacturing consent. And ADR 0010 pays for the nuisance in the one
+ * place it lands: **unsubscribe is not erasure**. The row, the searches and the send day
+ * survive ninety days precisely so that a prefetcher's click is undoable.
+ *
+ * ## What the `POST` may not do
+ *
+ * RFC 8058 one-click posts to *this same URL*, so the `POST` and the `GET` are the same
+ * action. The `POST` answers **202 with no body**: the sender is a mail client, there is
+ * nobody to render a page for, and a redirect or an HTML body is a response it would either
+ * follow pointlessly or log as a failure.
+ *
+ * It deliberately answers 202 **whatever the token was**. A forged or expired token gets the
+ * same 202 as a real one, because the caller is a machine that can neither act on the
+ * difference nor be trusted with it — and a 404 here would turn the endpoint into an oracle
+ * for which subscriber ids exist.
+ *
+ * ## The delete button on this page, and why it is here rather than a fresh manage link
+ *
+ * Unsubscribing rotates the manage token, so every manage link this subscriber holds has just
+ * stopped working. ADR 0010: "an unsubscribed subscriber's route is the 'delete everything'
+ * button on the unsubscribe landing page itself, plus a published contact address; **no fresh
+ * token is issued there**, which would undo what the rotation defends against." So the form
+ * below carries the *unsubscribe* token — the one that survives rotation, and the reason it is
+ * versionless.
+ */
+
+const token = Astro.params.token ?? "";
+const subscriberId = await verifyUnsubscribeToken(env, token);
+
+const db = createDb(env.DB);
+const now = new Date();
+
+/**
+ * Unsubscribe first, on both verbs, before anything is rendered or answered.
+ *
+ * A page that read state and then acted would leave the act downstream of a render that can
+ * throw. This is the one thing the request is for.
+ */
+const unsubscribed =
+  subscriberId === null ? null : await unsubscribeSubscriber(db, subscriberId, now);
+
+if (Astro.request.method === "POST") {
+  /**
+   * 202 rather than 200, because the work is accepted rather than rendered: there is no
+   * representation of "you are unsubscribed" that a mail client wants. No body, for the same
+   * reason.
+   */
+  return new Response(null, { status: 202 });
+}
+
+/**
+ * A token that does not verify, or names a row that is gone, gets the dead-link page — the
+ * same one a spent opt-in link gets. There is nothing to tell those cases apart with and
+ * nothing a subscriber could do differently about any of them.
+ */
+const view =
+  subscriberId === null || unsubscribed === null
+    ? null
+    : await readManageView(db, subscriberId);
+
+if (view === null) return Astro.redirect("/resumen/enlace-vencido", 302);
+---
+
+<Resumen title="Te diste de baja" heading="Listo, no te escribimos más">
+  <p>
+    Ya no te mandamos el resumen a <strong>{view.email}</strong>. No hace falta que hagas
+    nada más.
+  </p>
+
+  <p data-testid="grace">
+    <!--
+      The honest version of what "we stopped" means. ADR 0010 keeps the searches for ninety
+      days so an accidental click — a prefetcher, a mis-tap — is undoable, and a page that
+      said "deleted" while the row sat there for three months would be the lie that makes
+      every other sentence on this page worth less.
+    -->
+    Guardamos tus búsquedas 90 días por si le diste sin querer, y después se borran solas.
+  </p>
+
+  <form method="post" action="/resumen/borrar">
+    <!--
+      The unsubscribe token, not a manage token. Unsubscribing just rotated the manage link,
+      so issuing a fresh one here would undo the rotation for anyone holding a copy of the
+      old one — and this token is versionless precisely so that this button survives.
+    -->
+    <input type="hidden" name="t" value={token} />
+    <p>
+      ¿Prefieres que no guardemos nada?
+      <button type="submit" data-testid="erase">Bórrenlo todo ahora</button>
+    </p>
+  </form>
+
+  <p data-testid="erase-warning">
+    Eso borra tu correo y tus búsquedas de una vez y no se puede deshacer.
+  </p>
+</Resumen>
