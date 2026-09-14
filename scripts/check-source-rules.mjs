@@ -466,6 +466,59 @@ for (const file of files) {
   });
 }
 
+/**
+ * `pawster-media`'s public origin is spelled twice, and the two spellings must agree.
+ *
+ * The animal page is server-rendered and reads `env.MEDIA_PUBLIC_ORIGIN`, a Worker var in
+ * `web/wrangler.jsonc`. The listing is prerendered and its island runs in a browser with no
+ * request context, so it cannot read a binding at all (ADR 0007) and carries the origin as a
+ * build-time constant instead. Two mechanisms is correct and unavoidable.
+ *
+ * Two *values* is a bug with no natural symptom: each surface is internally consistent, its
+ * own tests pass, and what an adopter sees is photographs loading on one page and 404ing on
+ * the other — which reads as a broken catalogue rather than a misconfigured one.
+ *
+ * Checked here rather than in a `web/` test because the test isolate's binding is a fixture
+ * (`https://media.pawster.test`), so a test can only compare a fixture against the constant.
+ * Only a reader with a filesystem can compare the two *deployed* spellings, and that is this
+ * script.
+ */
+function checkMediaOriginAgrees() {
+  const wranglerPath = join(ROOT, "web/wrangler.jsonc");
+  const mediaPath = join(ROOT, "web/src/lib/listing/media.ts");
+
+  const wrangler = readFileSync(wranglerPath, "utf8");
+  const media = readFileSync(mediaPath, "utf8");
+
+  const inWrangler = /"MEDIA_PUBLIC_ORIGIN"\s*:\s*"([^"]+)"/.exec(wrangler);
+  const inSource = /PROVISIONED_MEDIA_BASE_URL\s*=\s*\n?\s*"([^"]+)"/.exec(media);
+
+  if (!inWrangler) {
+    fail("web/wrangler.jsonc", 0, "MEDIA_PUBLIC_ORIGIN is missing", "the animal page reads it");
+    return;
+  }
+  if (!inSource) {
+    fail(
+      "web/src/lib/listing/media.ts",
+      0,
+      "PROVISIONED_MEDIA_BASE_URL is missing",
+      "the prerendered listing is built against it",
+    );
+    return;
+  }
+  if (inWrangler[1] !== inSource[1]) {
+    fail(
+      "web/src/lib/listing/media.ts",
+      0,
+      "the media origin disagrees with wrangler.jsonc",
+      `wrangler.jsonc says ${inWrangler[1]}, media.ts says ${inSource[1]} — ` +
+        "photographs will load on one surface and 404 on the other",
+    );
+  }
+}
+
+checkMediaOriginAgrees();
+
 if (failures.length > 0) {
   console.error(`\n${failures.length} source-rule violation(s):\n`);
   for (const { file, line, rule, detail } of failures) {
@@ -479,5 +532,5 @@ if (failures.length > 0) {
 console.log(
   `source rules ok — ${files.length} files checked for module-scope Drizzle clients, ` +
     "domain/ purity, writes to shelters.slug, reads of the account-email column, " +
-    "the IMAGES binding, S3 credentials and cookies on an admin route",
+    "the IMAGES binding, S3 credentials, cookies on an admin route and the media origin",
 );

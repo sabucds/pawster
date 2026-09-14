@@ -22,7 +22,8 @@ picture.
 | What | How |
 |---|---|
 | A prerendered page | `env.ASSETS.fetch("/")` — the asset store holds it, so the asset router answers ahead of the Worker |
-| An SSR route reading D1 | `SELF.fetch("/animales/:id")` — Drizzle client built in the handler |
+| An SSR route reading D1 | `SELF.fetch("/a/:id/:name")` — Drizzle client built in the handler |
+| A route being SSR *rather than* prerendered | `env.ASSETS.fetch(path)` returns 404 while `SELF.fetch(path)` returns 200. A `SELF` status check cannot see the difference — the Worker renders either way |
 | A `scheduled()` run | `exports.default.scheduled({ scheduledTime })` |
 | The order a shard enqueued in | `worker.scheduled(controller, { ...env, DIGEST_QUEUE }, ctx)` with a capturing queue |
 | A queue batch | `worker.queue(batch, env, ctx)`, then `getQueueResult(batch, ctx)` |

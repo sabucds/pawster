@@ -17,7 +17,8 @@
     "check:bundle-size": "node scripts/measure-bundle-size.mjs",
     "check:ssr-cpu": "node scripts/measure-ssr-cpu.mjs",
     "check:i18n": "node scripts/measure-i18n.mjs",
-    "check:filter-index": "node scripts/measure-filter-index.mjs"
+    "check:filter-index": "node scripts/measure-filter-index.mjs",
+    "check:short-id": "node scripts/measure-short-id.mjs"
   },
   "devDependencies": {
     "typescript": "^5.9.3"

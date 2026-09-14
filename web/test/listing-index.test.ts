@@ -365,11 +365,25 @@ describe("keeping the i/ prefix", () => {
  */
 describe("the acts that regenerate", () => {
   /** The emailed decision link's token, minted rather than read out of an inbox. */
+  /**
+   * Minted against the **real** clock, not {@link NOW}.
+   *
+   * The seeded rows are anchored to `NOW` so the assertions about ordering and staleness read
+   * as fixed arithmetic, but an admin link's expiry is checked inside the route, which builds
+   * its own `new Date()` from the isolate and takes no clock. A token minted at `NOW` is
+   * therefore valid for a real day or week *after the date in this file* and refused with a
+   * bare 404 from then on — a test that passes the week it is written and rots silently. The
+   * revocation link is the sharper case of the two: `PENDING_LIST_LINK_TTL_MS` gives it
+   * twenty-four hours.
+   *
+   * The lifetimes themselves are `verification/link.test.ts`'s to assert, where the clock is
+   * an argument; here they are only something not to trip over.
+   */
   async function decisionToken(shelterId: string): Promise<string> {
     return await mintAdminLink(
       env,
       { kind: "decision", shelterId, admin: env.ADMIN_EMAIL },
-      NOW,
+      new Date(),
     );
   }
 
@@ -484,7 +498,7 @@ describe("the acts that regenerate", () => {
     const token = await mintAdminLink(
       env,
       { kind: "revocation", shelterId: "shelter-1", admin: env.ADMIN_EMAIL },
-      NOW,
+      new Date(),
     );
     const response = await post("/api/admin/revoke", {
       t: token,

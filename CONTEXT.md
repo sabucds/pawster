@@ -380,7 +380,7 @@ it. The mechanism is [ADR 0018](docs/adr/0018-strings-are-typed-phrase-functions
 holds the rule for composing a species word with a band word.
 
 **Most of these renderings are read off the shipped prototypes rather than coined here**, which is
-the point: they are words a human already saw on screen. Two rows are not, and are marked so in
+the point: they are words a human already saw on screen. Three rows are not, and are marked so in
 the table, because a rendering nobody has read is a weaker thing than one that has shipped:
 
 - `Gatico / Gatica` **corrects** the prototypes, which render `Gatito / Gatica`. The reasoning is in
@@ -389,6 +389,12 @@ the table, because a rendering nobody has read is a weaker thing than one that h
 - `adoptante` appears in no prototype at all — no surface has yet had to name the adopter to their
   face. It is here because the concept has an obvious es-VE word and the English _Avoid_ list already
   names it.
+- `Encontró casa` is **coined** by issue #57. The prototype never drew an archive page, so it has
+  a rendering for the caution (`Puede que ya no esté disponible`, which the `Archive` row's second
+  wording reuses almost intact) and none at all for the good ending. It is the one phrase on the
+  platform that reports an outcome rather than a state, which is why it is a sentence fragment
+  rather than an adjective: `Adoptada` is what a shelter's own form says, and an adopter arriving
+  late at a forwarded link is being told a small piece of news.
 
 `forma de contacto` was the third such row and is no longer one: the singular labels every
 contact row of the registration form (#51) and the profile form (#52), so it is now a word a
@@ -425,7 +431,7 @@ issue that builds the surface.
 | Unsubscribe | `darme de baja` | |
 | Opt-In | `activar`, `activación` | `Activa tu búsqueda`, `enlace para activarla`. Settled by issue #61 - see below |
 | Send Day | *(no noun)* | Rendered as the day itself: `Tu resumen te llega los martes`. The concept is never named to a subscriber, only its value |
-| Archive | _unsettled_ | Belongs to the issue that builds the archive page |
+| Archive | *(no noun)* | Rendered as what happened: `Encontró casa`, `Ya no está disponible`. An adopter is never told a page is "archived" — they came to find out about an animal, not to read a filing status. Settled by issue #57 |
 | Confirmation Nudge | _unsettled_ | Belongs to the issue that writes the nudge email |
 
 **One collision the table found, and it is the reason the table exists.** `Confirmation` (a shelter's

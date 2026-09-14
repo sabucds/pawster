@@ -6,6 +6,7 @@ import {
   cardModel,
   renderCard,
 } from "../src/lib/listing/card.ts";
+import { animalPath } from "../src/lib/animals/address.ts";
 
 /**
  * The card's judgements, asserted as judgements. No DOM is involved and none is needed: what
@@ -64,13 +65,24 @@ describe("the provenance line", () => {
     expect(card({ sex: "Female" }).provenance).toBe("Miranda · Confirmada ayer");
   });
 
-  it("says today, yesterday and a count of days before it says months", () => {
+  /**
+   * The scale is `agoPhrase`'s, shared with the animal page rather than owned here.
+   *
+   * This card used to render its own days-then-months phrase, which put `hace 20 días` on the
+   * card and `hace 3 semanas` on the page for the same animal — two renderings of one fact,
+   * from the one platform, a click apart. Asserted here anyway, rather than left to
+   * `words.test.ts`, because what the card owes #17 is that the unit coarsens *at all*: the
+   * whole point of the line is to be read at a glance, and `hace 191 días` is arithmetic.
+   */
+  it("coarsens from days to weeks to months, on the animal page's scale", () => {
     const at = (iso: string) => card({ lastConfirmedAt: new Date(iso) }).provenance;
 
     expect(at("2026-09-08T09:00:00.000Z")).toContain("hoy");
     expect(at("2026-09-07T00:00:00.000Z")).toContain("ayer");
-    expect(at("2026-09-01T00:00:00.000Z")).toContain("hace 7 días");
-    expect(at("2026-08-01T00:00:00.000Z")).toContain("hace un mes");
+    expect(at("2026-09-05T00:00:00.000Z")).toContain("hace 3 días");
+    expect(at("2026-09-01T00:00:00.000Z")).toContain("hace 1 semana");
+    expect(at("2026-08-18T00:00:00.000Z")).toContain("hace 3 semanas");
+    expect(at("2026-08-01T00:00:00.000Z")).toContain("hace 1 mes");
     expect(at("2026-03-01T00:00:00.000Z")).toContain("hace 6 meses");
   });
 
@@ -333,8 +345,23 @@ describe("what the markup does with shelter-authored text", () => {
 });
 
 describe("the card as a whole", () => {
-  it("links to the animal's own page by its id", () => {
-    expect(card({ id: "m6p2" }).href).toBe("/animales/m6p2");
+  /**
+   * Asserted through `animalPath()` *and* against the literal it should produce. The function
+   * alone would pass even if the address shape changed underneath the listing, which is the
+   * failure this test is replacing: it used to pin `/animales/<id>`, a route ADR 0020 deleted
+   * and `routing.test.ts` asserts is gone. Every card on the listing pointed at a 404 and
+   * nothing went red.
+   */
+  it("links to the animal's own page, at the address ADR 0020 gave it", () => {
+    expect(card({ id: "m6p2", name: "Luna" }).href).toBe(
+      animalPath("m6p2", "Luna"),
+    );
+    expect(card({ id: "m6p2", name: "Luna" }).href).toBe("/a/m6p2/luna");
+  });
+
+  /** A name that transliterates to nothing drops the segment rather than inventing one. */
+  it("drops the name segment when the name transliterates to nothing", () => {
+    expect(card({ id: "m6p2", name: "🐶" }).href).toBe("/a/m6p2");
   });
 
   /**

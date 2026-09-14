@@ -67,12 +67,14 @@ const FLAGS = ["Yes", "No", "Unknown"];
  * what a real one costs.
  *
  * **The identifiers are where this measurement departs from the prototype's**, and it is the
- * whole reason this script exists. `db/` gives an animal and a shelter each a
- * `crypto.randomUUID()` — 36 characters — and ADR 0012 gives a derivative a content-addressed
- * key of `d/` plus a 64-character hex digest plus an extension. The #17 prototype measured
- * 4-character animal ids, 3-character shelter ids and a 6-character thumbnail key, which is
- * ~105 characters per animal less than the shipped rows carry. So its 141 B/animal is not a
+ * whole reason this script exists. ADR 0012 gives a derivative a content-addressed key of
+ * `d/` plus a 64-character hex digest plus an extension, and a shelter carries a
+ * `crypto.randomUUID()` — 36 characters. The #17 prototype measured 4-character animal ids,
+ * 3-character shelter ids and a 6-character thumbnail key, so its 141 B/animal is not a
  * ceiling for the real index; it is a figure taken over a shape the platform does not have.
+ *
+ * Used for the shelter id only. The animal's own id stopped being a UUID when ADR 0020 made
+ * it an eight-character short id, and {@link syntheticShortId} mints that instead.
  */
 function syntheticUuid(seed) {
   const hex = seed.toString(16).padStart(8, "0").repeat(4);
@@ -85,6 +87,29 @@ function syntheticUuid(seed) {
   ].join("-");
 }
 
+/**
+ * An eight-character short id, the address ADR 0020 gave an animal.
+ *
+ * Drawn from `web/src/lib/animals/short-id.ts`'s alphabet — 32 symbols, digits and lower-case
+ * letters minus `0`, `1`, `l` and `o` — because the *alphabet* is what gzip sees, not just the
+ * length. Deterministic in the seed, like everything else here.
+ *
+ * This is 28 characters an animal cheaper than the UUID this script measured before ADR 0020,
+ * and the whole index is re-measured rather than adjusted by hand: the row is a JSON object
+ * gzipped alongside 2,499 others, so what a shorter id saves is not 28 bytes and is not
+ * arithmetic anybody should do in a document.
+ */
+function syntheticShortId(seed) {
+  const alphabet = "23456789abcdefghijkmnpqrstuvwxyz";
+  let id = "";
+  // A different multiplier per position, so consecutive seeds do not share a long prefix —
+  // real ids are random and gzip must not get a run of near-identical strings to exploit.
+  for (let position = 0; position < 8; position++) {
+    id += alphabet[(seed * (position * 7 + 13) + position * 29) % alphabet.length];
+  }
+  return id;
+}
+
 /** One synthetic animal, deterministic in `at` so two runs of this script agree. */
 function syntheticAnimal(at) {
   const shelter = at % SHELTERS;
@@ -92,7 +117,7 @@ function syntheticAnimal(at) {
   const hex = at.toString(16).padStart(12, "0");
 
   return {
-    id: syntheticUuid(at),
+    id: syntheticShortId(at),
     name: NAMES[at % NAMES.length],
     species,
     region: REGIONS[at % REGIONS.length],
@@ -160,11 +185,26 @@ const ceiling = animalsWithinBudget();
 
 console.log(
   `\n  ADR 0018 quotes 141 B/animal raw and 33.4 KB gzipped at ${LISTED} — the #17` +
-    "\n  prototype's figure, and it does NOT describe this index. That prototype measured" +
-    "\n  4-character animal ids, 3-character shelter ids and a 6-character thumbnail key;" +
-    "\n  the shipped rows carry two UUIDs and a 64-hex content-addressed derivative key," +
-    "\n  which is ~105 characters an animal the prototype never counted. The measurement" +
-    "\n  above is what an adopter downloads.",
+    "\n  prototype's figure, taken over identifiers the platform does not have: 4-character" +
+    "\n  animal ids, 3-character shelter ids and a 6-character thumbnail key. The shipped row" +
+    "\n  carries a shelter UUID and a 64-hex content-addressed derivative key (ADR 0012), and" +
+    "\n  an eight-character short id for the animal (ADR 0020). The measurement above is what" +
+    "\n  an adopter downloads.",
+);
+
+/**
+ * The prototype's gzipped figure lands close to the truth again, and the two errors that put
+ * it there run in opposite directions — the derivative key is far longer than it guessed and
+ * the animal id, since ADR 0020, is barely longer. Printed as a comparison rather than left
+ * implied, because "the old number was roughly right" and "the old number describes this
+ * artefact" are different claims and only the first is true.
+ */
+const quotedAtListed = 33_400;
+const delta = ((listed.gzipped - quotedAtListed) / quotedAtListed) * 100;
+
+console.log(
+  `\n  Measured at ${LISTED}: ${kb(listed.gzipped)} gzipped, ` +
+    `${delta >= 0 ? "+" : ""}${delta.toFixed(0)}% against that quoted 33.4 KB.`,
 );
 
 console.log(
@@ -172,19 +212,23 @@ console.log(
     `\n  stays inside it up to about ${ceiling.toLocaleString("en-US")} listed animals.` +
     `\n  At ${LISTED} — ADR 0018's working figure, R2's 10 GB ceiling at 20% listed — it is` +
     `\n  ${kb(listed.gzipped)}, comfortably inside. At ADR 0012's optimistic ${ENDGAME}-animal` +
-    `\n  endgame it would be ${kb(endgame.gzipped)}, which is over.`,
+    `\n  endgame it would be ${kb(endgame.gzipped)}, which is ` +
+    `${endgame.gzipped <= BUDGET_BYTES ? "still inside it" : "over"}.`,
 );
 
 /**
  * **The gate is the platform's own working scale, not its most optimistic endgame.**
  *
  * ADR 0018 concluded that the index's read budget and R2's storage cap "expire at almost the
- * same moment" from the prototype's 13.4 B/animal. Measured over the real shape that is no
- * longer true — the index expires first — but the scale that binds today is the 2,500 listed
- * animals that ADR spends its own arithmetic on, and there the index has three times the
- * headroom it needs. Gating on the 9,500 figure would ship a red check for a state R2 reaches
- * only if ADR 0016 is wrong about storage, while gating here fails the moment the artefact an
- * adopter actually downloads stops fitting.
+ * same moment", reasoning from the prototype's 13.4 B/animal. Measured over the real shape
+ * that conclusion holds — both are comfortable at 2,500 and the budget is not crossed until
+ * roughly 19,000 — though it holds for different reasons than the ADR gave, which is why this
+ * script prints the figure rather than restating the ADR's.
+ *
+ * Gating at the working scale rather than the endgame is still the right choice: 2,500 is the
+ * number ADR 0018 spends its own arithmetic on, and a gate at 9,500 would be asserting
+ * something about a state R2 only reaches if ADR 0016 is wrong about storage. The gate fails
+ * the moment the artefact an adopter actually downloads stops fitting.
  */
 if (listed.gzipped > BUDGET_BYTES) {
   console.error(

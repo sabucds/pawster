@@ -33,16 +33,16 @@ import {
   GOOD_WITH_AXES,
   deriveAgeBand,
   deriveStalenessBand,
-  daysBetween,
 } from "@pawster/domain";
 import type { GoodWithAxis } from "@pawster/domain";
 import {
-  cardMetaLine,
   goodWithPhrase,
   goodWithPositivesPhrase,
   goodWithUnknownLine,
+  metaLine,
   provenanceLine,
 } from "../animals/words.ts";
+import { animalPath } from "../animals/address.ts";
 import { URGENT_CHIP_LABEL } from "./words.ts";
 
 /**
@@ -81,6 +81,15 @@ export interface CardPhoto {
 
 export interface CardModel {
   readonly id: string;
+  /**
+   * `/a/7f3k9mqp/luna` — built by `../animals/address.ts` rather than assembled here.
+   *
+   * ADR 0020 made an animal's address a short id with a decorative name slug, and made that
+   * one function the only place the path is spelled. The listing is the surface that sends the
+   * most traffic to it, so a second spelling here is the one most likely to be the one that rots
+   * — which is exactly what happened: this card was built against `/animales/<id>`, and ADR 0020
+   * deleted that route without anything on this side failing.
+   */
   readonly href: string;
   readonly name: string;
   /** `Perra adulta · Mediana`, with an assumed gender disclosed once for the whole card. */
@@ -136,10 +145,10 @@ export function cardModel(
 
   return {
     id: animal.id,
-    href: `/animales/${animal.id}`,
+    href: animalPath(animal.id, animal.name),
     name: animal.name,
-    meta: cardMetaLine(animal, band),
-    provenance: provenanceLine(animal, daysBetween(animal.lastConfirmedAt, now)),
+    meta: metaLine(animal, band),
+    provenance: provenanceLine(animal, now),
     provenanceAged: deriveStalenessBand(animal.lastConfirmedAt, now) !== "Fresh",
     goodWith: {
       warnings: axesAnswering(animal, "No").map((axis) =>
