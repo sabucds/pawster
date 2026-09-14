@@ -45,6 +45,13 @@ export default defineConfig({
           VERIFICATION_FROM_ADDRESS: "verificacion@pawster.test",
           DIGEST_FROM_ADDRESS: "digest@pawster.test",
           SITE_ORIGIN: "https://pawster.test",
+          /**
+           * Deliberately *not* `pawster.test`. An animal page's photographs are served from
+           * R2 with no Worker in the path (ADR 0014), so a test asserting a photo URL has to
+           * be able to tell the two origins apart — one that shared a host with the site
+           * would pass whether or not that separation still held.
+           */
+          MEDIA_PUBLIC_ORIGIN: "https://media.pawster.test",
         },
       },
     }),

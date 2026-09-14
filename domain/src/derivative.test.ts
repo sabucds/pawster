@@ -5,6 +5,7 @@ import {
   DERIVATIVES,
   type DerivativeName,
   derivativeContentType,
+  derivativeDimensions,
   derivativeKeyFor,
   derivativeKeyMaterial,
   derivativeSpecFingerprint,
@@ -118,5 +119,52 @@ describe("derivative keys", () => {
     expect(DERIVATIVE_CACHE_CONTROL).toContain("immutable");
     // A year is the longest any cache is required to honour; there is nothing to revalidate.
     expect(DERIVATIVE_CACHE_CONTROL).toContain("max-age=31536000");
+  });
+});
+
+describe("the dimensions a derivative will have", () => {
+  it("gives a cover derivative the box, whatever it was made from", () => {
+    // The whole point of a social preview: 1200×630, or the platform it is shared to crops
+    // it itself and unpredictably.
+    expect(derivativeDimensions("socialPreview", 4032, 3024)).toEqual({
+      width: 1200,
+      height: 630,
+    });
+    expect(derivativeDimensions("socialPreview", 600, 900)).toEqual({
+      width: 1200,
+      height: 630,
+    });
+  });
+
+  it("fits a scale-down derivative inside the box on its long edge", () => {
+    // Landscape and portrait of one photo, which is the case a bare `width` gets wrong:
+    // bounding only the width lets a portrait come back taller than its budget.
+    expect(derivativeDimensions("detailImage", 4032, 3024)).toEqual({
+      width: 1280,
+      height: 960,
+    });
+    expect(derivativeDimensions("detailImage", 3024, 4032)).toEqual({
+      width: 960,
+      height: 1280,
+    });
+  });
+
+  it("never enlarges a photo that already fits", () => {
+    expect(derivativeDimensions("detailImage", 800, 600)).toEqual({
+      width: 800,
+      height: 600,
+    });
+    expect(derivativeDimensions("cardThumbnail", 120, 90)).toEqual({
+      width: 120,
+      height: 90,
+    });
+  });
+
+  it("never rounds an edge to zero, because a zero box reserves nothing", () => {
+    // A pathological source: 4000×1 scaled into 400 puts the short edge at 0.1.
+    expect(derivativeDimensions("cardThumbnail", 4000, 1)).toEqual({
+      width: 400,
+      height: 1,
+    });
   });
 });

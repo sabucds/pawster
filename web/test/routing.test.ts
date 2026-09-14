@@ -87,28 +87,28 @@ describe("the prerendered listing page", () => {
 
 describe("the server-rendered animal detail page", () => {
   /**
-   * ## Why nothing here renders an animal any more
+   * ## What is asserted here, and what moved
    *
-   * The page is gated on `domain/`'s `isListed()`, whose four clauses include the shelter being
-   * verified — and `readShelterFacts()` returns `latestVerificationOutcome: null` for every
-   * shelter, because ADR 0003 makes pending the *absence* of a log entry and issue #53 is what
-   * adds the log. So no animal on the platform is publicly reachable yet, and that is issue
-   * #55's last acceptance criterion holding rather than a regression.
+   * This file is the **routing seam**: one request that never reaches Worker code and one that
+   * does. So what stays here is the shape of the route — that the address resolves, that an
+   * unverified shelter's animal has no public existence, and that the Drizzle client is built
+   * per request. Everything the page *says* — the consequence sentence, the age's basis, the
+   * contact hand-off, the social preview, the archive wordings — is issue #57's and lives in
+   * `animal-page.test.ts`, so that a change to the copy fails in the suite about the copy.
    *
-   * **Issue #53 has since landed the log**, so the positive side is assertable again and is
-   * asserted below: a verified shelter's animal renders, joining its display name. The
-   * shelter-facing render coverage stays in `animals.test.ts`, where it also belongs — that page
-   * is reachable whether or not the shelter is verified.
+   * The address is `/a/<id>/<name>` and only the id resolves (issue #57, ADR 0020); the page
+   * that used to answer at `/animales/<id>` is gone rather than redirected, because Pawster has
+   * never been deployed and that URL is one nobody holds.
    */
   it("404s an animal whose shelter is not verified", async () => {
     await seedShelterWithAnimal();
 
-    const response = await get("/animales/animal-1");
+    const response = await get("/a/animal-1/canela");
 
     expect(response.status).toBe(404);
-    // A 404 and not a "hidden" page: an unlisted animal has no public existence to describe,
-    // and a page saying otherwise would leak both that the id is real and that the shelter is
-    // not yet verified.
+    // A 404 and not an archive page: an animal of an unverified shelter was never publicly
+    // reachable, so there is no promise to an adopter to keep, and a page saying anything at
+    // all would leak both that the id is real and that the shelter is not yet verified.
     expect(await response.text()).not.toContain("Canela");
   });
 
@@ -116,7 +116,7 @@ describe("the server-rendered animal detail page", () => {
     await seedShelterWithAnimal();
     await verifyShelter("shelter-1", "Refugio Los Teques");
 
-    const response = await get("/animales/animal-1");
+    const response = await get("/a/animal-1/canela");
     const html = await response.text();
 
     /**
@@ -128,13 +128,13 @@ describe("the server-rendered animal detail page", () => {
     expect(response.status).toBe(200);
     expect(html).toContain('data-testid="animal-name">Canela');
     expect(html).toContain('data-testid="shelter-name">Refugio Los Teques');
-    expect(html).toContain('data-testid="region">Miranda');
-    // Derived at read time and rendered in es-VE, never stored (ADR 0004, ADR 0018).
-    expect(html).toContain('data-testid="age-band">Joven');
+    // The region rides on the meta line and has no row of its own — the facts table drops what
+    // the heading already says.
+    expect(html).toContain('data-testid="animal-meta">Perra joven · Mediana · Miranda');
   });
 
   it("404s for an animal that does not exist", async () => {
-    const response = await get("/animales/nope");
+    const response = await get("/a/nope/whatever");
     expect(response.status).toBe(404);
   });
 
@@ -145,7 +145,7 @@ describe("the server-rendered animal detail page", () => {
 
     // A module-scope client would fail the second request with a 500 — the regression this
     // exists to catch — so both are asserted, not just the first.
-    expect((await get("/animales/animal-1")).status).toBe(200);
-    expect((await get("/animales/animal-1")).status).toBe(200);
+    expect((await get("/a/animal-1/canela")).status).toBe(200);
+    expect((await get("/a/animal-1/canela")).status).toBe(200);
   });
 });

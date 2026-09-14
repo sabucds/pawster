@@ -262,3 +262,47 @@ export async function changeAccountEmail(
 
   return "changed";
 }
+
+/**
+ * A shelter's public identity: the two fields an adopter is allowed to see about it.
+ *
+ * Its own function, and a deliberately narrow one, because the animal page is the first
+ * **public** surface that names a shelter and `readShelterProfile()` above would hand it the
+ * account email as well. Nothing would render it — but issue #57 requires that the address
+ * "appears nowhere on the page", and a page that merely *chooses* not to print a value it is
+ * holding satisfies that by attention rather than by construction. This satisfies it by never
+ * selecting the column.
+ *
+ * `scripts/check-source-rules.mjs` fences the column to this file and two others, so the fence
+ * cannot catch the page reading it through a store that returns it. This is the other half of
+ * that fence: the store hands out only what the caller is entitled to.
+ *
+ * **A departed shelter still has one** (ADR 0015): a Departure destroys the contact points and
+ * the account email and keeps the display name, "because the archive is a promise made to
+ * adopters rather than to the shelter". So an archive page can still say who published the
+ * animal, which is the whole point of keeping the name.
+ */
+export interface ShelterPublicIdentity {
+  readonly displayName: string;
+  /**
+   * Where the shelter is based, which is **not** where the animal is: an animal carries its
+   * own region because a shelter may foster far from its base (`CONTEXT.md`, *Region*). Shown
+   * beside the shelter's name and never as the animal's location.
+   */
+  readonly baseRegion: string;
+}
+
+export async function readShelterPublicIdentity(
+  db: Database,
+  shelterId: string,
+): Promise<ShelterPublicIdentity | null> {
+  const [row] = await db
+    .select({
+      displayName: shelters.displayName,
+      baseRegion: shelters.baseRegion,
+    })
+    .from(shelters)
+    .where(eq(shelters.id, shelterId))
+    .limit(1);
+  return row ?? null;
+}
