@@ -8,10 +8,17 @@ import {
 } from "cloudflare:test";
 import { exports as workerExports } from "cloudflare:workers";
 import { createDb, subscribers } from "@pawster/db";
-import { OPT_IN_TTL_MS, OPT_IN_WINDOW_MS, digestIdempotencyKey } from "@pawster/domain";
+import {
+  MANAGE_PATH,
+  OPT_IN_TTL_MS,
+  OPT_IN_WINDOW_MS,
+  UNSUBSCRIBE_PATH,
+  digestIdempotencyKey,
+  verifyManageToken,
+  verifyUnsubscribeToken,
+} from "@pawster/domain";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
-import { verifyUnsubscribeToken } from "../src/unsubscribe.ts";
 import { outbound } from "../../test/outbound.ts";
 import type { DigestMessage } from "../src/env.ts";
 import worker from "../src/index.ts";
@@ -70,7 +77,15 @@ async function seedSubscriber(
   id: string,
   email: string,
   sendDay: number,
-  waiting: { optedInAt?: Date; lastDigestAt?: Date | null } = {},
+  waiting: {
+    optedInAt?: Date;
+    lastDigestAt?: Date | null;
+    unsubscribedAt?: Date | null;
+    retiredAt?: Date | null;
+    retirementReason?: "bounce" | "complaint" | null;
+    nudgedAt?: Date | null;
+    manageTokenVersion?: number;
+  } = {},
 ) {
   await createDb(env.DB)
     .insert(subscribers)
@@ -80,6 +95,11 @@ async function seedSubscriber(
       sendDay,
       optedInAt: waiting.optedInAt ?? new Date(0),
       lastDigestAt: waiting.lastDigestAt ?? null,
+      unsubscribedAt: waiting.unsubscribedAt ?? null,
+      retiredAt: waiting.retiredAt ?? null,
+      retirementReason: waiting.retirementReason ?? null,
+      nudgedAt: waiting.nudgedAt ?? null,
+      manageTokenVersion: waiting.manageTokenVersion ?? 0,
     });
 }
 
@@ -108,7 +128,13 @@ async function enqueuedBy(scheduledTime: Date): Promise<DigestMessage[]> {
   return sent;
 }
 
+/** One table's row count, for the "nothing was left behind" assertions. */
+const countIn = async (table: string) =>
+  (await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${table}`).first<{ n: number }>())!.n;
+
 beforeEach(async () => {
+  // Children before parents: `subscriptions.subscriber_id` is a foreign key.
+  await env.DB.exec("DELETE FROM subscriptions");
   await env.DB.exec("DELETE FROM subscribers");
   await env.DB.exec("DELETE FROM pending_opt_ins");
   await env.DB.exec("DELETE FROM opt_in_mails");
@@ -187,9 +213,6 @@ describe("the retention preamble", () => {
       .bind(id, "address-fingerprint", WEDNESDAY.getTime() - age)
       .run();
   }
-
-  const countIn = async (table: string) =>
-    (await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${table}`).first<{ n: number }>())!.n;
 
   it("destroys an unconfirmed opt-in past its seven days, and its IP with it", async () => {
     await seedPendingOptIn("expired", OPT_IN_TTL_MS + 60_000);
@@ -343,9 +366,9 @@ describe("queue()", () => {
     const link: string = payload.headers["List-Unsubscribe"].slice(1, -1);
 
     // The origin is configuration, not a literal in the source (ADR 0014).
-    expect(link.startsWith(`${env.SITE_ORIGIN}/unsubscribe/`)).toBe(true);
+    expect(link.startsWith(`${env.SITE_ORIGIN}${UNSUBSCRIBE_PATH}/`)).toBe(true);
 
-    const token = link.slice(`${env.SITE_ORIGIN}/unsubscribe/`.length);
+    const token = link.slice(`${env.SITE_ORIGIN}${UNSUBSCRIBE_PATH}/`.length);
     // A Subscription is "managed entirely through signed links" (CONTEXT.md), so the token
     // has to carry a MAC the route can check — the id alone would let anyone who guesses
     // an id unsubscribe a stranger.
@@ -404,6 +427,212 @@ describe("queue()", () => {
     expect(pings).toHaveLength(1);
     expect(pings[0]!.url).toBe(`${env.HEALTHCHECK_URL}/fail`);
     expect(outbound.callsTo("resend")).toHaveLength(0);
+  });
+});
+
+/**
+ * ADR 0010's ninety-day grace period, from both ends. Unsubscribing is not erasure — "erasing
+ * on the spot would turn every one of those [prefetcher clicks] into the permanent loss of
+ * three saved searches" — and the automatic expiry "is what stops the grace period from
+ * quietly becoming indefinite retention".
+ *
+ * Both halves are asserted here rather than only against the query, for the reason the purge
+ * preamble above is: what makes the retention real is that *this handler* runs it.
+ */
+describe("the unsubscribe grace period", () => {
+  const DAY = 24 * 60 * 60_000;
+
+  async function seedSubscription(id: string, subscriberId: string) {
+    await env.DB.prepare(
+      "INSERT INTO subscriptions (id, subscriber_id, slot, criteria, created_at) VALUES (?, ?, 0, '{}', ?)",
+    )
+      .bind(id, subscriberId, WEDNESDAY.getTime())
+      .run();
+  }
+
+  it("erases a subscriber ninety days after they unsubscribed, and their searches with them", async () => {
+    await seedSubscriber("s-old", "old@example.org", 3, {
+      unsubscribedAt: new Date(WEDNESDAY.getTime() - 91 * DAY),
+    });
+    await seedSubscription("sub-old", "s-old");
+
+    await runScheduled(WEDNESDAY);
+
+    expect(await countIn("subscribers")).toBe(0);
+    // Children before the parent: a subscription left behind would be an orphan row naming
+    // somebody the platform promised to forget.
+    expect(await countIn("subscriptions")).toBe(0);
+  });
+
+  it("leaves an unsubscribed subscriber alone inside the grace period", async () => {
+    await seedSubscriber("s-recent", "recent@example.org", 3, {
+      unsubscribedAt: new Date(WEDNESDAY.getTime() - 89 * DAY),
+    });
+
+    await runScheduled(WEDNESDAY);
+
+    // The whole point of the ninety days: a mis-tap or a prefetcher is still undoable.
+    expect(await countIn("subscribers")).toBe(1);
+  });
+
+  it("takes an unredeemed opt-in for the same address with it", async () => {
+    await seedSubscriber("s-old", "old@example.org", 3, {
+      unsubscribedAt: new Date(WEDNESDAY.getTime() - 91 * DAY),
+    });
+    await env.DB.prepare(
+      "INSERT INTO pending_opt_ins (token_hash, email, criteria, locale, ip_hash, created_at) VALUES (?, ?, '{}', 'es', 'ip', ?)",
+    )
+      .bind("live-link", "old@example.org", WEDNESDAY.getTime())
+      .run();
+
+    await runScheduled(WEDNESDAY);
+
+    // Otherwise a link sent days before the erasure would recreate the subscriber afterwards.
+    expect(await countIn("pending_opt_ins")).toBe(0);
+  });
+
+  it("never enqueues a subscriber who has unsubscribed or been retired", async () => {
+    await seedSubscriber("s-live", "live@example.org", 3);
+    await seedSubscriber("s-gone", "gone@example.org", 3, {
+      unsubscribedAt: new Date(WEDNESDAY.getTime() - DAY),
+    });
+    await seedSubscriber("s-bounced", "bounced@example.org", 3, {
+      retiredAt: new Date(WEDNESDAY.getTime() - DAY),
+      retirementReason: "bounce",
+    });
+
+    const enqueued = await enqueuedBy(WEDNESDAY);
+
+    // Without this clause, "we keep your searches for ninety days" would mean "we keep
+    // mailing you for ninety days".
+    expect(enqueued.map((m) => m.subscriberId)).toEqual(["s-live"]);
+  });
+
+  it("reports what it erased to the watchdog", async () => {
+    await seedSubscriber("s-old", "old@example.org", 3, {
+      unsubscribedAt: new Date(WEDNESDAY.getTime() - 91 * DAY),
+    });
+
+    await runScheduled(WEDNESDAY);
+
+    expect(JSON.parse(outbound.callsTo("healthchecks")[0]!.body!)).toMatchObject({
+      erasedSubscribers: 1,
+    });
+  });
+});
+
+/**
+ * The ninety-day "still nothing" nudge. ADR 0010 wants it because "a subscriber who never
+ * matches anything receives no digest and therefore no footer", and the manage page is the
+ * subject-access response — so without this mail there is a subscriber whose data we act on
+ * and who holds no route back to it.
+ */
+describe("the never-matched nudge", () => {
+  const DAY = 24 * 60 * 60_000;
+  const LONG_AGO = new Date(WEDNESDAY.getTime() - 91 * DAY);
+
+  const nudges = () =>
+    outbound
+      .callsTo("resend")
+      .map((call) => JSON.parse(call.body!))
+      .filter((mail) => /todav[ií]a no/i.test(String(mail.subject)));
+
+  it("sends one, carrying a manage link that actually verifies", async () => {
+    await seedSubscriber("s-quiet", "quiet@example.org", 3, {
+      optedInAt: LONG_AGO,
+    });
+
+    await runScheduled(WEDNESDAY);
+
+    const [mail] = nudges();
+    expect(mail.to).toEqual(["quiet@example.org"]);
+
+    const link = String(mail.text).match(
+      new RegExp(`${env.SITE_ORIGIN}${MANAGE_PATH}/\\S+`),
+    );
+    expect(link, "the nudge should carry a manage link").not.toBeNull();
+
+    const token = link![0].slice(`${env.SITE_ORIGIN}${MANAGE_PATH}/`.length);
+    await expect(verifyManageToken(env, token)).resolves.toEqual({
+      subscriberId: "s-quiet",
+      version: 0,
+    });
+  });
+
+  it("sends it once, because the row and not the period is what stops it", async () => {
+    await seedSubscriber("s-quiet", "quiet@example.org", 3, {
+      optedInAt: LONG_AGO,
+    });
+
+    await runScheduled(WEDNESDAY);
+    outbound.reset();
+    await runScheduled(WEDNESDAY);
+
+    // A cutoff on its own would nudge the same silent subscriber every day the cron ran.
+    expect(nudges()).toHaveLength(0);
+  });
+
+  it("does not nudge a subscriber who has received a digest", async () => {
+    await seedSubscriber("s-served", "served@example.org", 3, {
+      optedInAt: LONG_AGO,
+      lastDigestAt: new Date(WEDNESDAY.getTime() - DAY),
+    });
+
+    await runScheduled(WEDNESDAY);
+
+    expect(nudges()).toHaveLength(0);
+  });
+
+  it("does not nudge a subscriber who has unsubscribed", async () => {
+    await seedSubscriber("s-gone", "gone@example.org", 3, {
+      optedInAt: LONG_AGO,
+      unsubscribedAt: new Date(WEDNESDAY.getTime() - DAY),
+    });
+
+    await runScheduled(WEDNESDAY);
+
+    // The sharpest version of the mistake this clause prevents: mailing somebody who asked
+    // us to stop, using the mechanism that exists to hand them a working link.
+    expect(nudges()).toHaveLength(0);
+  });
+
+  it("does not nudge before the ninety days are up", async () => {
+    await seedSubscriber("s-new", "new@example.org", 3, {
+      optedInAt: new Date(WEDNESDAY.getTime() - 89 * DAY),
+    });
+
+    await runScheduled(WEDNESDAY);
+
+    expect(nudges()).toHaveLength(0);
+  });
+
+  it("leaves nudged_at unwritten when the send failed, so the next run retries", async () => {
+    await seedSubscriber("s-quiet", "quiet@example.org", 3, {
+      optedInAt: LONG_AGO,
+    });
+    outbound.on("resend", () => new Response("rate limited", { status: 429 }));
+
+    await runScheduled(WEDNESDAY);
+
+    const [row] = await createDb(env.DB)
+      .select({ nudgedAt: subscribers.nudgedAt })
+      .from(subscribers)
+      .where(eq(subscribers.id, "s-quiet"));
+    // A nudge marked sent but never delivered is a subscriber left with no working link,
+    // which is the outcome the whole mechanism exists to prevent.
+    expect(row!.nudgedAt).toBeNull();
+  });
+
+  it("does not let one refused address take the day's digests down with it", async () => {
+    await seedSubscriber("s-quiet", "quiet@example.org", 3, { optedInAt: LONG_AGO });
+    await seedSubscriber("s-live", "live@example.org", 3, {
+      lastDigestAt: new Date(WEDNESDAY.getTime() - DAY),
+    });
+    outbound.on("resend", () => new Response("nope", { status: 500 }));
+
+    const enqueued = await enqueuedBy(WEDNESDAY);
+
+    expect(enqueued.map((m) => m.subscriberId)).toContain("s-live");
   });
 });
 
