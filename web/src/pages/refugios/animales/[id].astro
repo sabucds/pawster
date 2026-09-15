@@ -20,6 +20,7 @@ import {
 } from "../../../lib/animals/words.ts";
 import { authenticate } from "../../../lib/auth/guard.ts";
 import { readShelterFacts } from "../../../lib/auth/store.ts";
+import { regenerateForAct } from "../../../lib/listing/regenerate.ts";
 
 /**
  * A shelter's own page for one of its animals: what it looks like, why it may not be visible
@@ -93,10 +94,25 @@ if (Astro.request.method === "POST") {
   if (parsed.ok) {
     await editAnimal(db, animal.id, parsed.value, now);
 
+    /**
+     * An edit is a Confirmation and can change what the listing shows — a new name, a changed
+     * region, a mark added or cleared, an animal marked adopted. So it regenerates, once,
+     * after its own transaction (ADR 0018): the unit of regeneration is the act.
+     *
+     * Marking an animal adopted is the case that makes this load-bearing rather than tidy. The
+     * row says `Adopted` the moment this returns, but an adopter reads the *index* — so
+     * without this line the animal would stay on the listing until somebody else happened to
+     * publish something, which is exactly the lie ADR 0001 says is worse than no listing.
+     */
+    const regenerated = await regenerateForAct({ db, media: env.MEDIA, now });
+
     // By hand rather than `Astro.redirect()`, so the sliding refresh survives — see
     // `perfil.astro`, which measured the loss.
     const headers = new Headers({
-      location: `/refugios/animales/${animal.id}?guardado`,
+      location:
+        regenerated === null
+          ? `/refugios/animales/${animal.id}?guardado&listado=pendiente`
+          : `/refugios/animales/${animal.id}?guardado`,
     });
     if (session.refreshedCookie) {
       headers.set("set-cookie", session.refreshedCookie);
@@ -168,11 +184,31 @@ const values = submitted ? readSubmittedValues(submitted) : stored;
 
 const saved = Astro.url.searchParams.has("guardado") && submitted === null;
 const published = Astro.url.searchParams.has("publicado") && submitted === null;
+
+/**
+ * The index write did not land, after the one inline retry ADR 0018 gives it.
+ *
+ * Told rather than hidden, and told as what it is: the animal **is** saved — that transaction
+ * committed before the index was touched — and only its appearance on the public listing is
+ * behind. The shelter needs no instruction beyond that, because the ADR's second regenerator
+ * is the shelter's next act of any kind: anything it does to any animal rewrites the whole
+ * index from D1 and heals this without knowing it happened.
+ */
+const listingPending =
+  Astro.url.searchParams.get("listado") === "pendiente" && submitted === null;
 ---
 
 <Refugios title={animal.name} heading={animal.name}>
   {published && <p data-testid="published">Publicado. Ya quedó guardado.</p>}
   {saved && <p data-testid="saved">Guardado.</p>}
+  {
+    listingPending && (
+      <p data-testid="listing-pending">
+        Quedó guardado, pero el listado público todavía no se actualizó. Se arregla solo la
+        próxima vez que toques cualquier animal, y de todas formas se rehace cada noche.
+      </p>
+    )
+  }
 
   <!--
     The gendered meta line, and the only place these words are composed. `describeAnimal()` runs

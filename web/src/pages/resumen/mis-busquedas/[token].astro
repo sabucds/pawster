@@ -3,7 +3,7 @@ import { createDb } from "@pawster/db";
 import { unsubscribeToken, verifyManageToken } from "@pawster/domain";
 import { env } from "cloudflare:workers";
 import Resumen from "../../../layouts/Resumen.astro";
-import { SEND_DAY_LABELS, describeCriteria } from "../../../lib/subscriber/labels.ts";
+import { SEND_DAY_LABELS, describeCriteria } from "../../../lib/axis-labels.ts";
 import { readManageView, unsubscribeSubscriber } from "../../../lib/subscriber/manage.ts";
 
 export const prerender = false;
