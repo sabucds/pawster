@@ -181,9 +181,17 @@ Needing only `pawster-media`, which exists (free, ~2 minutes):
 
 Needing the digest Worker, which now exists as `digest/`:
 
-- `wrangler secret put UNSUBSCRIBE_SECRET` — signs unsubscribe links; this is
-  the key the list above called `PAWSTER_LINK_SIGNING_KEY` before the Worker
-  was written and named it
+- `wrangler secret put SUBSCRIBER_LINK_SECRET` — signs **both** of a
+  subscriber's links: the one-click unsubscribe link in every digest's
+  `List-Unsubscribe` header, and the manage link that opens the subject-access
+  page. This is the key the list above called `PAWSTER_LINK_SIGNING_KEY`, and
+  it was called `UNSUBSCRIBE_SECRET` until issue #62 gave it a second kind of
+  link to sign.
+
+  **Set the identical value on `web` as well** (below). `digest` builds these
+  links and `web` verifies them, so a deploy where the two differ rejects every
+  link a subscriber holds — and it fails on the subscriber's side, silently
+  from ours.
 - wire `pawster-digest-dlq` as `pawster-digest`'s dead-letter queue
 - point the `pawster-digest-dlq` consumer at the Healthchecks `/fail` endpoint
   (ADR 0009). `HEALTHCHECK_URL` is a committed `var` rather than a secret: it
@@ -205,6 +213,18 @@ admin verification with issue #53:
 - `wrangler secret put SUBSCRIBER_SECRET` — keys the opt-in token hash, the
   signup IP fingerprints and the mail ledger's address fingerprints. Rotatable;
   everything it protects fails closed and self-heals inside seven days.
+- `wrangler secret put SUBSCRIBER_LINK_SECRET` — **the same value `digest`
+  holds** under the same name. That Worker builds the unsubscribe and manage
+  links; this one serves the pages they open and verifies the MAC. Two
+  different values is the failure that looks like nothing: every link a
+  subscriber has stops working, and no log here says why.
+- `wrangler secret put RESEND_WEBHOOK_SECRET` — Resend's own webhook signing
+  key, `whsec_` plus base64, copied from their dashboard when the endpoint is
+  registered (point it at `/api/resumen/eventos` for `email.bounced` and
+  `email.complained`). The only key here that is **not ours**: Resend chooses it
+  and rotates it, which is why it is shared with nothing. Without it that route
+  would retire any address a caller names, which is a way to cut off every
+  subscriber on the platform one `POST` at a time.
 - `wrangler secret put DO_NOT_CONTACT_PEPPER` — this is the key the list above
   called `PAWSTER_DNC_PEPPER`, and two things about it changed once the code
   existed. It belongs on **`web`** and not on `digest`, because the reader is

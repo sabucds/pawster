@@ -48,3 +48,15 @@ SITE_ORIGIN=http://localhost:4321
 # address you can read.
 ADMIN_EMAIL=admin@pawster.test
 VERIFICATION_FROM_ADDRESS=verificacion@pawster.test
+
+# Signs and verifies the two links a subscriber ever holds: the one-click
+# unsubscribe link in every digest header, and the manage link that opens the
+# subject-access page. Must be the SAME value digest/ holds under the same name —
+# that Worker builds the links and this one verifies them, so a mismatch rejects
+# every link a subscriber has (#62).
+SUBSCRIBER_LINK_SECRET=
+
+# Resend's own webhook signing key, whsec_ plus base64, copied from their
+# dashboard. The only key here that is not ours. Without it /api/resumen/eventos
+# would retire any address a caller names.
+RESEND_WEBHOOK_SECRET=

@@ -124,6 +124,32 @@ declare namespace Cloudflare {
      */
     DO_NOT_CONTACT_PEPPER: string;
     /**
+     * Signs and verifies the two links a subscriber ever holds: the one-click unsubscribe
+     * link in every digest's `List-Unsubscribe` header, and the manage link that opens the
+     * subject-access page.
+     *
+     * **Shared with `digest/`, which holds the same key under the same name**, and that is
+     * the requirement rather than a convenience: that Worker builds both links and this one
+     * verifies them, so a deploy where the two differ rejects every link a subscriber has.
+     * The construction itself is shared rather than duplicated —
+     * `@pawster/domain`'s `subscriber-links.ts`.
+     *
+     * One key for two link kinds because they fail in the same direction — losing it strands
+     * subscribers on a published contact address but mails nobody who should not be mailed —
+     * and because the labels table keeps the two message spaces apart. It was called
+     * `UNSUBSCRIBE_SECRET` until issue #62 gave it a second kind of link to sign.
+     */
+    SUBSCRIBER_LINK_SECRET: string;
+    /**
+     * Resend's webhook signing key, `whsec_` plus base64, as Svix issues it.
+     *
+     * The only key here that is **not ours**: Resend chooses it and rotates it from their
+     * dashboard, which is why it is shared with nothing and domain-separated from nothing.
+     * It is what stands between `/api/resumen/eventos` and an open endpoint that retires any
+     * address a caller names.
+     */
+    RESEND_WEBHOOK_SECRET: string;
+    /**
      * Who the opt-in link comes from — the same sender the digest uses, because that mail is
      * the first message of the digest relationship rather than a credential.
      */

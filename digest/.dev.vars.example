@@ -1,7 +1,7 @@
 # ---------------------------------------------------------------------------
 # digest/ — local Worker secrets and overrides.
 #
-# Read by `wrangler dev` in this directory. In production UNSUBSCRIBE_SECRET and
+# Read by `wrangler dev` in this directory. In production SUBSCRIBER_LINK_SECRET and
 # RESEND_API_KEY are set with `wrangler secret put`, never as committed vars.
 #
 # Copy to `digest/.dev.vars` and fill in. The `.dev.vars` file is gitignored.
@@ -13,7 +13,7 @@ RESEND_API_KEY=
 # Signs unsubscribe links. In production this is PAWSTER_LINK_SIGNING_KEY from
 # the root .env; locally any random string will do.
 #   openssl rand -base64 32
-UNSUBSCRIBE_SECRET=
+SUBSCRIBER_LINK_SECRET=
 
 # Overrides of the `vars` in digest/wrangler.jsonc, for local dev only.
 # Point HEALTHCHECK_URL at a throwaway check (or leave the placeholder) so a

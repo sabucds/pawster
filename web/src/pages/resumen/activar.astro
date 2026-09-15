@@ -1,5 +1,6 @@
 ---
 import { createDb } from "@pawster/db";
+import { manageToken } from "@pawster/domain";
 import { env } from "cloudflare:workers";
 import Resumen from "../../layouts/Resumen.astro";
 import { hashOptInToken } from "../../lib/subscriber/crypto.ts";
@@ -123,7 +124,21 @@ if (Astro.request.method === "POST") {
    * token that no longer exists — which would send a subscriber who reloaded their own
    * success page to the dead-link page.
    */
-  return Astro.redirect(`/resumen/listo?dia=${opted.sendDay}`, 303);
+  /**
+   * The manage token travels with the day, and ADR 0010 is why: "the opt-in success page and
+   * the 90-day 'still nothing' nudge both carry the manage link, guaranteeing a live link at
+   * least quarterly." This is the earlier of those two guarantees, and the only one a
+   * subscriber who matches nothing would otherwise get for three months.
+   *
+   * It is minted here rather than on the success page because that page has no identity —
+   * "the capability was spent on the `POST` that got here" — and issuing one there would mean
+   * keeping the opt-in token alive past its single use.
+   */
+  const manage = await manageToken(env, {
+    subscriberId: opted.subscriberId,
+    version: opted.manageTokenVersion,
+  });
+  return Astro.redirect(`/resumen/listo?dia=${opted.sendDay}&t=${manage}`, 303);
 }
 
 const token = parseOptInToken(Astro.url.searchParams.get("t"));

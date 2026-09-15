@@ -39,7 +39,7 @@
  * And the reason one would rotate them differs, which is the sharper half: this key is
  * rotated *because a link leaked out of the admin's inbox*, and that emergency must not also
  * be an emergency for every shelter mid-sign-in. `digest/` already holds
- * `UNSUBSCRIBE_SECRET` separately on exactly this reasoning — one secret per thing that can
+ * `SUBSCRIBER_LINK_SECRET` separately on exactly this reasoning — one secret per thing that can
  * be revoked on its own.
  */
 

@@ -1,0 +1,94 @@
+---
+import { createDb, eraseSubscriber } from "@pawster/db";
+import { verifyManageToken, verifyUnsubscribeToken } from "@pawster/domain";
+import { env } from "cloudflare:workers";
+import { readManageView } from "../../lib/subscriber/manage.ts";
+
+export const prerender = false;
+
+/**
+ * "Delete everything" — the explicit, separate ask ADR 0010 keeps apart from unsubscribing.
+ *
+ * The ADR's reason for the separation is that conflating them "would be actively harmful:
+ * the one-click unsubscribe has no confirmation page, deliberately, so that a mailbox provider
+ * can safely fetch it — which guarantees accidental unsubscribes from link prefetchers and
+ * mis-taps. Erasing on the spot would turn every one of those into the permanent loss of three
+ * saved searches."
+ *
+ * So this route exists to be **hard to reach by accident and easy to reach on purpose**. It is
+ * `POST`-only: there is no URL a prefetcher can fetch, no link that can be followed from an
+ * inbox, and nothing a mail scanner can do here at all. That is the mirror image of the
+ * unsubscribe route next door, where the whole requirement was that a machine *could* act.
+ *
+ * ## Two tokens are accepted, and the second one is the point
+ *
+ * The button appears in two places, and ADR 0010 puts it in both on purpose: on the manage
+ * page, and "on the unsubscribe landing page itself", because unsubscribing rotates the manage
+ * token and a subscriber who has just unsubscribed holds no working manage link. Accepting
+ * either credential is what lets one endpoint serve both, and neither is weaker than the other
+ * — both are MACs over the subscriber id under the same secret.
+ *
+ * ## What erasure leaves behind
+ *
+ * A Do-Not-Contact entry, and only where one is owed. Nothing is written here: the entry is
+ * created at *retirement*, by the webhook that learns of the complaint, because the complaint
+ * is the fact that earns it and the address may be gone by the time a row is erased. So an
+ * erasure of a complaint-retired subscriber leaves the entry already standing, and an erasure
+ * of anybody else leaves nothing at all — which is the correct answer in both cases and
+ * requires no decision here.
+ */
+
+const DEAD_LINK = "/resumen/enlace-vencido";
+
+if (Astro.request.method !== "POST") {
+  /**
+   * 405 rather than a redirect, and the `Allow` header rather than a page. A `GET` here is
+   * either a prefetcher or somebody's address bar, and neither should be answered with
+   * anything that looks like a way in.
+   */
+  return new Response(null, { status: 405, headers: { allow: "POST" } });
+}
+
+const token = (await Astro.request.formData()).get("t")?.toString() ?? "";
+
+/**
+ * Either credential, checked in the order they are likely to arrive. A manage token is three
+ * parts and an unsubscribe token is two, so no string can verify as both — the labels in
+ * `keyed-hash.ts` make sure of it — and trying both costs one extra HMAC over 32 bytes.
+ */
+const claim = await verifyManageToken(env, token);
+const subscriberId =
+  claim?.subscriberId ?? (await verifyUnsubscribeToken(env, token));
+
+if (subscriberId === null) return Astro.redirect(DEAD_LINK, 303);
+
+const db = createDb(env.DB);
+
+/**
+ * The row is read before it is destroyed, for two reasons that both matter.
+ *
+ * The address is needed, because erasure also takes any unredeemed opt-in link for the same
+ * address — otherwise a link sent days ago would recreate the subscriber afterwards, and the
+ * "delete everything" button would have been a lie with a week-long fuse.
+ *
+ * And a **stale manage token must not erase anybody**. A manage link verifies as ours forever;
+ * only the row knows which generation is live. Somebody holding a copy of a link from before
+ * an unsubscribe has a token that is cryptographically valid and deliberately revoked, and
+ * this is the comparison that revokes it. An unsubscribe token carries no version and is
+ * exempt by construction — that is what it is for.
+ */
+const view = await readManageView(db, subscriberId);
+if (view === null) return Astro.redirect(DEAD_LINK, 303);
+if (claim !== null && claim.version !== view.manageTokenVersion) {
+  return Astro.redirect(DEAD_LINK, 303);
+}
+
+await eraseSubscriber(db, { subscriberId: view.id, email: view.email });
+
+/**
+ * 303 to a page rather than rendering the outcome here, so a refresh does not re-post a token
+ * naming a row that no longer exists — which would send somebody who reloaded the confirmation
+ * of their own erasure to the dead-link page.
+ */
+return Astro.redirect("/resumen/borrado", 303);
+---

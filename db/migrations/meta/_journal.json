@@ -50,6 +50,13 @@
       "when": 1788894878897,
       "tag": "0006_the_animal_is_complete_when_it_exists",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1789397683184,
+      "tag": "0007_unsubscribe_retirement_and_the_manage_token",
+      "breakpoints": true
     }
   ]
 }

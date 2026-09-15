@@ -79,3 +79,61 @@ export function optInPurgeCutoff(now: Date): Date {
 export function optInMailLedgerCutoff(now: Date): Date {
   return new Date(now.getTime() - OPT_IN_WINDOW_MS);
 }
+
+/**
+ * Ninety days between unsubscribing and erasure, and **the automatic expiry is the whole
+ * point of the grace period**.
+ *
+ * ADR 0010: the one-click unsubscribe has no confirmation page, deliberately, "so that a
+ * mailbox provider can safely fetch it — which guarantees accidental unsubscribes from link
+ * prefetchers and mis-taps. Erasing on the spot would turn every one of those into the
+ * permanent loss of three saved searches. So unsubscribe stops sending immediately and leaves
+ * the subscriber dormant for 90 days, after which the row erases itself."
+ *
+ * The sentence that follows is the reason this is a constant with a job behind it rather than
+ * a policy anybody remembers: "the automatic expiry is what stops the grace period from
+ * quietly becoming indefinite retention." A dormant row nothing deletes is retention with a
+ * nicer name.
+ *
+ * **Measured from the unsubscribe, not from the last digest.** The record is being kept for
+ * exactly one purpose — undoing a click that may have been an accident — so the clock starts
+ * at the click.
+ */
+export const UNSUBSCRIBE_GRACE_MS = 90 * 24 * 60 * 60_000;
+
+/** The instant before which an unsubscribed subscriber is due to be erased entirely. */
+export function unsubscribedErasureCutoff(now: Date): Date {
+  return new Date(now.getTime() - UNSUBSCRIBE_GRACE_MS);
+}
+
+/**
+ * How long a subscriber may go without ever matching anything before the platform writes to
+ * say so, and to hand them a link that still works.
+ *
+ * ADR 0010: "A subscriber who never matches anything receives no digest and therefore no
+ * footer, so the opt-in success page and the 90-day 'still nothing' nudge both carry the
+ * manage link, guaranteeing a live link at least quarterly." Without it there is a subscriber
+ * holding consent we act on and no route back to their own data — which would make the manage
+ * page a subject-access response nobody can reach.
+ *
+ * The same ninety days as {@link UNSUBSCRIBE_GRACE_MS} and deliberately **not** derived from
+ * it, the call `web/src/lib/subscriber/policy.ts` makes between `OPT_IN_MAIL_COOLDOWN_MS` and
+ * `OPT_IN_WINDOW_MS`: two facts that happen to coincide. One is how long a mistaken click may
+ * be undone; the other is how long silence is tolerable before it needs explaining. Moving
+ * either should not move the other.
+ *
+ * Measured from the opt-in, because that is when the silence started.
+ */
+export const NEVER_MATCHED_NUDGE_MS = 90 * 24 * 60 * 60_000;
+
+/**
+ * The instant before which a subscriber who has never received a digest is owed their one
+ * nudge.
+ *
+ * "One" is enforced by the row rather than by this figure — `subscribers.nudged_at` is
+ * written when the nudge goes out and the query skips anybody who has one. A cutoff alone
+ * would nudge the same silent subscriber every single day.
+ */
+export function neverMatchedNudgeCutoff(now: Date): Date {
+  return new Date(now.getTime() - NEVER_MATCHED_NUDGE_MS);
+}

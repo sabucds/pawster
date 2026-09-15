@@ -73,6 +73,8 @@ export {
 } from "./derivative.ts";
 export type { DigestPeriod } from "./digest.ts";
 export { DIGEST_DAILY_BUDGET, digestIdempotencyKey } from "./digest.ts";
+export type { KeyedHashPurpose } from "./keyed-hash.ts";
+export { digestsEqual, sign, toBase64Url } from "./keyed-hash.ts";
 export type {
   FilterIndex,
   IndexPointer,
@@ -110,13 +112,32 @@ export type {
 } from "./matching.ts";
 export { ageBandsFor, goodWithFor, matches } from "./matching.ts";
 export {
+  NEVER_MATCHED_NUDGE_MS,
   OPT_IN_TTL_MS,
   OPT_IN_WINDOW_MS,
+  UNSUBSCRIBE_GRACE_MS,
+  neverMatchedNudgeCutoff,
   optInMailLedgerCutoff,
   optInPurgeCutoff,
+  unsubscribedErasureCutoff,
 } from "./retention.ts";
 export type { StalenessBand } from "./staleness.ts";
 export { daysBetween, deriveStalenessBand } from "./staleness.ts";
+export type {
+  ManageClaim,
+  SubscriberLinkOrigin,
+  SubscriberLinkSecrets,
+} from "./subscriber-links.ts";
+export {
+  MANAGE_PATH,
+  UNSUBSCRIBE_PATH,
+  manageToken,
+  manageUrl,
+  unsubscribeToken,
+  unsubscribeUrl,
+  verifyManageToken,
+  verifyUnsubscribeToken,
+} from "./subscriber-links.ts";
 export type {
   PhotoRole,
   StorageMeasurement,
