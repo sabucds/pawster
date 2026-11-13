@@ -59,6 +59,7 @@ const WED_MESSAGE = message("m1", {
   period: "2026-09-02",
   subscriberId: "s-wed",
   email: "wed@example.org",
+  sections: [],
 });
 
 /**
@@ -128,13 +129,108 @@ async function enqueuedBy(scheduledTime: Date): Promise<DigestMessage[]> {
   return sent;
 }
 
+/**
+ * A verified shelter with a public contact point: the two shelter-level clauses of the listing
+ * rule. Raw SQL because `digest/` has no route that creates either, and the suites that do
+ * create them live in `web/`.
+ */
+async function seedShelter(id = "shelter-1") {
+  const at = new Date("2026-08-01").getTime();
+  await env.DB.batch([
+    env.DB.prepare(
+      "INSERT INTO shelters (id, slug, display_name, account_email, base_region, country_code, created_at) VALUES (?, ?, ?, ?, 'Miranda', 'VE', ?)",
+    ).bind(id, id, `Refugio ${id}`, `${id}@example.org`, at),
+    env.DB.prepare(
+      "INSERT INTO shelter_contact_points (id, shelter_id, kind, value, position, created_at) VALUES (?, ?, 'whatsapp', '+58 412 5550001', 0, ?)",
+    ).bind(`${id}-cp`, id, at),
+    env.DB.prepare(
+      "INSERT INTO verifications (shelter_id, outcome, methods, evidence, decided_at, decided_by, cited_display_name, cited_contact_points) VALUES (?, 'Verified', 'call', 'seen', ?, 'admin@example.org', ?, '[]')",
+    ).bind(id, at, `Refugio ${id}`),
+  ]);
+}
+
+interface AnimalSeed {
+  readonly species?: "dog" | "cat";
+  readonly region?: string;
+  readonly estimatedBirthDate?: Date;
+  readonly availability?: "Available" | "Adopted" | "NoLongerAvailable";
+  readonly bondedGroupId?: string | null;
+  readonly matchableSince?: Date;
+  readonly shelterId?: string;
+}
+
+/** One animal and the upload session its foreign key needs. Listed, unless told otherwise. */
+async function seedAnimal(id: string, seed: AnimalSeed = {}) {
+  const species = seed.species ?? "dog";
+  const shelterId = seed.shelterId ?? "shelter-1";
+  const at = new Date("2026-08-30").getTime();
+  await env.DB.batch([
+    env.DB.prepare(
+      "INSERT INTO upload_sessions (id, shelter_id, created_at) VALUES (?, ?, ?)",
+    ).bind(`session-${id}`, shelterId, at),
+    env.DB.prepare(
+      `INSERT INTO animals (id, shelter_id, name, species, estimated_birth_date, region,
+        last_confirmed_at, upload_session_id, sex, size, age_estimate_basis, good_with_children,
+        good_with_dogs, good_with_cats, description, sterilisation, availability,
+        matchable_since, bonded_group_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Female', ?, 'VetEstimate', 'Unknown', 'Unknown',
+        'Unknown', 'A good animal.', 'Unknown', ?, ?, ?)`,
+    ).bind(
+      id,
+      shelterId,
+      `Animal ${id}`,
+      species,
+      (seed.estimatedBirthDate ?? new Date("2023-01-01")).getTime(),
+      seed.region ?? "Miranda",
+      at,
+      `session-${id}`,
+      species === "dog" ? "Medium" : null,
+      seed.availability ?? "Available",
+      (seed.matchableSince ?? new Date(at)).getTime(),
+      seed.bondedGroupId ?? null,
+    ),
+  ]);
+}
+
+/** One saved search. `{}` constrains nothing, so it matches every listed animal. */
+async function seedSubscription(
+  id: string,
+  subscriberId: string,
+  criteria: object = {},
+  slot = 0,
+) {
+  await env.DB.prepare(
+    "INSERT INTO subscriptions (id, subscriber_id, slot, criteria, created_at) VALUES (?, ?, ?, ?, ?)",
+  )
+    .bind(id, subscriberId, slot, JSON.stringify(criteria), WEDNESDAY.getTime())
+    .run();
+}
+
+/**
+ * Something new for each of these subscribers to be sent: one listed animal and a search that
+ * matches everything. The shard only enqueues subscribers with something to send, so the tests
+ * about the shard itself need this and nothing more specific.
+ */
+async function withSomethingToSend(...subscriberIds: string[]) {
+  await seedShelter();
+  await seedAnimal("animal-1");
+  for (const id of subscriberIds) await seedSubscription(`sub-${id}`, id);
+}
+
 /** One table's row count, for the "nothing was left behind" assertions. */
 const countIn = async (table: string) =>
   (await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${table}`).first<{ n: number }>())!.n;
 
 beforeEach(async () => {
-  // Children before parents: `subscriptions.subscriber_id` is a foreign key.
+  // Children before parents: every one of these is somebody's foreign key.
+  await env.DB.exec("DELETE FROM digest_sent");
+  await env.DB.exec("DELETE FROM digest_runs");
   await env.DB.exec("DELETE FROM subscriptions");
+  await env.DB.exec("DELETE FROM animals");
+  await env.DB.exec("DELETE FROM upload_sessions");
+  await env.DB.exec("DELETE FROM verifications");
+  await env.DB.exec("DELETE FROM shelter_contact_points");
+  await env.DB.exec("DELETE FROM shelters");
   await env.DB.exec("DELETE FROM subscribers");
   await env.DB.exec("DELETE FROM pending_opt_ins");
   await env.DB.exec("DELETE FROM opt_in_mails");
@@ -156,13 +252,15 @@ describe("scheduled()", () => {
   it("enqueues only the subscribers whose send day it is", async () => {
     await seedSubscriber("s-wed", "wed@example.org", 3);
     await seedSubscriber("s-thu", "thu@example.org", 4);
+    await withSomethingToSend("s-wed", "s-thu");
 
     await runScheduled(WEDNESDAY);
 
     const ping = outbound.callsTo("healthchecks").at(-1)!;
     expect(JSON.parse(ping.body!)).toMatchObject({
       period: "2026-09-02",
-      subscribers: 1,
+      shard: 1,
+      enqueued: 1,
     });
   });
 
@@ -249,10 +347,9 @@ describe("the retention preamble", () => {
 
   it("reports what it destroyed to the watchdog", async () => {
     /**
-     * ADR 0010 asks the purges to write "their counts into the `Digest Run` summary"; that
-     * table does not exist yet and the ping's detail body is the record that does. The
-     * reporting is the point rather than the destination — a purge that silently stopped
-     * finding rows looks exactly like a purge with nothing to do.
+     * ADR 0010 asks the purges to write "their counts into the `Digest Run` summary", and the
+     * ping carries the same counts. A purge that silently stopped finding rows looks exactly
+     * like a purge with nothing to do; these numbers are what tell them apart.
      */
     await seedPendingOptIn("expired", OPT_IN_TTL_MS + 60_000);
     await seedOptInMail("stale", OPT_IN_WINDOW_MS + 60_000);
@@ -274,6 +371,7 @@ describe("the retention preamble", () => {
      */
     await seedPendingOptIn("expired", OPT_IN_TTL_MS + 60_000);
     await seedSubscriber("s-wed", "wed@example.org", 3);
+    await withSomethingToSend("s-wed");
 
     const ctx = createExecutionContext();
     await expect(
@@ -308,6 +406,7 @@ describe("the shard's ordering", () => {
     await seedSubscriber("s-stale", "stale@example.org", 3, {
       lastDigestAt: new Date("2026-06-01"),
     });
+    await withSomethingToSend("s-recent", "s-never", "s-stale");
 
     const enqueued = await enqueuedBy(WEDNESDAY);
 
@@ -327,6 +426,7 @@ describe("the shard's ordering", () => {
     await seedSubscriber("s-earlier", "earlier@example.org", 3, {
       optedInAt: new Date("2026-01-01"),
     });
+    await withSomethingToSend("s-later", "s-earlier");
 
     const enqueued = await enqueuedBy(WEDNESDAY);
 
@@ -334,6 +434,199 @@ describe("the shard's ordering", () => {
       "s-earlier",
       "s-later",
     ]);
+  });
+});
+
+/**
+ * The producer's half of ticket #63: for each subscriber in today's shard, the listed units
+ * their searches match that they have not been sent, and nothing at all for a subscriber
+ * with nothing new.
+ */
+describe("matching", () => {
+  const NEXT_WEDNESDAY = new Date(WEDNESDAY.getTime() + 7 * 24 * 60 * 60_000);
+
+  /** Deliver everything the run enqueued, the way the real queue would. */
+  async function deliverAll(enqueued: DigestMessage[]) {
+    const result = await deliver(
+      "pawster-digest",
+      enqueued.map((body, i) => message(`m${i}`, body)),
+    );
+    expect(result.retryMessages).toEqual([]);
+  }
+
+  it("enqueues a subscriber with the listed animals their search matches", async () => {
+    await seedSubscriber("s-wed", "wed@example.org", 3);
+    await withSomethingToSend("s-wed");
+
+    const enqueued = await enqueuedBy(WEDNESDAY);
+
+    expect(enqueued).toEqual([
+      {
+        period: "2026-09-02",
+        subscriberId: "s-wed",
+        email: "wed@example.org",
+        sections: [{ subscriptionId: "sub-s-wed", units: [["animal-1"]] }],
+      },
+    ]);
+  });
+
+  it("enqueues nobody whose searches match nothing", async () => {
+    await seedSubscriber("s-wed", "wed@example.org", 3);
+    await seedShelter();
+    await seedAnimal("animal-1", { species: "cat" });
+    await seedSubscription("sub-dogs", "s-wed", { species: ["dog"] });
+
+    expect(await enqueuedBy(WEDNESDAY)).toEqual([]);
+  });
+
+  it("does not send the same animal twice once a digest carrying it was delivered", async () => {
+    await seedSubscriber("s-wed", "wed@example.org", 3);
+    await withSomethingToSend("s-wed");
+
+    await deliverAll(await enqueuedBy(WEDNESDAY));
+
+    expect(await enqueuedBy(NEXT_WEDNESDAY)).toEqual([]);
+  });
+
+  it("sends next week what a dropped message never delivered", async () => {
+    await seedSubscriber("s-wed", "wed@example.org", 3);
+    await withSomethingToSend("s-wed");
+
+    // Enqueued and then lost: Queues retention, or a DLQ nobody replays. Nothing is written.
+    await enqueuedBy(WEDNESDAY);
+
+    const next = await enqueuedBy(NEXT_WEDNESDAY);
+    expect(next.map((m) => m.sections)).toEqual([
+      [{ subscriptionId: "sub-s-wed", units: [["animal-1"]] }],
+    ]);
+  });
+
+  it("sends an animal whose region was corrected after a run that did not match it", async () => {
+    await seedSubscriber("s-wed", "wed@example.org", 3);
+    await seedShelter();
+    await seedAnimal("animal-1", { region: "Carabobo" });
+    await seedSubscription("sub-miranda", "s-wed", { regions: ["miranda"] });
+
+    expect(await enqueuedBy(WEDNESDAY)).toEqual([]);
+
+    await env.DB.prepare("UPDATE animals SET region = 'Miranda' WHERE id = 'animal-1'").run();
+
+    const next = await enqueuedBy(NEXT_WEDNESDAY);
+    expect(next.map((m) => m.sections[0]!.units)).toEqual([[["animal-1"]]]);
+  });
+
+  it("sends a puppy to a Young subscriber the week it graduates", async () => {
+    await seedSubscriber("s-wed", "wed@example.org", 3);
+    await seedShelter();
+    // Twelve months old between the two runs.
+    await seedAnimal("animal-1", { estimatedBirthDate: new Date("2025-09-05") });
+    await seedSubscription("sub-young", "s-wed", { ageBands: ["Young"] });
+
+    expect(await enqueuedBy(WEDNESDAY)).toEqual([]);
+    const next = await enqueuedBy(NEXT_WEDNESDAY);
+    expect(next.map((m) => m.sections[0]!.units)).toEqual([[["animal-1"]]]);
+  });
+
+  it("sends an animal whose matchable_since predates the subscriber's last digest", async () => {
+    /**
+     * ADR 0009 says `matchable_since` narrows candidates. It is set once at publication and
+     * never moved, so narrowing by it would drop exactly the two cases above. This pins that
+     * the producer does not: the sent-set alone decides what is new.
+     */
+    await seedSubscriber("s-wed", "wed@example.org", 3, {
+      lastDigestAt: new Date("2026-08-26"),
+    });
+    await seedShelter();
+    await seedAnimal("animal-1", { matchableSince: new Date("2026-01-01") });
+    await seedSubscription("sub-all", "s-wed");
+
+    expect((await enqueuedBy(WEDNESDAY)).map((m) => m.subscriberId)).toEqual(["s-wed"]);
+  });
+
+  it("sends a bonded group as one unit, matched as a group", async () => {
+    await seedSubscriber("s-wed", "wed@example.org", 3);
+    await seedShelter();
+    await seedAnimal("pair-a", { bondedGroupId: "pair" });
+    await seedAnimal("pair-b", { bondedGroupId: "pair" });
+    await seedSubscription("sub-all", "s-wed");
+
+    const [sent] = await enqueuedBy(WEDNESDAY);
+    expect(sent!.sections).toEqual([
+      { subscriptionId: "sub-all", units: [["pair-a", "pair-b"]] },
+    ]);
+  });
+
+  it("sends nothing that is not listed", async () => {
+    await seedSubscriber("s-wed", "wed@example.org", 3);
+    await seedShelter();
+    await seedAnimal("adopted", { availability: "Adopted" });
+    // A shelter with no verification entry is pending, and pending is not listed.
+    await env.DB.prepare(
+      "INSERT INTO shelters (id, slug, display_name, account_email, base_region, country_code, created_at) VALUES ('pending', 'pending', 'Pending', 'p@example.org', 'Miranda', 'VE', 0)",
+    ).run();
+    await seedAnimal("unverified", { shelterId: "pending" });
+    await seedSubscription("sub-all", "s-wed");
+
+    expect(await enqueuedBy(WEDNESDAY)).toEqual([]);
+  });
+
+  it("gives each search its own section, and leaves out a search with nothing new", async () => {
+    await seedSubscriber("s-wed", "wed@example.org", 3);
+    await seedShelter();
+    await seedAnimal("dog-1");
+    await seedSubscription("sub-dogs", "s-wed", { species: ["dog"] }, 0);
+    await seedSubscription("sub-cats", "s-wed", { species: ["cat"] }, 1);
+
+    const [sent] = await enqueuedBy(WEDNESDAY);
+    expect(sent!.sections).toEqual([
+      { subscriptionId: "sub-dogs", units: [["dog-1"]] },
+    ]);
+  });
+});
+
+/**
+ * The Digest Run record (`CONTEXT.md`): one row per run, counts only, kept after every purge.
+ */
+describe("the run record", () => {
+  it("records one row per run with the same counts the watchdog is sent", async () => {
+    // Opted in recently, so neither is owed the ninety-day nudge.
+    const optedInAt = new Date("2026-08-30");
+    await seedSubscriber("s-wed", "wed@example.org", 3, { optedInAt });
+    await seedSubscriber("s-idle", "idle@example.org", 3, { optedInAt });
+    await seedShelter();
+    await seedAnimal("animal-1");
+    await seedSubscription("sub-wed", "s-wed");
+
+    await runScheduled(WEDNESDAY);
+
+    const { results } = await env.DB.prepare(
+      "SELECT period, shard, enqueued, units, nudged, purged_opt_ins, purged_opt_in_mails, erased_subscribers FROM digest_runs",
+    ).all();
+    expect(results).toEqual([
+      {
+        period: "2026-09-02",
+        shard: 2,
+        enqueued: 1,
+        units: 1,
+        nudged: 0,
+        purged_opt_ins: 0,
+        purged_opt_in_mails: 0,
+        erased_subscribers: 0,
+      },
+    ]);
+    expect(JSON.parse(outbound.callsTo("healthchecks")[0]!.body!)).toMatchObject({
+      shard: 2,
+      enqueued: 1,
+      units: 1,
+    });
+  });
+
+  it("survives the purges of later runs", async () => {
+    const DAY = 24 * 60 * 60_000;
+    await runScheduled(WEDNESDAY);
+    await runScheduled(new Date(WEDNESDAY.getTime() + 400 * DAY));
+
+    expect(await countIn("digest_runs")).toBe(2);
   });
 });
 
@@ -442,14 +735,6 @@ describe("queue()", () => {
 describe("the unsubscribe grace period", () => {
   const DAY = 24 * 60 * 60_000;
 
-  async function seedSubscription(id: string, subscriberId: string) {
-    await env.DB.prepare(
-      "INSERT INTO subscriptions (id, subscriber_id, slot, criteria, created_at) VALUES (?, ?, 0, '{}', ?)",
-    )
-      .bind(id, subscriberId, WEDNESDAY.getTime())
-      .run();
-  }
-
   it("erases a subscriber ninety days after they unsubscribed, and their searches with them", async () => {
     await seedSubscriber("s-old", "old@example.org", 3, {
       unsubscribedAt: new Date(WEDNESDAY.getTime() - 91 * DAY),
@@ -500,6 +785,7 @@ describe("the unsubscribe grace period", () => {
       retiredAt: new Date(WEDNESDAY.getTime() - DAY),
       retirementReason: "bounce",
     });
+    await withSomethingToSend("s-live", "s-gone", "s-bounced");
 
     const enqueued = await enqueuedBy(WEDNESDAY);
 
@@ -628,6 +914,7 @@ describe("the never-matched nudge", () => {
     await seedSubscriber("s-live", "live@example.org", 3, {
       lastDigestAt: new Date(WEDNESDAY.getTime() - DAY),
     });
+    await withSomethingToSend("s-live");
     outbound.on("resend", () => new Response("nope", { status: 500 }));
 
     const enqueued = await enqueuedBy(WEDNESDAY);

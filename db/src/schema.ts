@@ -3,6 +3,7 @@ import {
   check,
   index,
   integer,
+  primaryKey,
   sqliteTable,
   text,
   uniqueIndex,
@@ -10,9 +11,9 @@ import {
 
 /**
  * The skeleton's schema plus shelter access, the photo pipeline, the verification log and
- * the subscriber side. What is left is the sent-set, which lands with the ticket that needs
- * it. What is settled here is the *shape*: this package owns the schema and the migrations,
- * and both Workers bind the same database.
+ * the subscriber side, and the digest's sent-set and run record. What is settled here is
+ * the *shape*: this package owns the schema and the migrations, and both Workers bind the
+ * same database.
  *
  * Two absences in the access tables below are load-bearing rather than unfinished, and
  * both come from [ADR 0013](../../docs/adr/0013-shelters-sign-in-with-an-emailed-code.md):
@@ -601,7 +602,7 @@ export const subscribers = sqliteTable(
      * longest-waiting subscribers" expressible: `ORDER BY last_digest_at ASC` puts NULLs
      * first in SQLite, so whoever has waited longest goes first and the tail rotates
      * instead of starving. It is *not* the source of truth for "new" — that is the
-     * per-subscription sent-set, which lands with the matching ticket.
+     * per-subscription sent-set, `digestSent`.
      */
     lastDigestAt: integer("last_digest_at", { mode: "timestamp_ms" }),
     /**
@@ -751,6 +752,61 @@ export const subscriptions = sqliteTable(
     check("subscriptions_slot_range", sql`${table.slot} between 0 and 2`),
   ],
 );
+
+/**
+ * The sent-set: which animals each subscription has already been sent (ADR 0009).
+ *
+ * **This is the source of truth for "new", not a watermark.** The digest's candidate set is
+ * *matches the criteria* AND *currently listed* AND *not in here*, so an animal whose region a
+ * shelter corrects after a run still reaches the subscriber, and a queue message lost to
+ * retention is simply recomputed by the next run. A row is written by the consumer only after
+ * the email actually went out.
+ *
+ * Per animal rather than per unit, because a bonded group's membership can change; `domain/`'s
+ * `digestCandidates` treats a unit as sent once every member has a row.
+ *
+ * Both foreign keys cascade: deleting a subscription (the manage page, or erasure) takes its
+ * sent-set with it, which is what keeps this from being personal data that outlives consent.
+ */
+export const digestSent = sqliteTable(
+  "digest_sent",
+  {
+    subscriptionId: text("subscription_id")
+      .notNull()
+      .references(() => subscriptions.id, { onDelete: "cascade" }),
+    animalId: text("animal_id")
+      .notNull()
+      .references(() => animals.id, { onDelete: "cascade" }),
+    sentAt: integer("sent_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.subscriptionId, table.animalId] })],
+);
+
+/**
+ * One row per Digest Run (`CONTEXT.md`), kept forever.
+ *
+ * Counts and nothing else, so there is no personal data to retain or erase (ADR 0010), and it
+ * is the only long-run evidence that the digest is running rather than silently dead: Resend
+ * keeps events for 30 days and Healthchecks.io only knows about the last ping.
+ *
+ * No unique index on `period`, on purpose: a re-run of the same day is a second run and gets
+ * a second row.
+ */
+export const digestRuns = sqliteTable("digest_runs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  period: text("period").notNull(),
+  ranAt: integer("ran_at", { mode: "timestamp_ms" }).notNull(),
+  /** Subscribers whose send day it was and who are still being mailed. */
+  shard: integer("shard").notNull(),
+  /** Of those, how many had something new and were enqueued. */
+  enqueued: integer("enqueued").notNull(),
+  /** Units across every enqueued message; a bonded group counts once. */
+  units: integer("units").notNull(),
+  nudged: integer("nudged").notNull(),
+  purgedOptIns: integer("purged_opt_ins").notNull(),
+  purgedOptInMails: integer("purged_opt_in_mails").notNull(),
+  erasedSubscribers: integer("erased_subscribers").notNull(),
+});
 
 /**
  * A signup that has not been proved yet: an address the platform holds **no consent for at
@@ -1102,6 +1158,7 @@ export type Animal = typeof animals.$inferSelect;
 export type Subscriber = typeof subscribers.$inferSelect;
 export type Verification = typeof verifications.$inferSelect;
 export type Subscription = typeof subscriptions.$inferSelect;
+export type DigestRun = typeof digestRuns.$inferSelect;
 export type PendingOptIn = typeof pendingOptIns.$inferSelect;
 export type OptInMail = typeof optInMails.$inferSelect;
 export type DoNotContactEntry = typeof doNotContact.$inferSelect;
