@@ -11,6 +11,7 @@ import {
   DIGEST_DAILY_BUDGET,
   digestCandidates,
   digestIdempotencyKey,
+  manageUrl,
   neverMatchedNudgeCutoff,
   optInMailLedgerCutoff,
   optInPurgeCutoff,
@@ -23,9 +24,11 @@ import type { SubscriptionCriteria } from "@pawster/domain";
 import type { DigestMessage, DigestSection, Env } from "./env.ts";
 import { NUDGES_PER_RUN, sendNudgeEmail } from "./nudge.ts";
 import { pingWatchdog } from "./watchdog.ts";
+import { renderDigestHtml } from "./email.ts";
 import { sendDigestEmail } from "./resend.ts";
 import {
   mailable,
+  readDigestRows,
   readListedForDigest,
   readShardSentSets,
   readShardSubscriptions,
@@ -247,8 +250,27 @@ export default {
       return;
     }
 
+    const db = createDb(env.DB);
     for (const message of batch.messages) {
       try {
+        const { period, subscriberId, sections } = message.body;
+        const unsubscribe = await unsubscribeUrl(env, subscriberId);
+        const html = await renderDigestHtml({
+          sections,
+          animals: await readDigestRows(
+            db,
+            sections.flatMap((section) => section.units.flat()),
+          ),
+          // The period, not the clock: a redelivery tomorrow must render the same bytes.
+          asOf: new Date(period),
+          siteOrigin: env.SITE_ORIGIN,
+          mediaBase: env.MEDIA_BASE_URL,
+          manageUrl: await manageUrl(env, {
+            subscriberId,
+            version: message.body.manageTokenVersion,
+          }),
+          unsubscribeUrl: unsubscribe,
+        });
         await sendDigestEmail(env, {
           to: message.body.email,
           // Deterministic and per-recipient: a redelivered message is a no-op for anyone
@@ -257,9 +279,9 @@ export default {
             message.body.period,
             message.body.subscriberId,
           ),
-          period: message.body.period,
+          html,
           // Signed, because the link is the subscriber's whole credential (CONTEXT.md).
-          unsubscribeUrl: await unsubscribeUrl(env, message.body.subscriberId),
+          unsubscribeUrl: unsubscribe,
         });
         // Only after the send actually succeeded: the sent-set is what makes tomorrow's
         // candidates exclude these animals, and a dropped message writes nothing, so the next

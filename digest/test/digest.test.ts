@@ -19,6 +19,7 @@ import {
 } from "@pawster/domain";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
+import { derivativeKey } from "@pawster/web/src/lib/photos/keys.ts";
 import { outbound } from "../../test/outbound.ts";
 import type { DigestMessage } from "../src/env.ts";
 import worker from "../src/index.ts";
@@ -646,6 +647,145 @@ describe("what one email carries", () => {
     expect(await enqueuedBy(NEXT_WEDNESDAY)).toEqual([]);
   });
 });
+
+/**
+ * Ticket #64's email, read structurally from the payload Resend was handed. No whole-HTML
+ * snapshot on purpose: it would churn on every wording change and would not have caught the
+ * mid-word truncation that rendering at 390px found.
+ */
+describe("the email", () => {
+  /** Run the producer on Wednesday, deliver what it enqueued, and return the HTML sent. */
+  async function emailOn(scheduledTime = WEDNESDAY): Promise<string> {
+    await deliverAll(await enqueuedBy(scheduledTime));
+    const sends = digests();
+    expect(sends).toHaveLength(1);
+    return JSON.parse(sends[0]!.body!).html;
+  }
+  const count = (html: string, needle: string) => html.split(needle).length - 1;
+  // The digest's sends, without the ninety-day nudge a subscriber opted in at epoch is owed.
+  const digests = () =>
+    outbound.callsTo("resend").filter((call) => call.headers["idempotency-key"]);
+
+  it("gives each row a thumbnail, a name, one meta line and one provenance line, and no description", async () => {
+    await seedSubscriber("s-wed", "wed@example.org", 3);
+    await seedShelter();
+    await seedAnimal("dog-1");
+    await seedSubscription("sub-all", "s-wed");
+
+    const html = await emailOn();
+
+    expect(count(html, 'class="row"')).toBe(1);
+    // The 144x144 JPEG derivative, drawn at 72: the key the upload pipeline wrote, not WebP.
+    const key = await derivativeKey("source-dog-1", "digestThumbnail");
+    expect(key.endsWith(".jpg")).toBe(true);
+    expect(html).toContain(`src="${env.MEDIA_BASE_URL}/${key}"`);
+    expect(html).toMatch(/<img[^>]*width="72"[^>]*height="72"/);
+    expect(html).toContain("Animal dog-1");
+    expect(html).toContain("Perra adulta · Mediana");
+    expect(html).toContain("Miranda · Confirmada hace 3 días");
+    expect(html).not.toContain("A good animal.");
+    expect(html).toContain(`${env.SITE_ORIGIN}/a/dog-1/`);
+  });
+
+  it("shows a bonded group as one row, named together", async () => {
+    await seedSubscriber("s-wed", "wed@example.org", 3);
+    await seedShelter();
+    await seedAnimal("pair-a", { bondedGroupId: "pair" });
+    await seedAnimal("pair-b", { bondedGroupId: "pair" });
+    await seedSubscription("sub-all", "s-wed");
+
+    const html = await emailOn();
+
+    expect(count(html, 'class="row"')).toBe(1);
+    expect(html).toContain("Animal pair-a y Animal pair-b");
+  });
+
+  it("heads each search's section with its criteria as chips", async () => {
+    await seedSubscriber("s-wed", "wed@example.org", 3);
+    await seedShelter();
+    await seedAnimal("dog-1");
+    await seedAnimal("cat-1", { species: "cat" });
+    await seedSubscription("sub-dogs", "s-wed", { species: ["dog"] }, 0);
+    await seedSubscription("sub-cats", "s-wed", { species: ["cat"], regions: ["Miranda"] }, 1);
+
+    const html = await emailOn();
+
+    expect(count(html, 'class="section"')).toBe(2);
+    const [, dogs, cats] = html.split('class="section"');
+    expect(chips(dogs!)).toEqual(["Perros"]);
+    // Stored criteria are normalised (`normaliseRegion`), and web shows them as stored.
+    expect(chips(cats!)).toEqual(["Gatos", "miranda"]);
+  });
+
+  it('says "and N more" exactly when a section was cut', async () => {
+    await seedSubscriber("s-wed", "wed@example.org", 3);
+    await seedShelter();
+    for (let i = 10; i < 23; i++) await seedAnimal(`dog-${i}`);
+    await seedAnimal("cat-1", { species: "cat" });
+    await seedSubscription("sub-dogs", "s-wed", { species: ["dog"] }, 0);
+    await seedSubscription("sub-cats", "s-wed", { species: ["cat"] }, 1);
+
+    const html = await emailOn();
+
+    expect(count(html, 'class="row"')).toBe(13);
+    expect(count(html, "más")).toBe(1);
+    expect(html).toContain("y 1 coincidencia más");
+  });
+
+  it("is fluid: full width up to 600px, fixed table layout, and nothing wider than a phone", async () => {
+    await seedSubscriber("s-wed", "wed@example.org", 3);
+    await withSomethingToSend("s-wed");
+
+    const html = await emailOn();
+
+    expect(html).toContain("width:100%;max-width:600px");
+    expect(html).toContain("table-layout:fixed");
+    expect(html).toContain("overflow-wrap:anywhere");
+    // The fixed-600-plus-media-query pattern is what truncated mid-word at 390px.
+    const fixed = [...html.matchAll(/(?<!max-)width:\s*(\d+)px|width="(\d+)"/g)].map((m) =>
+      Number(m[1] ?? m[2]),
+    );
+    expect(fixed.every((px) => px <= 390)).toBe(true);
+    expect(html).not.toContain("@media");
+  });
+
+  it("says that silence means nothing new, and carries the manage and unsubscribe links", async () => {
+    await seedSubscriber("s-wed", "wed@example.org", 3, { manageTokenVersion: 2 });
+    await withSomethingToSend("s-wed");
+
+    const html = await emailOn();
+
+    expect(html).toContain("Si no llega nada, es que no hubo.");
+    const manage = html.match(new RegExp(`href="(${env.SITE_ORIGIN}${MANAGE_PATH}/[^"]+)"`));
+    await expect(
+      verifyManageToken(env, manage![1]!.slice(`${env.SITE_ORIGIN}${MANAGE_PATH}/`.length)),
+    ).resolves.toEqual({ subscriberId: "s-wed", version: 2 });
+    expect(html).toContain(`href="${env.SITE_ORIGIN}${UNSUBSCRIBE_PATH}/`);
+  });
+
+  it("sends the same email under the same key when a message is redelivered, and remembers nothing more", async () => {
+    await seedSubscriber("s-wed", "wed@example.org", 3);
+    await withSomethingToSend("s-wed");
+    const enqueued = await enqueuedBy(WEDNESDAY);
+
+    await deliverAll(enqueued);
+    const sentRows = await countIn("digest_sent");
+    await deliverAll(enqueued);
+
+    const [first, second] = digests();
+    expect(second!.headers["idempotency-key"]).toBe(first!.headers["idempotency-key"]);
+    // Resend answers a reused key with a different body with 409, which would retry the
+    // message into the dead-letter queue. So a redelivery must render byte for byte the same.
+    expect(second!.body).toBe(first!.body);
+    expect(await countIn("digest_sent")).toBe(sentRows);
+    expect(outbound.callsTo("resend").some((call) => call.url.includes("/batch"))).toBe(false);
+  });
+});
+
+/** The chip texts in one section's header, in order. */
+function chips(section: string): string[] {
+  return [...section.matchAll(/class="chip"[^>]*>([^<]*)</g)].map((m) => m[1]!);
+}
 
 /**
  * The Digest Run record (`CONTEXT.md`): one row per run, counts only, kept after every purge.
