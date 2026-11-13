@@ -118,10 +118,12 @@ export type {
 } from "./matching.ts";
 export { ageBandsFor, goodWithFor, matches } from "./matching.ts";
 export {
+  DEPARTURE_GRACE_MS,
   NEVER_MATCHED_NUDGE_MS,
   OPT_IN_TTL_MS,
   OPT_IN_WINDOW_MS,
   UNSUBSCRIBE_GRACE_MS,
+  departureErasureCutoff,
   neverMatchedNudgeCutoff,
   optInMailLedgerCutoff,
   optInPurgeCutoff,

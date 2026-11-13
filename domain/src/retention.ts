@@ -137,3 +137,19 @@ export const NEVER_MATCHED_NUDGE_MS = 90 * 24 * 60 * 60_000;
 export function neverMatchedNudgeCutoff(now: Date): Date {
   return new Date(now.getTime() - NEVER_MATCHED_NUDGE_MS);
 }
+
+/**
+ * How long a departed shelter has to change its mind (ADR 0015, issue #65).
+ *
+ * Inside it, one click clears `departedAt` and everything comes back, because nothing has been
+ * destroyed yet. At its end the daily preamble erases the contact points and the account email
+ * and bumps the session epoch (issue #66), and from then on there is nothing left to restore.
+ * The privacy page states this period from this constant, so the promise and the rule cannot
+ * drift apart.
+ */
+export const DEPARTURE_GRACE_MS = 30 * 24 * 60 * 60_000;
+
+/** The instant before which a departure can no longer be cancelled and is due for erasure. */
+export function departureErasureCutoff(now: Date): Date {
+  return new Date(now.getTime() - DEPARTURE_GRACE_MS);
+}

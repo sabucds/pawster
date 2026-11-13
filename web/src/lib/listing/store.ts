@@ -140,6 +140,7 @@ export async function readListableAnimals(
       sourceDigest: uploadSessionPhotos.sourceDigest,
       contactPointCount,
       latestVerificationOutcome,
+      departedAt: shelters.departedAt,
     })
     .from(animals)
     /**
@@ -166,16 +167,10 @@ export async function readListableAnimals(
   let withoutPhoto = 0;
 
   for (const row of rows) {
-    /**
-     * `departedAt` is always `null` until Departure lands with issue #65, exactly as
-     * `../auth/store.ts`'s `readShelterFacts` records. When that ticket adds the column this
-     * grows one more selected field and the rule keeps working unchanged — which is the whole
-     * reason the listing rule takes flat facts rather than rows.
-     */
     const shelterFacts: ShelterFacts = {
       latestVerificationOutcome: row.latestVerificationOutcome,
       contactPointCount: row.contactPointCount,
-      departedAt: null,
+      departedAt: row.departedAt,
     };
 
     if (!isListed({ availability: row.availability }, shelterFacts)) continue;

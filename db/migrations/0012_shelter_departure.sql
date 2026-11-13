@@ -1,0 +1,1 @@
+ALTER TABLE `shelters` ADD `departed_at` integer;
