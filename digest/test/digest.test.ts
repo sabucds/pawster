@@ -59,6 +59,7 @@ const WED_MESSAGE = message("m1", {
   period: "2026-09-02",
   subscriberId: "s-wed",
   email: "wed@example.org",
+  manageTokenVersion: 0,
   sections: [],
 });
 
@@ -102,6 +103,11 @@ async function seedSubscriber(
       nudgedAt: waiting.nudgedAt ?? null,
       manageTokenVersion: waiting.manageTokenVersion ?? 0,
     });
+}
+
+/** A section that shows exactly these units, with nothing repeated and nothing left over. */
+function shown(subscriptionId: string, units: string[][]) {
+  return expect.objectContaining({ subscriptionId, units, repeats: [], more: 0 });
 }
 
 /**
@@ -168,6 +174,12 @@ async function seedAnimal(id: string, seed: AnimalSeed = {}) {
     env.DB.prepare(
       "INSERT INTO upload_sessions (id, shelter_id, created_at) VALUES (?, ?, ?)",
     ).bind(`session-${id}`, shelterId, at),
+    // The primary photograph, which is what the digest row's thumbnail is derived from.
+    env.DB.prepare(
+      `INSERT INTO upload_session_photos (id, session_id, position, source_digest, original_key,
+        content_type, byte_size, width, height, created_at)
+       VALUES (?, ?, 0, ?, ?, 'image/jpeg', 1000, 800, 600, ?)`,
+    ).bind(`photo-${id}`, `session-${id}`, `source-${id}`, `o/photo-${id}`, at),
     env.DB.prepare(
       `INSERT INTO animals (id, shelter_id, name, species, estimated_birth_date, region,
         last_confirmed_at, upload_session_id, sex, size, age_estimate_basis, good_with_children,
@@ -227,6 +239,7 @@ beforeEach(async () => {
   await env.DB.exec("DELETE FROM digest_runs");
   await env.DB.exec("DELETE FROM subscriptions");
   await env.DB.exec("DELETE FROM animals");
+  await env.DB.exec("DELETE FROM upload_session_photos");
   await env.DB.exec("DELETE FROM upload_sessions");
   await env.DB.exec("DELETE FROM verifications");
   await env.DB.exec("DELETE FROM shelter_contact_points");
@@ -437,6 +450,15 @@ describe("the shard's ordering", () => {
   });
 });
 
+/** Deliver everything the run enqueued, the way the real queue would. */
+async function deliverAll(enqueued: DigestMessage[]) {
+  const result = await deliver(
+    "pawster-digest",
+    enqueued.map((body, i) => message(`m${i}`, body)),
+  );
+  expect(result.retryMessages).toEqual([]);
+}
+
 /**
  * The producer's half of ticket #63: for each subscriber in today's shard, the listed units
  * their searches match that they have not been sent, and nothing at all for a subscriber
@@ -444,15 +466,6 @@ describe("the shard's ordering", () => {
  */
 describe("matching", () => {
   const NEXT_WEDNESDAY = new Date(WEDNESDAY.getTime() + 7 * 24 * 60 * 60_000);
-
-  /** Deliver everything the run enqueued, the way the real queue would. */
-  async function deliverAll(enqueued: DigestMessage[]) {
-    const result = await deliver(
-      "pawster-digest",
-      enqueued.map((body, i) => message(`m${i}`, body)),
-    );
-    expect(result.retryMessages).toEqual([]);
-  }
 
   it("enqueues a subscriber with the listed animals their search matches", async () => {
     await seedSubscriber("s-wed", "wed@example.org", 3);
@@ -465,7 +478,8 @@ describe("matching", () => {
         period: "2026-09-02",
         subscriberId: "s-wed",
         email: "wed@example.org",
-        sections: [{ subscriptionId: "sub-s-wed", units: [["animal-1"]] }],
+        manageTokenVersion: 0,
+        sections: [shown("sub-s-wed", [["animal-1"]])],
       },
     ]);
   });
@@ -497,7 +511,7 @@ describe("matching", () => {
 
     const next = await enqueuedBy(NEXT_WEDNESDAY);
     expect(next.map((m) => m.sections)).toEqual([
-      [{ subscriptionId: "sub-s-wed", units: [["animal-1"]] }],
+      [shown("sub-s-wed", [["animal-1"]])],
     ]);
   });
 
@@ -552,7 +566,7 @@ describe("matching", () => {
 
     const [sent] = await enqueuedBy(WEDNESDAY);
     expect(sent!.sections).toEqual([
-      { subscriptionId: "sub-all", units: [["pair-a", "pair-b"]] },
+      shown("sub-all", [["pair-a", "pair-b"]]),
     ]);
   });
 
@@ -579,8 +593,57 @@ describe("matching", () => {
 
     const [sent] = await enqueuedBy(WEDNESDAY);
     expect(sent!.sections).toEqual([
-      { subscriptionId: "sub-dogs", units: [["dog-1"]] },
+      shown("sub-dogs", [["dog-1"]]),
     ]);
+  });
+});
+
+/**
+ * Ticket #64's selection: what one email carries. At most 12 rows per section and 24 per
+ * email, a count of what did not fit, and an animal that two searches match shown once.
+ */
+describe("what one email carries", () => {
+  const NEXT_WEDNESDAY = new Date(WEDNESDAY.getTime() + 7 * 24 * 60 * 60_000);
+  const ids = (prefix: string, n: number) =>
+    Array.from({ length: n }, (_, i) => `${prefix}-${String(i).padStart(2, "0")}`);
+
+  it("shows at most twelve units in a section and counts the rest", async () => {
+    await seedSubscriber("s-wed", "wed@example.org", 3);
+    await seedShelter();
+    for (const id of ids("dog", 13)) await seedAnimal(id);
+    await seedSubscription("sub-all", "s-wed");
+
+    const [sent] = await enqueuedBy(WEDNESDAY);
+
+    expect(sent!.sections).toHaveLength(1);
+    expect(sent!.sections[0]!.units).toEqual(ids("dog", 12).map((id) => [id]));
+    expect(sent!.sections[0]!.more).toBe(1);
+  });
+
+  it("sends next week what did not fit this week", async () => {
+    await seedSubscriber("s-wed", "wed@example.org", 3);
+    await seedShelter();
+    for (const id of ids("dog", 13)) await seedAnimal(id);
+    await seedSubscription("sub-all", "s-wed");
+
+    await deliverAll(await enqueuedBy(WEDNESDAY));
+
+    const next = await enqueuedBy(NEXT_WEDNESDAY);
+    expect(next.map((m) => m.sections)).toEqual([[shown("sub-all", [["dog-12"]])]]);
+  });
+
+  it("shows an animal two searches match once, and neither search sends it again", async () => {
+    await seedSubscriber("s-wed", "wed@example.org", 3);
+    await seedShelter();
+    await seedAnimal("dog-1");
+    await seedSubscription("sub-dogs", "s-wed", { species: ["dog"] }, 0);
+    await seedSubscription("sub-all", "s-wed", {}, 1);
+
+    const [sent] = await enqueuedBy(WEDNESDAY);
+    expect(sent!.sections.map((section) => section.units)).toEqual([[["dog-1"]], []]);
+
+    await deliverAll([sent!]);
+    expect(await enqueuedBy(NEXT_WEDNESDAY)).toEqual([]);
   });
 });
 
