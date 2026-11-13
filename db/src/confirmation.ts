@@ -25,9 +25,9 @@ export interface ShelterNudge {
 }
 
 /**
- * Verified shelters with at least one Available animal confirmed no later than
- * `staleBefore`, and not nudged since `nudgedBefore`. One entry per shelter, because a
- * nudge is one email per shelter and never one per animal.
+ * Verified shelters that have not asked to leave, with at least one Available animal confirmed
+ * no later than `staleBefore`, and not nudged since `nudgedBefore`. One entry per shelter,
+ * because a nudge is one email per shelter and never one per animal.
  */
 export async function findShelterNudgesOwed(
   db: Database,
@@ -44,6 +44,7 @@ export async function findShelterNudgesOwed(
     .where(
       and(
         eq(latestOutcome, "Verified"),
+        isNull(shelters.departedAt),
         or(isNull(shelters.nudgedAt), lte(shelters.nudgedAt, cutoffs.nudgedBefore)),
         sql`exists (
           select 1 from ${animals}

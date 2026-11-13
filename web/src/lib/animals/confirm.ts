@@ -10,11 +10,15 @@
 import type { Database } from "@pawster/db";
 import { animals, shelters } from "@pawster/db";
 import type { Availability, ConfirmableShelter } from "@pawster/domain";
-import { and, eq, or, sql } from "drizzle-orm";
+import { and, eq, isNull, or, sql } from "drizzle-orm";
 
 export type ConfirmedVia = "session" | "link";
 
-/** What `verifyConfirmationToken()` needs from the row. */
+/**
+ * What `verifyConfirmationToken()` needs from the row. A shelter that has asked to leave reads
+ * as missing, so its links answer like expired ones: nothing it leaves behind is confirmed
+ * from an email. Signed in, it can still confirm during the grace period (#65).
+ */
 export async function readConfirmableShelter(
   db: Database,
   shelterId: string,
@@ -22,7 +26,7 @@ export async function readConfirmableShelter(
   const [row] = await db
     .select({ accountEmail: shelters.accountEmail, nudgeVersion: shelters.nudgeVersion })
     .from(shelters)
-    .where(eq(shelters.id, shelterId))
+    .where(and(eq(shelters.id, shelterId), isNull(shelters.departedAt)))
     .limit(1);
   return row ?? null;
 }
