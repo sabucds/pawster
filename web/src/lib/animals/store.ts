@@ -35,7 +35,7 @@ import type {
   Species,
   Sterilisation,
 } from "@pawster/domain";
-import { and, count, desc, eq, isNotNull, ne } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNotNull, ne, sql } from "drizzle-orm";
 import type { AnimalEditInput, AnimalInput } from "./publish.ts";
 import { newShortId } from "./short-id.ts";
 
@@ -66,6 +66,8 @@ export interface StoredAnimal {
   readonly lastConfirmedAt: Date;
   readonly matchableSince: Date;
   readonly urgentReason: string | null;
+  /** Shared by every animal adopted together with this one; `null` for a lone animal. */
+  readonly bondedGroupId: string | null;
 }
 
 /** The columns every read below selects, named once so the three of them cannot drift. */
@@ -90,6 +92,7 @@ const ANIMAL_COLUMNS = {
   lastConfirmedAt: animals.lastConfirmedAt,
   matchableSince: animals.matchableSince,
   urgentReason: animals.urgentReason,
+  bondedGroupId: animals.bondedGroupId,
 } as const;
 
 /**
@@ -314,29 +317,66 @@ export async function publishAnimal(
  */
 export async function editAnimal(
   db: Database,
-  animalId: string,
+  owner: { readonly id: string; readonly shelterId: string },
   animal: AnimalEditInput,
+  bondedWith: readonly string[],
   now: Date,
 ): Promise<void> {
-  await db
-    .update(animals)
-    .set({
-      name: animal.name,
-      species: animal.species,
-      size: animal.size,
-      sex: animal.sex,
-      estimatedBirthDate: animal.estimatedBirthDate,
-      ageEstimateBasis: animal.ageEstimateBasis,
-      region: animal.region,
-      goodWithChildren: animal.goodWith.children,
-      goodWithDogs: animal.goodWith.dogs,
-      goodWithCats: animal.goodWith.cats,
-      description: animal.description,
-      medicalNeeds: animal.medicalNeeds,
-      sterilisation: animal.sterilisation,
-      availability: animal.availability,
-      urgentReason: animal.urgentReason,
-      lastConfirmedAt: now,
-    })
-    .where(eq(animals.id, animalId));
+  const mine = and(eq(animals.shelterId, owner.shelterId), inArray(animals.id, [owner.id, ...bondedWith]));
+  /** The group this animal is in once the bond below has been written. */
+  const itsGroup = sql`(select ${animals.bondedGroupId} from ${animals} where ${animals.id} = ${owner.id})`;
+
+  /**
+   * One batch, so the bond, the facts and the spread land together or not at all.
+   *
+   * The ticked set is the whole group as this animal sees it, so it gets a fresh id each save
+   * rather than reusing the old one: an animal left unticked stays behind in the old group,
+   * and the last statement dissolves that group if it is down to one. Filtering on the shelter
+   * is what keeps a forged id for someone else's animal from bonding it.
+   */
+  await db.batch([
+    db
+      .update(animals)
+      .set({ bondedGroupId: bondedWith.length === 0 ? null : crypto.randomUUID() })
+      .where(bondedWith.length === 0 ? eq(animals.id, owner.id) : mine),
+    db
+      .update(animals)
+      .set({
+        name: animal.name,
+        species: animal.species,
+        size: animal.size,
+        sex: animal.sex,
+        estimatedBirthDate: animal.estimatedBirthDate,
+        ageEstimateBasis: animal.ageEstimateBasis,
+        region: animal.region,
+        goodWithChildren: animal.goodWith.children,
+        goodWithDogs: animal.goodWith.dogs,
+        goodWithCats: animal.goodWith.cats,
+        description: animal.description,
+        medicalNeeds: animal.medicalNeeds,
+        sterilisation: animal.sterilisation,
+        availability: animal.availability,
+        urgentReason: animal.urgentReason,
+        lastConfirmedAt: now,
+      })
+      .where(eq(animals.id, owner.id)),
+    /**
+     * A group is adopted together and confirmed together: its state and its confirmation are
+     * the group's, so they reach every member. Every other fact stays each animal's own.
+     */
+    db
+      .update(animals)
+      .set({ availability: animal.availability, lastConfirmedAt: now })
+      .where(eq(animals.bondedGroupId, itsGroup)),
+    /** A group of one is not a group. */
+    db
+      .update(animals)
+      .set({ bondedGroupId: null })
+      .where(
+        and(
+          eq(animals.shelterId, owner.shelterId),
+          sql`${animals.bondedGroupId} in (select ${animals.bondedGroupId} from ${animals} where ${animals.bondedGroupId} is not null group by ${animals.bondedGroupId} having count(*) = 1)`,
+        ),
+      ),
+  ]);
 }

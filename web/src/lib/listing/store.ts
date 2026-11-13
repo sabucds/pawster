@@ -134,6 +134,7 @@ export async function readListableAnimals(
       goodWithCats: animals.goodWithCats,
       availability: animals.availability,
       urgentReason: animals.urgentReason,
+      bondedGroupId: animals.bondedGroupId,
       shelterId: animals.shelterId,
       /** `null` where the primary photograph's row has gone — see {@link ListableRead}. */
       sourceDigest: uploadSessionPhotos.sourceDigest,
@@ -225,13 +226,7 @@ export async function readListableAnimals(
          * the page, and it is decided here once for every card.
          */
         thumbnailKey: await derivativeKey(row.sourceDigest, "cardThumbnail"),
-        /**
-         * Always `null` until bonded groups land with issue #59, which #56 puts out of scope:
-         * single animals only. The field is on the wire already because the index's shape is
-         * `domain/`'s and the measurement was taken over it, so #59 fills a column in rather
-         * than changing a format two consumers agree on.
-         */
-        bondedGroupId: null,
+        bondedGroupId: row.bondedGroupId,
         /**
          * **The presence of the reason is the mark** — there is no `is_urgent` boolean, because
          * two columns could disagree and `CONTEXT.md` builds the reason into the definition. The

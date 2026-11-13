@@ -12,6 +12,7 @@ import {
   countUrgentAnimals,
   editAnimal,
   findAnimal,
+  listShelterAnimals,
 } from "../../../lib/animals/store.ts";
 import {
   ageBandLabel,
@@ -92,7 +93,10 @@ if (Astro.request.method === "POST") {
   });
 
   if (parsed.ok) {
-    await editAnimal(db, animal.id, parsed.value, now);
+    const bondedWith = submitted
+      .getAll("bondedWith")
+      .filter((value): value is string => typeof value === "string" && value !== animal.id);
+    await editAnimal(db, animal, parsed.value, bondedWith, now);
 
     /**
      * An edit is a Confirmation and can change what the listing shows — a new name, a changed
@@ -181,6 +185,18 @@ const stored: Record<string, string> = {
  * control the browser left out.
  */
 const values = submitted ? readSubmittedValues(submitted) : stored;
+
+/** Every other animal of this shelter's, any of which this one can be adopted together with. */
+const others = (await listShelterAnimals(db, session.shelterId)).filter(
+  (other) => other.id !== animal.id,
+);
+const bonded = new Set(
+  submitted
+    ? submitted.getAll("bondedWith")
+    : others
+        .filter((other) => animal.bondedGroupId !== null && other.bondedGroupId === animal.bondedGroupId)
+        .map((other) => other.id),
+);
 
 const saved = Astro.url.searchParams.has("guardado") && submitted === null;
 const published = Astro.url.searchParams.has("publicado") && submitted === null;
@@ -283,6 +299,28 @@ const listingPending =
 
   <form method="post" data-testid="edit-form">
     <AnimalFields errors={errors} values={values} withAvailability />
+    {
+      others.length > 0 && (
+        <fieldset data-testid="bonded-with">
+          <legend>Se adoptan junto con</legend>
+          <p>
+            Marca los que tienen que irse juntos. Se publican en una sola tarjeta, y lo que
+            cambies de su estado aquí les llega a todos.
+          </p>
+          {others.map((other) => (
+            <label>
+              <input
+                type="checkbox"
+                name="bondedWith"
+                value={other.id}
+                checked={bonded.has(other.id)}
+              />
+              {other.name}
+            </label>
+          ))}
+        </fieldset>
+      )
+    }
     <p>
       <button type="submit">Guardar</button>
     </p>

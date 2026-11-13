@@ -57,6 +57,13 @@
       "when": 1789397683184,
       "tag": "0007_unsubscribe_retirement_and_the_manage_token",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1794600310832,
+      "tag": "0008_bonded_groups",
+      "breakpoints": true
     }
   ]
 }
