@@ -398,10 +398,11 @@ export const animals = sqliteTable(
     /**
      * When the animal first became matchable. Set once at publication and never moved.
      *
-     * Distinct from `lastConfirmedAt`, and the pair is the point: a confirmation records
-     * that the animal is still true *now*, while this records when it entered the pool. The
-     * digest's "what is new" reads this one, so folding the two together would make every
-     * edit re-announce an animal that subscribers were shown weeks ago.
+     * Distinct from `lastConfirmedAt`: a confirmation records that the animal is still true
+     * *now*, while this records when it entered the pool, and the shelter's own list sorts by
+     * it. The digest does not read it. ADR 0009 meant it to narrow the digest's candidates,
+     * but no time cutoff can do that without dropping overflow a capped email left for next
+     * week or a puppy that grew into a band, so the sent-set alone decides what is new.
      */
     matchableSince: integer("matchable_since", {
       mode: "timestamp_ms",

@@ -52,9 +52,10 @@ const listedRow = (row: AnimalFacts & ShelterFacts) => isListed(row, row);
  * The SQL selects candidates and `isListed()` decides, for the reason the web store gives:
  * one statement of the listing rule, in the package that can unit-test it.
  *
- * `matchable_since` is deliberately not a filter here. It is set once at publication, so an
- * animal whose region was corrected, or who grew into a younger subscriber's age band, has an
- * old `matchable_since` and must still arrive. The sent-set alone decides what is new.
+ * `matchable_since` is deliberately not a filter here. An animal that grew into a subscriber's
+ * age band, or that a capped email left for next week, has an old `matchable_since` and must
+ * still arrive, so no time cutoff narrows this without changing who gets what. The sent-set
+ * alone decides what is new.
  */
 export async function readListedForDigest(db: Database): Promise<DigestAnimal[]> {
   const rows = await db

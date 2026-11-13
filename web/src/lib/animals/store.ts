@@ -317,12 +317,12 @@ export async function publishAnimal(
 /**
  * Save an edit, which is also a Confirmation.
  *
- * **`lastConfirmedAt` moves and `matchableSince` does not**, and the asymmetry is the reason both
- * columns exist. `CONTEXT.md` makes a Confirmation "a shelter's deliberate write to one animal —
- * an edit, a new photo, or an explicit 'still available' click — which records that the animal
- * was true as of that moment", so every edit is one by definition and issue #55 requires it.
- * Touching `matchableSince` would re-announce the animal to every subscriber who has already
- * been shown it, turning a corrected typo into a second notification.
+ * **`lastConfirmedAt` moves and `matchableSince` does not.** `CONTEXT.md` makes a Confirmation
+ * "a shelter's deliberate write to one animal — an edit, a new photo, or an explicit 'still
+ * available' click — which records that the animal was true as of that moment", so every edit
+ * is one by definition and issue #55 requires it. `matchableSince` stays put so the shelter's
+ * list (`listShelterAnimals`) does not reshuffle on every edit. Moving it would not re-announce
+ * anything either way: the digest's sent-set decides what is new (`db/src/schema.ts`).
  *
  * `uploadSessionId` is absent from the update, and so is the shelter: an animal belongs to
  * exactly one shelter for life and is assembled from exactly one session, and a write path that
