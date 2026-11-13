@@ -912,3 +912,15 @@ export function groupProvenanceLine(
   const confirmed = agree(CONFIRMED_PLURAL_WORDS, pluralSex(members.map((m) => m.sex))).word;
   return `${region} · ${confirmed} ${agoPhrase(daysBetween(lastConfirmedAt, asOf))}`;
 }
+
+/**
+ * The demo shelter's words on the animal page (ADR 0021). The page opens with the notice, and
+ * the forwarded preview leads with {@link DEMO_SOCIAL_LEAD}, because a WhatsApp forward shows
+ * the preview and nothing else. The card's chip is `../listing/words.ts`'s `DEMO_CHIP_LABEL`,
+ * which also prefixes the page title.
+ */
+export const DEMO_NOTICE =
+  "Este animal es de ejemplo. Lo publicó el refugio de demostración de Pawster y no está en adopción.";
+export const DEMO_SHELTER_NOTE =
+  "Refugio de demostración: muestra cómo se ve Pawster y no es un refugio real.";
+export const DEMO_SOCIAL_LEAD = "Animal de ejemplo de la demostración de Pawster.";

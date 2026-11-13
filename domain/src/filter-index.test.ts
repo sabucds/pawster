@@ -35,6 +35,7 @@ function listed(overrides: Partial<ListedAnimal> = {}): ListedAnimal {
     thumbnailKey: "d/abc123.webp",
     bondedGroupId: null,
     urgent: false,
+    demo: false,
     shelterId: "s1",
     ...overrides,
   };
@@ -51,6 +52,7 @@ describe("the index's wire shape", () => {
       goodWith: { children: "No", dogs: "Yes", cats: "Unknown" },
       bondedGroupId: "g1",
       urgent: true,
+      demo: true,
     });
 
     const [decoded] = parseIndex(
@@ -58,6 +60,14 @@ describe("the index's wire shape", () => {
     ).animals;
 
     expect(decoded).toEqual(animal);
+  });
+
+  it("adds no bytes to a real animal for the demo mark", () => {
+    const text = serializeIndex({ generatedAt: "2026-09-08", animals: [listed()] });
+    expect(text).not.toContain('"e"');
+    expect(
+      serializeIndex({ generatedAt: "2026-09-08", animals: [listed({ demo: true })] }),
+    ).toContain('"e":1');
   });
 
   it("round-trips a dog carrying every size", () => {

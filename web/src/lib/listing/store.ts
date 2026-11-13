@@ -141,6 +141,7 @@ export async function readListableAnimals(
       contactPointCount,
       latestVerificationOutcome,
       departedAt: shelters.departedAt,
+      demo: shelters.demo,
     })
     .from(animals)
     /**
@@ -229,6 +230,7 @@ export async function readListableAnimals(
          * column becomes a boolean exactly here.
          */
         urgent: row.urgentReason !== null,
+        demo: row.demo,
         shelterId: row.shelterId,
       };
     }),

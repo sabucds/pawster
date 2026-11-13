@@ -1,0 +1,1 @@
+ALTER TABLE `shelters` ADD `demo` integer DEFAULT false NOT NULL;

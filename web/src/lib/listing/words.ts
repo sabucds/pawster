@@ -26,6 +26,12 @@
 export const URGENT_CHIP_LABEL = "Urgente";
 
 /**
+ * The chip on every card of the demo shelter's animals (ADR 0021). It says what a visitor
+ * needs to know before tapping: this animal is an example and cannot be adopted.
+ */
+export const DEMO_CHIP_LABEL = "Ejemplo, no está en adopción";
+
+/**
  * How many animals the current filters leave, said in Spanish and agreeing with the number.
  *
  * Four cases, and the two zero cases are different problems that read differently. An empty

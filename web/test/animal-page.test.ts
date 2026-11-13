@@ -37,6 +37,8 @@ interface SeedOptions extends SeedAnimalOptions {
   readonly contacts?: readonly (readonly [ContactPointKind, string])[];
   /** Skipped to leave the shelter awaiting verification, which is the 404 case. */
   readonly verified?: boolean;
+  /** Makes the shelter the demo shelter (ADR 0021). */
+  readonly demo?: boolean;
 }
 
 /**
@@ -58,6 +60,7 @@ async function seedListedAnimal(options: SeedOptions = {}): Promise<void> {
     accountEmail: "hola@refugio.example",
     baseRegion: "Miranda",
     countryCode: "VE",
+    demo: options.demo ?? false,
     createdAt: new Date("2026-01-01"),
   });
 
@@ -480,5 +483,39 @@ describe("what the page never shows", () => {
     expect(await (await get("/a/animal-1/canela")).text()).toContain(
       "Tiene que salir del refugio esta semana.",
     );
+  });
+});
+
+describe("the demo shelter's animal", () => {
+  it("says on the page, in the tab and in a forwarded preview that it is not for adoption", async () => {
+    await seedListedAnimal({ demo: true });
+
+    const html = await (await get("/a/animal-1/canela")).text();
+
+    expect(html).toContain('data-testid="demo-notice"');
+    expect(html).toContain('data-testid="demo-shelter"');
+    // A WhatsApp forward shows only the preview, so the preview has to say it too.
+    expect(html).toMatch(/<meta property="og:title" content="Ejemplo, no está en adopción: Canela/);
+    expect(html).toMatch(/<meta property="og:description" content="Animal de ejemplo de la demostración de Pawster\./);
+    expect(html).toMatch(/<title>Ejemplo, no está en adopción: Canela/);
+  });
+
+  it("keeps the label on its archive page", async () => {
+    await seedListedAnimal({ demo: true, availability: "Adopted" });
+
+    const html = await (await get("/a/animal-1/canela")).text();
+
+    expect(html).toContain('data-testid="archive-headline"');
+    expect(html).toContain('data-testid="demo-notice"');
+  });
+
+  it("is absent on a real shelter's animal", async () => {
+    await seedListedAnimal();
+
+    const html = await (await get("/a/animal-1/canela")).text();
+
+    expect(html).not.toContain('data-testid="demo-notice"');
+    expect(html).not.toContain('data-testid="demo-shelter"');
+    expect(html).not.toContain("Ejemplo, no está en adopción");
   });
 });

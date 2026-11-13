@@ -85,6 +85,13 @@
       "when": 1794601806985,
       "tag": "0011_shelter_departure",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1794602680958,
+      "tag": "0012_shelter_demo",
+      "breakpoints": true
     }
   ]
 }
