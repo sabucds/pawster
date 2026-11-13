@@ -337,7 +337,7 @@ export async function editAnimal(
   bondedWith: readonly string[],
   now: Date,
 ): Promise<void> {
-  const mine = and(eq(animals.shelterId, owner.shelterId), inArray(animals.id, [owner.id, ...bondedWith]));
+  const newGroup = and(eq(animals.shelterId, owner.shelterId), inArray(animals.id, [owner.id, ...bondedWith]));
 
   /**
    * One batch, so the bond, the facts and the spread land together or not at all.
@@ -351,7 +351,7 @@ export async function editAnimal(
     db
       .update(animals)
       .set({ bondedGroupId: bondedWith.length === 0 ? null : crypto.randomUUID() })
-      .where(bondedWith.length === 0 ? eq(animals.id, owner.id) : mine),
+      .where(bondedWith.length === 0 ? eq(animals.id, owner.id) : newGroup),
     db
       .update(animals)
       .set({
