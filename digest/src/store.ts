@@ -61,6 +61,7 @@ export async function readListedForDigest(db: Database): Promise<DigestAnimal[]>
       bondedGroupId: animals.bondedGroupId,
       contactPointCount,
       latestVerificationOutcome,
+      departedAt: shelters.departedAt,
     })
     .from(animals)
     /**
@@ -77,8 +78,7 @@ export async function readListedForDigest(db: Database): Promise<DigestAnimal[]>
         {
           latestVerificationOutcome: row.latestVerificationOutcome,
           contactPointCount: row.contactPointCount,
-          // Always null until Departure lands (#65), as in the web store.
-          departedAt: null,
+          departedAt: row.departedAt,
         },
       ),
     )
