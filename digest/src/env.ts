@@ -3,6 +3,17 @@ export interface DigestMessage {
   period: string;
   subscriberId: string;
   email: string;
+  /**
+   * What this subscriber is being sent, one entry per saved search with something new. Each
+   * unit is its members' animal ids: one id for a single animal, two or more for a bonded
+   * group. The consumer writes exactly these into the sent-set after the send succeeds.
+   */
+  sections: DigestSection[];
+}
+
+export interface DigestSection {
+  subscriptionId: string;
+  units: string[][];
 }
 
 export interface Env {

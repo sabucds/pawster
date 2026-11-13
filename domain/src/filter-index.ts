@@ -469,16 +469,25 @@ export function selectListed(
  * A listed unit as the matcher's {@link AdoptionUnit}: the lone animal's axes, or a group of
  * its members'. Exported so a card answers good-with from the same unit the filter matched.
  */
-export function adoptionUnitOf([first, second, ...others]: ListedUnit): AdoptionUnit {
+export function adoptionUnitOf<T extends AnimalAxes>([
+  first,
+  second,
+  ...others
+]: readonly [T, ...T[]]): AdoptionUnit {
   return second === undefined
     ? axesOf(first)
     : { members: [axesOf(first), axesOf(second), ...others.map(axesOf)] };
 }
 
-/** Entries grouped by `bondedGroupId`; a lone animal is a unit of one. */
-function unitsOf(animals: readonly ListedAnimal[]): ListedUnit[] {
-  const groups = new Map<string, ListedAnimal[]>();
-  const units: ListedAnimal[][] = [];
+/**
+ * Entries grouped by `bondedGroupId`, in id order; a lone animal is a unit of one. Generic so
+ * the digest groups its own rows with the listing's rule rather than a copy of it.
+ */
+export function unitsOf<T extends { readonly id: string; readonly bondedGroupId: string | null }>(
+  animals: readonly T[],
+): [T, ...T[]][] {
+  const groups = new Map<string, T[]>();
+  const units: T[][] = [];
   const byId = [...animals].sort((l, r) => (l.id < r.id ? -1 : l.id > r.id ? 1 : 0));
   for (const animal of byId) {
     if (animal.bondedGroupId === null) {
@@ -494,7 +503,7 @@ function unitsOf(animals: readonly ListedAnimal[]): ListedUnit[] {
       units.push(created);
     }
   }
-  return units as unknown as ListedUnit[];
+  return units as [T, ...T[]][];
 }
 
 /**
@@ -524,7 +533,7 @@ function unitsOf(animals: readonly ListedAnimal[]): ListedUnit[] {
  * casts rather than safety today" — and the reference data that would justify a constructor
  * belongs to a later ticket. So the guarantee is this one function and the test that pins it.
  */
-function axesOf(animal: ListedAnimal): AnimalAxes {
+function axesOf(animal: AnimalAxes): AnimalAxes {
   return {
     ...(animal satisfies AnimalAxes),
     region: normaliseRegion(animal.region),

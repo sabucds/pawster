@@ -1,5 +1,6 @@
 import {
   createDb,
+  digestRuns,
   findNeverMatchedSubscribers,
   recordNudge,
   runSubscriberPurges,
@@ -7,19 +8,27 @@ import {
 } from "@pawster/db";
 import {
   DIGEST_DAILY_BUDGET,
+  digestCandidates,
   digestIdempotencyKey,
   neverMatchedNudgeCutoff,
   optInMailLedgerCutoff,
   optInPurgeCutoff,
+  readCriteria,
   unsubscribeUrl,
   unsubscribedErasureCutoff,
 } from "@pawster/domain";
-import { and, asc, eq, isNull } from "drizzle-orm";
-import type { DigestMessage, Env } from "./env.ts";
+import { asc } from "drizzle-orm";
+import type { DigestMessage, DigestSection, Env } from "./env.ts";
 import { sendConfirmationNudges } from "./confirmation-nudge.ts";
 import { NUDGES_PER_RUN, sendNudgeEmail } from "./nudge.ts";
 import { pingWatchdog } from "./watchdog.ts";
 import { sendDigestEmail } from "./resend.ts";
+import {
+  mailable,
+  readListedForDigest,
+  readShardSentSets,
+  readShardSubscriptions,
+} from "./store.ts";
 
 /**
  * The digest Worker: a `scheduled` producer and a `queue` consumer in one script, sharing
@@ -27,12 +36,12 @@ import { sendDigestEmail } from "./resend.ts";
  * gets its own 3 MB bundle and 10 ms CPU budget, deploys independently, and — the reason
  * that matters — can be tested without booting Astro (ADR 0007).
  *
- * The run is deliberately thin: it purges what retention is due, sends the ninety-day nudges
- * that are owed, finds today's shard, enqueues one message per subscriber, and pings the
- * watchdog once the shard is enqueued. What is settled here is the shape — fan-out is forced
- * by the 50-subrequest and 10 ms limits, so neither handler may do unbounded work in one
- * invocation (ADR 0006). Matching animals to subscriptions is the next ticket's job and slots
- * into `queue()` below.
+ * The run purges what retention is due, sends the ninety-day nudges that are owed, finds
+ * today's shard, matches it against the listed animals, enqueues one message per subscriber
+ * with something new, records the run, and pings the watchdog. Fan-out is forced by the
+ * 50-subrequest and 10 ms limits, so neither handler may do unbounded work in one invocation
+ * (ADR 0006): the producer does four reads however large the shard is, and each consumer
+ * invocation sends one email and makes one write.
  */
 
 /** `YYYY-MM-DD` in UTC. The unit of scheduling, of retry, and of the record kept after. */
@@ -135,26 +144,69 @@ export default {
      */
     const confirmationNudges = await sendConfirmationNudges(env, now);
 
-    const shard = await db
-      .select({ id: subscribers.id, email: subscribers.email })
-      .from(subscribers)
-      .where(
-        and(
-          eq(subscribers.sendDay, sendDay),
-          isNull(subscribers.unsubscribedAt),
-          isNull(subscribers.retiredAt),
-        ),
-      )
-      .orderBy(asc(subscribers.lastDigestAt), asc(subscribers.optedInAt))
-      .limit(Math.max(0, DIGEST_DAILY_BUDGET - nudged - confirmationNudges));
+    const [shard, searches, sentSets, listed] = await Promise.all([
+      db
+        .select({ id: subscribers.id, email: subscribers.email })
+        .from(subscribers)
+        .where(mailable(sendDay))
+        .orderBy(asc(subscribers.lastDigestAt), asc(subscribers.optedInAt)),
+      readShardSubscriptions(db, sendDay),
+      readShardSentSets(db, sendDay),
+      readListedForDigest(db),
+    ]);
 
-    for (const subscriber of shard) {
+    /**
+     * ADR 0009's candidate set, per search: matches the criteria AND currently listed AND not
+     * in that search's sent-set. A subscriber with nothing new is not enqueued at all, so the
+     * budget below is spent only on mail that says something.
+     */
+    const sectionsBySubscriber = new Map<string, DigestSection[]>();
+    for (const search of searches) {
+      const units = digestCandidates(
+        listed,
+        readCriteria(search.criteria),
+        sentSets.get(search.id) ?? new Set(),
+        now,
+      );
+      if (units.length === 0) continue;
+      const sections = sectionsBySubscriber.get(search.subscriberId) ?? [];
+      sections.push({ subscriptionId: search.id, units });
+      sectionsBySubscriber.set(search.subscriberId, sections);
+    }
+
+    const due = shard
+      .filter((subscriber) => sectionsBySubscriber.has(subscriber.id))
+      .slice(0, Math.max(0, DIGEST_DAILY_BUDGET - nudged - confirmationNudges));
+
+    let units = 0;
+    for (const subscriber of due) {
+      const sections = sectionsBySubscriber.get(subscriber.id)!;
+      units += sections.reduce((sum, section) => sum + section.units.length, 0);
       await env.DIGEST_QUEUE.send({
         period,
         subscriberId: subscriber.id,
         email: subscriber.email,
+        sections,
       });
     }
+
+    /**
+     * The Digest Run record (`CONTEXT.md`), written after the shard is enqueued so a run that
+     * throws half-way leaves no row claiming it finished. ADR 0010 asks the purges to write
+     * their counts here, and they do: a purge that silently stopped finding rows looks exactly
+     * like a purge with nothing to do, and these numbers are what tell them apart.
+     */
+    const run = {
+      period,
+      shard: shard.length,
+      enqueued: due.length,
+      units,
+      nudged,
+      purgedOptIns: purged.optIns,
+      purgedOptInMails: purged.mailLedger,
+      erasedSubscribers: purged.erasedSubscribers,
+    };
+    await db.insert(digestRuns).values({ ...run, ranAt: now });
 
     /**
      * At completion, per run, not per batch (ADR 0009): a check per batch turns a quiet
@@ -163,25 +215,7 @@ export default {
      * which is the alarm. `waitUntil` keeps the ping off the critical path without
      * changing that, because a ping registered here was already earned.
      */
-    ctx.waitUntil(
-      pingWatchdog(env.HEALTHCHECK_URL, "success", {
-        period,
-        subscribers: shard.length,
-        /**
-         * ADR 0010 asks the purges to write "their counts into the `Digest Run` summary".
-         * That table does not exist yet, and the ping's detail body is the record that does —
-         * so the counts go here until it lands. It is the reporting that matters rather than
-         * the destination: a purge that silently stopped finding rows looks exactly like a
-         * purge with nothing to do, and these numbers are the only thing that tells them
-         * apart.
-         */
-        purgedOptIns: purged.optIns,
-        purgedOptInMails: purged.mailLedger,
-        erasedSubscribers: purged.erasedSubscribers,
-        nudged,
-        confirmationNudges,
-      }),
-    );
+    ctx.waitUntil(pingWatchdog(env.HEALTHCHECK_URL, "success", { ...run, confirmationNudges }));
   },
 
   async queue(
@@ -199,8 +233,6 @@ export default {
       return;
     }
 
-    const db = createDb(env.DB);
-
     for (const message of batch.messages) {
       try {
         await sendDigestEmail(env, {
@@ -215,12 +247,32 @@ export default {
           // Signed, because the link is the subscriber's whole credential (CONTEXT.md).
           unsubscribeUrl: await unsubscribeUrl(env, message.body.subscriberId),
         });
-        // Only after the send actually succeeded, and only as ADR 0009's reporting field:
-        // it orders the next shard's overflow and is never asked what is "new".
-        await db
-          .update(subscribers)
-          .set({ lastDigestAt: new Date() })
-          .where(eq(subscribers.id, message.body.subscriberId));
+        // Only after the send actually succeeded: the sent-set is what makes tomorrow's
+        // candidates exclude these animals, and a dropped message writes nothing, so the next
+        // run simply recomputes it. `lastDigestAt` is ADR 0009's reporting field; it orders
+        // the next shard's overflow and is never asked what is "new".
+        const sentAt = new Date();
+        const remember = env.DB.prepare(
+          // Guarded by EXISTS rather than trusted: the search can be deleted from the manage
+          // page, or the animal removed, between enqueue and send, and a foreign-key failure
+          // here would retry an email that already went out.
+          `insert or ignore into digest_sent (subscription_id, animal_id, sent_at)
+           select ?1, ?2, ?3
+           where exists (select 1 from subscriptions where id = ?1)
+             and exists (select 1 from animals where id = ?2)`,
+        );
+        await env.DB.batch([
+          env.DB.prepare(
+            "update subscribers set last_digest_at = ? where id = ?",
+          ).bind(sentAt.getTime(), message.body.subscriberId),
+          ...message.body.sections.flatMap((section) =>
+            section.units
+              .flat()
+              .map((animalId) =>
+                remember.bind(section.subscriptionId, animalId, sentAt.getTime()),
+              ),
+          ),
+        ]);
         message.ack();
       } catch {
         // Let Queues retry, then dead-letter. The sent-set — not the message — is the
