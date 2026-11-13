@@ -104,19 +104,23 @@ const cancelRefused = Astro.request.method === "POST" && errors.length === 0;
           deshacerlo con un clic desde el panel, y todo vuelve como estaba.
         </p>
 
-        <h2>Lo que se borra a los {graceDays} días</h2>
-        <ul data-testid="destroyed">
-          <li>Tus formas de contacto.</li>
-          <li>El correo del refugio, con el que entras.</li>
-          <li>Todas las sesiones abiertas, que se cierran.</li>
-        </ul>
+        <section data-testid="destroyed">
+          <h2>Lo que se borra a los {graceDays} días</h2>
+          <ul>
+            <li>Tus formas de contacto.</li>
+            <li>El correo del refugio, con el que entras.</li>
+            <li>Todas las sesiones abiertas, que se cierran.</li>
+          </ul>
+        </section>
 
-        <h2>Lo que se queda</h2>
-        <ul data-testid="kept">
-          <li>El nombre del refugio.</li>
-          <li>Tus animales y sus páginas de archivo.</li>
-          <li>El registro de verificación.</li>
-        </ul>
+        <section data-testid="kept">
+          <h2>Lo que se queda</h2>
+          <ul>
+            <li>El nombre del refugio.</li>
+            <li>Tus animales y sus páginas de archivo.</li>
+            <li>El registro de verificación.</li>
+          </ul>
+        </section>
         <p>
           Las páginas de archivo se quedan porque son una promesa a quienes adoptaron. Dicen que
           el refugio ya no está en Pawster, con un texto fijo del sitio: no se puede dejar un

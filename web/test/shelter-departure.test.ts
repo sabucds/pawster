@@ -7,7 +7,7 @@ import { outbound } from "../../test/outbound.ts";
 import { regenerateIndex } from "../src/lib/listing/regenerate.ts";
 import { seedAnimal } from "./support/animal.ts";
 import { get, post } from "./support/http.ts";
-import { REGISTRATION, clearShelterTables, signIn, verifyShelter } from "./support/shelter.ts";
+import { REGISTRATION, ageMailLedger, clearShelterTables, signIn, verifyShelter } from "./support/shelter.ts";
 
 /**
  * Departure (issue #65, ADR 0015), through the Worker's front door against a real D1 and R2.
@@ -64,6 +64,22 @@ describe("requesting departure", () => {
     expect(response.headers.get("location")).toBe("/refugios/entrar");
   });
 
+  it("states what is erased at thirty days and what is kept", async () => {
+    const { cookie } = await signIn();
+
+    const html = await (await get(PATH, cookie)).text();
+
+    const destroyed = html.slice(html.indexOf('data-testid="destroyed"'), html.indexOf('data-testid="kept"'));
+    expect(destroyed).toContain("30 días");
+    expect(destroyed).toContain("formas de contacto");
+    expect(destroyed).toContain("correo del refugio");
+    expect(destroyed).toContain("sesiones");
+    const kept = html.slice(html.indexOf('data-testid="kept"'));
+    expect(kept).toContain("nombre del refugio");
+    expect(kept).toContain("páginas de archivo");
+    expect(kept).toContain("registro de verificación");
+  });
+
   it("refuses a name that is not the shelter's display name, and departs nothing", async () => {
     const { shelterId, cookie } = await signIn();
 
@@ -107,5 +123,71 @@ describe("what departure does to the listing", () => {
       .bind(shelterId)
       .all<{ availability: string }>();
     expect(availabilities.results.map((row) => row.availability)).toEqual(["Available"]);
+  });
+});
+
+describe("what an adopter sees after departure", () => {
+  it("is an archive page in fixed platform words, with no farewell of the shelter's", async () => {
+    const { shelterId, cookie } = await signIn();
+    await verifyShelter(shelterId);
+    await seedAnimal({ id: "canela", shelterId, name: "Canela", sex: "Female" });
+
+    await post(PATH, { displayName: REGISTRATION.displayName, farewell: "Gracias por todo, amigos" }, { cookie });
+
+    const response = await get("/a/canela/canela");
+    const html = await response.text();
+    expect(response.status).toBe(200);
+    expect(html).toContain("El refugio que la publicó ya no está en Pawster");
+    expect(html).toContain(REGISTRATION.displayName);
+    expect(html).not.toContain("Gracias por todo");
+  });
+});
+
+describe("the thirty days after departure", () => {
+  it("still lets the shelter sign in and reach its panel", async () => {
+    const { shelterId, cookie } = await signIn();
+    await depart(cookie);
+    outbound.reset();
+    await ageMailLedger(10 * 60_000);
+
+    const again = await signIn();
+    expect(again.shelterId).toBe(shelterId);
+    expect((await get("/refugios/panel", again.cookie)).status).toBe(200);
+  });
+
+  it("cancels in one click, relisting the animals with contact points and email untouched", async () => {
+    const { shelterId, cookie } = await signIn();
+    await verifyShelter(shelterId);
+    await seedAnimal({ id: "canela", shelterId });
+    await depart(cookie);
+    expect(await listedIds()).toEqual([]);
+
+    const panel = await (await get("/refugios/panel", cookie)).text();
+    expect(panel).toContain('data-testid="departed"');
+
+    const response = await post(PATH, { intent: "cancel" }, { cookie });
+
+    expect(response.status).toBe(303);
+    expect(await departedAt(shelterId)).toBeNull();
+    expect(await listedIds()).toEqual(["canela"]);
+    const panelAfter = await (await get("/refugios/panel", cookie)).text();
+    expect(panelAfter).toContain(REGISTRATION.accountEmail);
+    expect(panelAfter).not.toContain('data-testid="departed"');
+    const contacts = await env.DB.prepare("SELECT count(*) AS n FROM shelter_contact_points WHERE shelter_id = ?")
+      .bind(shelterId)
+      .first<{ n: number }>();
+    expect(contacts!.n).toBe(1);
+  });
+
+  it("refuses to cancel once the thirty days have passed", async () => {
+    const { shelterId, cookie } = await signIn();
+    await env.DB.prepare("UPDATE shelters SET departed_at = ? WHERE id = ?")
+      .bind(Date.now() - 31 * DAY, shelterId)
+      .run();
+
+    const response = await post(PATH, { intent: "cancel" }, { cookie });
+
+    expect(response.status).toBe(409);
+    expect(await departedAt(shelterId)).not.toBeNull();
   });
 });
