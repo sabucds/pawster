@@ -16,6 +16,7 @@ import {
 } from "@pawster/domain";
 import { and, asc, eq, isNull } from "drizzle-orm";
 import type { DigestMessage, Env } from "./env.ts";
+import { sendConfirmationNudges } from "./confirmation-nudge.ts";
 import { NUDGES_PER_RUN, sendNudgeEmail } from "./nudge.ts";
 import { pingWatchdog } from "./watchdog.ts";
 import { sendDigestEmail } from "./resend.ts";
@@ -132,6 +133,8 @@ export default {
      * "we keep your searches for ninety days" would mean "we keep mailing you for ninety
      * days".
      */
+    const confirmationNudges = await sendConfirmationNudges(env, now);
+
     const shard = await db
       .select({ id: subscribers.id, email: subscribers.email })
       .from(subscribers)
@@ -143,7 +146,7 @@ export default {
         ),
       )
       .orderBy(asc(subscribers.lastDigestAt), asc(subscribers.optedInAt))
-      .limit(Math.max(0, DIGEST_DAILY_BUDGET - nudged));
+      .limit(Math.max(0, DIGEST_DAILY_BUDGET - nudged - confirmationNudges));
 
     for (const subscriber of shard) {
       await env.DIGEST_QUEUE.send({
@@ -176,6 +179,7 @@ export default {
         purgedOptInMails: purged.mailLedger,
         erasedSubscribers: purged.erasedSubscribers,
         nudged,
+        confirmationNudges,
       }),
     );
   },

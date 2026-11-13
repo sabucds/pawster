@@ -75,3 +75,10 @@ export async function verifyConfirmationToken(
   const expected = await mac(secrets, { shelterId, version, accountEmail: shelter.accountEmail });
   return digestsEqual(token.slice(macAt + 1), expected) ? shelterId : null;
 }
+
+/**
+ * Thirty days, used twice: an Available animal unconfirmed this long goes in the nudge, and
+ * a shelter is nudged at most once in this long ("monthly", issue #60). It matches the end of
+ * the `Fresh` staleness band, so a nudge arrives as an animal starts to show as ageing.
+ */
+export const CONFIRMATION_NUDGE_INTERVAL_MS = 30 * 86_400_000;

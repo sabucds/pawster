@@ -125,6 +125,7 @@ export {
 } from "./retention.ts";
 export type { ConfirmableShelter, ConfirmationClaim } from "./confirmation-links.ts";
 export {
+  CONFIRMATION_NUDGE_INTERVAL_MS,
   CONFIRM_PATH,
   confirmationUrl,
   verifyConfirmationToken,
