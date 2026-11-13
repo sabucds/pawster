@@ -79,6 +79,7 @@ export type {
   FilterIndex,
   IndexPointer,
   ListedAnimal,
+  ListedUnit,
   StoredIndexObject,
 } from "./filter-index.ts";
 export {
@@ -89,6 +90,7 @@ export {
   INDEX_PREFIX,
   POINTER_CACHE_CONTROL,
   SUPERSEDED_INDEX_GRACE_MS,
+  adoptionUnitOf,
   compareByFreshestConfirmed,
   indexGeneratedAt,
   indexObjectKey,

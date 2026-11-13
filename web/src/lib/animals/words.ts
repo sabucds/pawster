@@ -821,3 +821,94 @@ export function archiveHeadline(reason: ArchiveReason, sex: Sex): string {
 export function archiveExplanation(reason: ArchiveReason, sex: Sex): string {
   return agree(ARCHIVE_EXPLANATIONS[reason], sex).word;
 }
+
+/* ------------------------------------------------------------------------------------- *
+ * A bonded group's phrases (issue #59).
+ *
+ * `CONTEXT.md` renders a Bonded Group as `se adoptan juntos`, stated as a consequence and never
+ * named as a noun. A group agrees in the plural, and in the feminine only when every member is
+ * female: Spanish's mixed plural is the masculine, so a group with an unrecorded sex is not an
+ * assumption and carries no `sexo no registrado` note of its own.
+ * ------------------------------------------------------------------------------------- */
+
+const ADOPTED_TOGETHER: Gendered = { m: "se adoptan juntos", f: "se adoptan juntas" };
+
+const CONFIRMED_PLURAL_WORDS: Gendered = { m: "Confirmados", f: "Confirmadas" };
+
+const SPECIES_PLURAL_WORDS: Record<Species, Gendered> = {
+  dog: { m: "perros", f: "perras" },
+  cat: { m: "gatos", f: "gatas" },
+};
+
+const AGE_BAND_PLURAL_WORDS: Record<AgeBand, Gendered> = {
+  Puppy: { m: "cachorros", f: "cachorras" },
+  Kitten: { m: "gaticos", f: "gaticas" },
+  Young: { m: "jóvenes", f: "jóvenes" },
+  Adult: { m: "adultos", f: "adultas" },
+  Senior: { m: "senior", f: "senior" },
+};
+
+/** Oldest first, so a mother is named before her litter. */
+const BAND_ORDER: readonly AgeBand[] = ["Senior", "Adult", "Young", "Puppy", "Kitten"];
+
+/** The sex a plural agrees with: feminine only when every member is female. */
+function pluralSex(sexes: readonly Sex[]): Sex {
+  return sexes.every((sex) => sex === "Female") ? "Female" : "Male";
+}
+
+/** `Canela, Pimienta y Clavo` — the list join Spanish uses, from the platform's own `Intl`. */
+export function namesList(names: readonly string[]): string {
+  return new Intl.ListFormat("es", { type: "conjunction" }).format(names);
+}
+
+export interface GroupMemberWords {
+  readonly species: Species;
+  readonly sex: Sex;
+  readonly band: AgeBand;
+}
+
+/**
+ * The card's one composition line for a bonded group — `Perra adulta y 3 cachorros · se
+ * adoptan juntos` — so an adopter knows from the listing that this is four dogs.
+ *
+ * Members of one species and band are counted rather than listed, and a lone one is described
+ * the way {@link speciesAndBand} describes any animal, which is where its disclaimer comes from.
+ */
+export function bondedGroupLine(members: readonly GroupMemberWords[]): string {
+  const buckets = new Map<string, GroupMemberWords[]>();
+  for (const band of BAND_ORDER) {
+    for (const member of members.filter((m) => m.band === band)) {
+      const key = `${member.species}/${band}`;
+      buckets.set(key, [...(buckets.get(key) ?? []), member]);
+    }
+  }
+
+  const parts = [...buckets.values()].map(([first, ...rest]): Resolved => {
+    if (rest.length === 0) return speciesAndBand(first!.species, first!.band, first!.sex);
+    const sex = pluralSex([first!, ...rest].map((m) => m.sex));
+    const band = agree(AGE_BAND_PLURAL_WORDS[first!.band], sex).word;
+    const noun = bandReplacesSpecies(first!.band)
+      ? band
+      : `${agree(SPECIES_PLURAL_WORDS[first!.species], sex).word} ${band}`;
+    return { word: `${rest.length + 1} ${noun}`, assumed: false };
+  });
+
+  const words = parts.map((part, at) =>
+    at === 0 ? part.word : part.word.charAt(0).toLowerCase() + part.word.slice(1),
+  );
+  return sentence([
+    { word: namesList(words), assumed: parts.some((part) => part.assumed) },
+    agree(ADOPTED_TOGETHER, pluralSex(members.map((m) => m.sex))),
+  ]);
+}
+
+/** {@link provenanceLine} for a group, which is confirmed as one: `Miranda · Confirmados ayer`. */
+export function groupProvenanceLine(
+  members: readonly { readonly sex: Sex }[],
+  region: string,
+  lastConfirmedAt: Date,
+  asOf: Date,
+): string {
+  const confirmed = agree(CONFIRMED_PLURAL_WORDS, pluralSex(members.map((m) => m.sex))).word;
+  return `${region} · ${confirmed} ${agoPhrase(daysBetween(lastConfirmedAt, asOf))}`;
+}

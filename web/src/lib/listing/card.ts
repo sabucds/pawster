@@ -28,14 +28,19 @@
  * `web/test/listing-card.test.ts` pins the worst case exhaustively.
  */
 
-import type { ListedAnimal } from "@pawster/domain";
+import type { GoodWithFlags, ListedUnit } from "@pawster/domain";
 import {
   GOOD_WITH_AXES,
+  adoptionUnitOf,
   deriveAgeBand,
   deriveStalenessBand,
+  goodWithFor,
 } from "@pawster/domain";
 import type { GoodWithAxis } from "@pawster/domain";
 import {
+  bondedGroupLine,
+  groupProvenanceLine,
+  namesList,
   goodWithPhrase,
   goodWithPositivesPhrase,
   goodWithUnknownLine,
@@ -91,8 +96,13 @@ export interface CardModel {
    * deleted that route without anything on this side failing.
    */
   readonly href: string;
+  /** The animal's name, or every member's for a bonded group — `Canela y Pimienta`. */
   readonly name: string;
-  /** `Perra adulta · Mediana`, with an assumed gender disclosed once for the whole card. */
+  /**
+   * `Perra adulta · Mediana`, with an assumed gender disclosed once for the whole card. For a
+   * bonded group, the one composition line instead — `Perra adulta y 3 cachorros · se adoptan
+   * juntos` (#59).
+   */
   readonly meta: string;
   /** The uniform line, on every card, in the same position. */
   readonly provenance: string;
@@ -110,7 +120,12 @@ export interface CardModel {
    * urgency-first ordering would let a handful of them own the first screen (#17, ADR 0001).
    */
   readonly urgent: boolean;
-  readonly photo: CardPhoto;
+  /**
+   * One photo, or a strip of one per bonded-group member. The strip's photos split the single
+   * frame's width and keep its height, so a group's card is exactly as tall as the lone
+   * animal's beside it — the fixed-height card depends on it (#59).
+   */
+  readonly photos: readonly [CardPhoto, ...CardPhoto[]];
 }
 
 /** The card's photo frame: 4:5, which is #17's variant A at a real 360px viewport. */
@@ -119,10 +134,10 @@ export const CARD_PHOTO_HEIGHT = 430;
 
 /** The axes whose answer is `flag`, in `GOOD_WITH_AXES` order so two cards agree. */
 function axesAnswering(
-  animal: ListedAnimal,
+  goodWith: GoodWithFlags,
   flag: "Yes" | "No" | "Unknown",
 ): readonly GoodWithAxis[] {
-  return GOOD_WITH_AXES.filter((axis) => animal.goodWith[axis] === flag);
+  return GOOD_WITH_AXES.filter((axis) => goodWith[axis] === flag);
 }
 
 /**
@@ -137,38 +152,49 @@ function axesAnswering(
  * a card can be built with no Worker involved at all.
  */
 export function cardModel(
-  animal: ListedAnimal,
+  unit: ListedUnit,
   now: Date,
   mediaBase: string,
 ): CardModel {
-  const band = deriveAgeBand(animal.species, animal.estimatedBirthDate, now);
+  const [animal] = unit;
+  const lone = unit.length === 1;
+  const adoptionUnit = adoptionUnitOf(unit);
+  const goodWith = Object.fromEntries(
+    GOOD_WITH_AXES.map((axis) => [axis, goodWithFor(adoptionUnit, axis)]),
+  ) as unknown as GoodWithFlags;
+  const bandOf = (member: (typeof unit)[number]) =>
+    deriveAgeBand(member.species, member.estimatedBirthDate, now);
 
   return {
     id: animal.id,
     href: animalPath(animal.id, animal.name),
-    name: animal.name,
-    meta: metaLine(animal, band),
-    provenance: provenanceLine(animal, now),
+    name: namesList(unit.map((member) => member.name)),
+    meta: lone
+      ? metaLine(animal, bandOf(animal))
+      : bondedGroupLine(unit.map((member) => ({ ...member, band: bandOf(member) }))),
+    provenance: lone
+      ? provenanceLine(animal, now)
+      : groupProvenanceLine(unit, animal.region, animal.lastConfirmedAt, now),
     provenanceAged: deriveStalenessBand(animal.lastConfirmedAt, now) !== "Fresh",
     goodWith: {
-      warnings: axesAnswering(animal, "No").map((axis) =>
+      warnings: axesAnswering(goodWith, "No").map((axis) =>
         goodWithPhrase(axis, "No"),
       ),
-      positives: goodWithPositivesPhrase(axesAnswering(animal, "Yes")),
-      unknown: goodWithUnknownLine(axesAnswering(animal, "Unknown")),
+      positives: goodWithPositivesPhrase(axesAnswering(goodWith, "Yes")),
+      unknown: goodWithUnknownLine(axesAnswering(goodWith, "Unknown")),
     },
-    urgent: animal.urgent,
-    photo: {
-      src: `${mediaBase}/${animal.thumbnailKey}`,
-      width: CARD_PHOTO_WIDTH,
+    urgent: unit.some((member) => member.urgent),
+    photos: unit.map((member) => ({
+      src: `${mediaBase}/${member.thumbnailKey}`,
+      width: Math.floor(CARD_PHOTO_WIDTH / unit.length),
       height: CARD_PHOTO_HEIGHT,
       /**
        * The animal's name and nothing more. A photograph of a dog captioned with a description
        * the shelter wrote for adopters is not what a screen-reader user needs from a grid of
        * twelve; the name is the card's identity and the rest of the card is text already.
        */
-      alt: animal.name,
-    },
+      alt: member.name,
+    })) as unknown as CardModel["photos"],
   };
 }
 
@@ -231,17 +257,27 @@ export function renderCard(card: CardModel): string {
     ? `<li class="good-with-unknown">${escapeHtml(card.goodWith.unknown)}</li>`
     : "";
 
-  return `<li class="card" data-testid="card" data-animal-id="${escapeHtml(card.id)}">
-  <a class="card-link" href="${escapeHtml(card.href)}">
-    <img
+  const images = card.photos
+    .map(
+      (photo) => `<img
       class="card-photo"
-      src="${escapeHtml(card.photo.src)}"
-      width="${card.photo.width}"
-      height="${card.photo.height}"
-      alt="${escapeHtml(card.photo.alt)}"
+      src="${escapeHtml(photo.src)}"
+      width="${photo.width}"
+      height="${photo.height}"
+      alt="${escapeHtml(photo.alt)}"
       loading="lazy"
       decoding="async"
-    />
+    />`,
+    )
+    .join("");
+
+  return `<li class="card" data-testid="card" data-animal-id="${escapeHtml(card.id)}">
+  <a class="card-link" href="${escapeHtml(card.href)}">
+    ${
+      card.photos.length === 1
+        ? images
+        : `<div class="card-photo-strip" data-testid="card-photo-strip">${images}</div>`
+    }
     <h2 class="card-name">${escapeHtml(card.name)}${
       card.urgent
         ? ` <span class="chip-urgent" data-testid="urgent-chip">${URGENT_CHIP_LABEL}</span>`

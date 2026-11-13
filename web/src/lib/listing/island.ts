@@ -198,9 +198,10 @@ export async function startListing(elements: ListingElements): Promise<void> {
      * survives contact with a grid that is rebuilt rather than diffed.
      */
     grid.innerHTML = shown
-      .map((animal) => renderCard(cardModel(animal, now, mediaBase)))
+      .map((unit) => renderCard(cardModel(unit, now, mediaBase)))
       .join("");
-    status.textContent = statusLine(shown.length, animals.length);
+    /** Counted in animals, not cards: a bonded group of three is three of the total. */
+    status.textContent = statusLine(shown.flat().length, animals.length);
     status.dataset.state = shown.length === 0 ? "empty" : "showing";
 
     /**
