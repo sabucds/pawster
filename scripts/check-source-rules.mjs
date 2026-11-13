@@ -206,6 +206,13 @@ const ACCOUNT_EMAIL_READERS = [
   "web/src/lib/auth/store.ts",
   /** `readShelterProfile()` renders it to the shelter; `changeAccountEmail()` moves it. */
   "web/src/lib/shelter/store.ts",
+  /** `findShelterNudgesOwed()`: where the Confirmation Nudge is sent (issue #60). */
+  "db/src/confirmation.ts",
+  /**
+   * `readConfirmableShelter()`: the nudge link is signed over the account email, so checking
+   * it needs the address. It goes into the MAC check and is never rendered (issue #60).
+   */
+  "web/src/lib/animals/confirm.ts",
 ];
 
 /**

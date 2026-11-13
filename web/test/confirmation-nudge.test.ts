@@ -69,7 +69,9 @@ describe("the confirmation link", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("set-cookie")).toBeNull();
-    expect(await response.text()).toContain("Canela");
+    const html = await response.text();
+    expect(html).toContain("Canela");
+    expect(html).not.toContain(REGISTRATION.accountEmail);
     expect(await animalRow("canela")).toEqual(before);
   });
 
