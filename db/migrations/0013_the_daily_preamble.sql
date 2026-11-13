@@ -8,9 +8,9 @@ CREATE TABLE `digest_deliveries` (
 --> statement-breakpoint
 CREATE INDEX `digest_deliveries_sent_at_idx` ON `digest_deliveries` (`sent_at`);--> statement-breakpoint
 ALTER TABLE `digest_runs` ADD `purged_deliveries` integer DEFAULT 0 NOT NULL;--> statement-breakpoint
-ALTER TABLE `digest_runs` ADD `pruned_sent_rows` integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE `digest_runs` ADD `expired_sent_rows` integer DEFAULT 0 NOT NULL;--> statement-breakpoint
 ALTER TABLE `digest_runs` ADD `erased_departures` integer DEFAULT 0 NOT NULL;--> statement-breakpoint
-ALTER TABLE `digest_runs` ADD `sweep` text;--> statement-breakpoint
+ALTER TABLE `digest_runs` ADD `reclamation` text;--> statement-breakpoint
 ALTER TABLE `digest_runs` ADD `reclaimed_objects` integer DEFAULT 0 NOT NULL;--> statement-breakpoint
 ALTER TABLE `digest_runs` ADD `reclaimed_bytes` integer DEFAULT 0 NOT NULL;--> statement-breakpoint
 ALTER TABLE `digest_runs` ADD `stored_bytes` integer;--> statement-breakpoint

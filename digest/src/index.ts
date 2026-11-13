@@ -3,7 +3,7 @@ import {
   digestRuns,
   eraseDepartedShelters,
   findNeverMatchedSubscribers,
-  pruneSentSets,
+  expireSentSets,
   purgeDigestDeliveries,
   recordNudge,
   runSubscriberPurges,
@@ -21,7 +21,7 @@ import {
   optInMailLedgerCutoff,
   optInPurgeCutoff,
   readCriteria,
-  sentSetPruneCutoff,
+  sentSetExpiryCutoff,
   unsubscribeUrl,
   unsubscribedErasureCutoff,
 } from "@pawster/domain";
@@ -30,7 +30,7 @@ import type { SubscriptionCriteria } from "@pawster/domain";
 import type { DigestMessage, DigestSection, Env } from "./env.ts";
 import { sendConfirmationNudges } from "./confirmation-nudge.ts";
 import { NUDGES_PER_RUN, sendNudgeEmail } from "./nudge.ts";
-import { type SweepOutcome, mailAdmin, reclaimAndMeasure, sweepAlert } from "./reclaim.ts";
+import { type ReclamationOutcome, mailAdmin, reclaimAndMeasure, reclamationAlert } from "./reclaim.ts";
 import { pingWatchdog } from "./watchdog.ts";
 import { renderDigestHtml } from "./email.ts";
 import { sendDigestEmail } from "./resend.ts";
@@ -106,32 +106,32 @@ export default {
     );
     // Matches only listed animals; the consumer checks again at send time (#65).
     const listed = await readListedForDigest(db);
-    const prunedSentRows = await pruneSentSets(
+    const expiredSentRows = await expireSentSets(
       db,
       listed.map((animal) => animal.id),
       now,
-      sentSetPruneCutoff(now),
+      sentSetExpiryCutoff(now),
     );
 
     /**
-     * ADR 0016's reclamation sweep, the last preamble step. A failure anywhere in it is
-     * recorded as an aborted sweep and the digest still runs: the sweep throws before it
-     * deletes anything, and a skipped sweep heals itself tomorrow.
+     * ADR 0016's Reclamation, the last preamble step. A failure anywhere in it is
+     * recorded as an aborted Reclamation and the digest still runs: Reclamation throws before it
+     * deletes anything, and a skipped Reclamation heals itself tomorrow.
      */
-    let sweep: SweepOutcome | null = null;
+    let reclamation: ReclamationOutcome | null = null;
     try {
-      sweep = await reclaimAndMeasure(env, db, now);
+      reclamation = await reclaimAndMeasure(env, db, now);
     } catch {
       // Recorded below as `aborted`.
     }
     let adminMails = 0;
-    const alert = sweepAlert(sweep);
+    const alert = reclamationAlert(reclamation);
     if (alert !== null) {
       try {
         await mailAdmin(env, alert);
         adminMails = 1;
       } catch {
-        // The run record and the watchdog ping still carry the sweep's outcome.
+        // The run record and the watchdog ping still carry Reclamation's outcome.
       }
     }
 
@@ -274,11 +274,11 @@ export default {
       erasedSubscribers: purged.erasedSubscribers,
       purgedDeliveries,
       erasedDepartures,
-      prunedSentRows,
-      sweep: sweep?.sweep ?? ("aborted" as const),
-      reclaimedObjects: sweep?.reclaimedObjects ?? 0,
-      reclaimedBytes: sweep?.reclaimedBytes ?? 0,
-      storedBytes: sweep?.storedBytes ?? null,
+      expiredSentRows,
+      reclamation: reclamation?.reclamation ?? ("aborted" as const),
+      reclaimedObjects: reclamation?.reclaimedObjects ?? 0,
+      reclaimedBytes: reclamation?.reclaimedBytes ?? 0,
+      storedBytes: reclamation?.storedBytes ?? null,
     };
     await db.insert(digestRuns).values({ ...run, ranAt: now });
 

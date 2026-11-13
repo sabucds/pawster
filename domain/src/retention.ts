@@ -174,6 +174,6 @@ export function digestDeliveryPurgeCutoff(now: Date): Date {
  */
 export const SENT_SET_UNLISTED_TTL_MS = 90 * 24 * 60 * 60_000;
 
-export function sentSetPruneCutoff(now: Date): Date {
+export function sentSetExpiryCutoff(now: Date): Date {
   return new Date(now.getTime() - SENT_SET_UNLISTED_TTL_MS);
 }

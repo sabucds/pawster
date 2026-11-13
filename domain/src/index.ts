@@ -131,7 +131,7 @@ export {
   NEVER_MATCHED_NUDGE_MS,
   SENT_SET_UNLISTED_TTL_MS,
   digestDeliveryPurgeCutoff,
-  sentSetPruneCutoff,
+  sentSetExpiryCutoff,
   OPT_IN_TTL_MS,
   OPT_IN_WINDOW_MS,
   UNSUBSCRIBE_GRACE_MS,

@@ -285,14 +285,14 @@ export async function purgeDigestDeliveries(
 }
 
 /**
- * ADR 0010's sent-set rule: a row is pruned 90 days after its animal unlists. Nothing records
+ * ADR 0010's sent-set rule: a row expires 90 days after its animal unlists. Nothing records
  * when an animal unlists, so each run reconciles: a row whose animal is not in `listedIds`
  * gets `unlisted_since = now` if it had none, a row whose animal is listed again loses it, and
- * rows unlisted since before `cutoff` go. Returns how many rows it pruned.
+ * rows unlisted since before `cutoff` go. Returns how many rows expired.
  *
  * The ids travel as one JSON parameter, because D1 caps a statement at 100 bound values.
  */
-export async function pruneSentSets(
+export async function expireSentSets(
   db: Database,
   listedIds: readonly string[],
   now: Date,
