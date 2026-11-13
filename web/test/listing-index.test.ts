@@ -192,6 +192,17 @@ describe("what reaches the index", () => {
     expect(listed.objects).toHaveLength(2);
   });
 
+  it("carries each member's bonded group, so the browser can draw one card", async () => {
+    await seedListableShelter();
+    await seedAnimal({ id: "a1", bondedGroupId: "g1" });
+    await seedAnimal({ id: "a2", bondedGroupId: "g1" });
+
+    await regenerate();
+    const { index } = await currentIndex();
+
+    expect(index.animals.map((animal) => animal.bondedGroupId)).toEqual(["g1", "g1"]);
+  });
+
   it("leaves out a listed animal whose primary photograph is gone, and counts it", async () => {
     await seedListableShelter();
     const { sessionId } = await seedAnimal({ shelterId: "shelter-1" });

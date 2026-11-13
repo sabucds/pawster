@@ -247,6 +247,26 @@ const AXIS_NOTES: Partial<Record<LabelledAxis["field"], string>> = {
       }
 
       /*
+        A bonded group's strip (#59). The strip, not its photos, holds the single frame's
+        proportion, so a group's card is exactly as tall as the lone animal's beside it and the
+        members split the width between them.
+      */
+      .card-photo-strip {
+        display: flex;
+        gap: 2px;
+        aspect-ratio: 344 / 430;
+        background: var(--line);
+      }
+
+      .card-photo-strip .card-photo {
+        flex: 1 1 0;
+        min-width: 0;
+        width: auto;
+        height: 100%;
+        aspect-ratio: auto;
+      }
+
+      /*
         Two lines reserved: a name plus its urgency chip wraps at two-up on a 360px handset,
         and a card whose name wrapped must not be taller than its neighbour whose name did not.
       */

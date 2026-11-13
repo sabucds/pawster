@@ -387,6 +387,12 @@ export const animals = sqliteTable(
      */
     urgentReason: text("urgent_reason"),
     /**
+     * The bonded group this animal is adopted with, or `null` for a lone animal. Members
+     * share the value; nothing else describes a group, so there is no join table and no
+     * group name. A group of one is not a group: the last member left gets `null` back.
+     */
+    bondedGroupId: text("bonded_group_id"),
+    /**
      * No `listed` column, and this is a deliberate omission rather than a gap. CONTEXT.md
      * defines a Listing as *derived*: an animal is listed while it is available, its shelter
      * is verified, that shelter offers at least one contact point, and that shelter has not
@@ -401,6 +407,7 @@ export const animals = sqliteTable(
   },
   (table) => [
     index("animals_shelter_idx").on(table.shelterId),
+    index("animals_bonded_group_idx").on(table.bondedGroupId),
     uniqueIndex("animals_upload_session_idx").on(table.uploadSessionId),
     /**
      * The dog-only size pairing, as a single equivalence rather than two rules.

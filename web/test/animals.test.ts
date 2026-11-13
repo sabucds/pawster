@@ -620,6 +620,103 @@ describe("editing an animal", () => {
     expect(row!.size).toBe("Medium");
   });
 
+  describe("bonding animals that are adopted together", () => {
+    /** Two of one shelter's animals, published from two sessions. */
+    async function pair() {
+      const { shelterId, cookie, animalId } = await published();
+      const second = await seedUploadSession(shelterId, 2, "second-session");
+      const response = await post(
+        `/refugios/animales/nuevo?sesion=${second}`,
+        { ...PUBLISH_FORM, name: "Pimienta" },
+        { cookie },
+      );
+      return { shelterId, cookie, first: animalId, second: publishedId(response) };
+    }
+
+    async function groupOf(shelterId: string) {
+      const rows = await storedAnimals(shelterId);
+      return new Map(rows.map((row) => [row.id, row]));
+    }
+
+    it("bonds the animals the shelter ticks", async () => {
+      const { shelterId, cookie, first, second } = await pair();
+
+      const response = await post(
+        `/refugios/animales/${first}`,
+        { ...EDIT_FORM, bondedWith: [second] },
+        { cookie },
+      );
+      expect(response.status).toBe(303);
+
+      const rows = await groupOf(shelterId);
+      expect(rows.get(first)!.bondedGroupId).not.toBeNull();
+      expect(rows.get(second)!.bondedGroupId).toBe(rows.get(first)!.bondedGroupId);
+    });
+
+    it("offers the shelter's other animals, with the bonded ones ticked", async () => {
+      const { cookie, first, second } = await pair();
+      await post(`/refugios/animales/${first}`, { ...EDIT_FORM, bondedWith: [second] }, { cookie });
+
+      const html = await (await get(`/refugios/animales/${second}`, cookie)).text();
+
+      expect(html).toContain("Se adoptan junto con");
+      expect(html).toMatch(new RegExp(`value="${first}"[^>]*checked`));
+    });
+
+    it("applies a change of state and a confirmation to every member", async () => {
+      const { shelterId, cookie, first, second } = await pair();
+      await post(`/refugios/animales/${first}`, { ...EDIT_FORM, bondedWith: [second] }, { cookie });
+      const past = new Date("2026-01-01");
+      await ageTimestamps(first, past);
+      await ageTimestamps(second, past);
+
+      await post(
+        `/refugios/animales/${second}`,
+        { ...EDIT_FORM, name: "Pimienta", availability: "Adopted", bondedWith: [first] },
+        { cookie },
+      );
+
+      const rows = await groupOf(shelterId);
+      expect(rows.get(first)!.availability).toBe("Adopted");
+      expect(rows.get(first)!.lastConfirmedAt.getTime()).toBeGreaterThan(past.getTime());
+      // The facts stay each animal's own: only the state and the confirmation are shared.
+      expect(rows.get(first)!.name).toBe("Canela");
+    });
+
+    it("dissolves a group that drops to one member", async () => {
+      const { shelterId, cookie, first, second } = await pair();
+      await post(`/refugios/animales/${first}`, { ...EDIT_FORM, bondedWith: [second] }, { cookie });
+
+      // Nothing ticked: the first animal leaves, and the second is left alone.
+      await post(`/refugios/animales/${first}`, EDIT_FORM, { cookie });
+
+      const rows = await groupOf(shelterId);
+      expect(rows.get(first)!.bondedGroupId).toBeNull();
+      expect(rows.get(second)!.bondedGroupId).toBeNull();
+    });
+
+    it("cannot bond another shelter's animal", async () => {
+      const { first: theirs } = await pair();
+      const { shelterId, cookie, animalId: mine } = await (async () => {
+        const { shelterId, cookie } = await freshShelter("otro@refugio.test");
+        await seedUploadSession(shelterId, 2, "other-session");
+        const response = await post(
+          "/refugios/animales/nuevo?sesion=other-session",
+          PUBLISH_FORM,
+          { cookie },
+        );
+        return { shelterId, cookie, animalId: publishedId(response) };
+      })();
+
+      await post(`/refugios/animales/${mine}`, { ...EDIT_FORM, bondedWith: [theirs] }, { cookie });
+
+      const [row] = await storedAnimals(shelterId);
+      expect(row!.bondedGroupId).toBeNull();
+      const [other] = await createDb(env.DB).select().from(animals).where(eq(animals.id, theirs));
+      expect(other!.bondedGroupId).toBeNull();
+    });
+  });
+
   it("shows the animal in the shelter's panel, so it can be reached at all", async () => {
     const { cookie, animalId } = await published();
 

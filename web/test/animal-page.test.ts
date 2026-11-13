@@ -152,7 +152,8 @@ describe("what the page says about staleness", () => {
   it("escalates the emphasis rather than the sentence", async () => {
     // The sentence is unconditional — see `confirmationSentence()` — and only the band moves,
     // which is what the page styles amber.
-    await seedListedAnimal({ lastConfirmedAt: new Date(Date.now() - 24 * 60 * 60 * 1000) });
+    // Relative to today: a fixed date here went stale on its own once the calendar passed it.
+    await seedListedAnimal({ lastConfirmedAt: new Date(Date.now() - 86_400_000) });
     const fresh = await (await get("/a/animal-1/canela")).text();
     expect(fresh).toContain('data-staleness="Fresh"');
     expect(fresh).toContain(MAYBE_GONE);
@@ -252,6 +253,50 @@ describe("the contact hand-off", () => {
     expect(await (await get("/a/animal-1/canela")).text()).toContain(
       "La conversación sigue fuera de Pawster",
     );
+  });
+});
+
+describe("a bonded group's page", () => {
+  async function seedPair() {
+    await seedListedAnimal({ bondedGroupId: "g1" });
+    await seedAnimal({
+      id: "animal-2",
+      shelterId: "shelter-1",
+      name: "Toby",
+      sex: "Male",
+      estimatedBirthDate: new Date("2020-01-01"),
+      bondedGroupId: "g1",
+    });
+  }
+
+  it("shows each other member with its own facts, not merged into this one's", async () => {
+    await seedPair();
+
+    const html = await (await get("/a/animal-1/canela")).text();
+    const together = html.slice(html.indexOf('data-testid="bonded-with"'));
+
+    expect(html).toContain('data-testid="bonded-with"');
+    expect(together).toContain('href="/a/animal-2/toby"');
+    expect(together).toContain("Toby");
+    // Toby's own sex and life stage, while the heading above stays Canela's.
+    expect(together).toContain("Perro adulto");
+    expect(html).toContain('data-testid="animal-name">Canela<');
+  });
+
+  it("names every member in the message to the shelter", async () => {
+    await seedPair();
+
+    const html = await (await get("/a/animal-1/canela")).text();
+
+    expect(html).toContain(
+      "Hola, les escribo por Canela y Toby (pawster.test/a/animal-1). ¿Siguen disponibles?",
+    );
+  });
+
+  it("says nothing about a group for a lone animal", async () => {
+    await seedListedAnimal();
+    const html = await (await get("/a/animal-1/canela")).text();
+    expect(html).not.toContain('data-testid="bonded-with"');
   });
 });
 

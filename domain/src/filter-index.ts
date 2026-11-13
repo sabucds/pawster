@@ -51,7 +51,7 @@ import type {
 } from "./axes.ts";
 import { GOOD_WITH_AXES } from "./axes.ts";
 import { normaliseRegion } from "./criteria.ts";
-import type { AnimalAxes, SubscriptionCriteria } from "./matching.ts";
+import type { AdoptionUnit, AnimalAxes, SubscriptionCriteria } from "./matching.ts";
 import { matches } from "./matching.ts";
 
 /**
@@ -429,7 +429,17 @@ export function compareByFreshestConfirmed(
 }
 
 /**
- * The animals an adopter's filters leave, in the order the listing shows them.
+ * One adoption unit as the listing holds it: a lone animal, or every listed member of one
+ * bonded group, in id order. Never empty.
+ *
+ * The index stays one entry per animal — the group is only the `g` they share — so this is the
+ * one place entries become units, and the card, the status line and the matcher all read the
+ * unit rather than counting rows (#59).
+ */
+export type ListedUnit = readonly [ListedAnimal, ...ListedAnimal[]];
+
+/**
+ * The adoption units an adopter's filters leave, in the order the listing shows them.
  *
  * The filtering is `matches` — the digest matcher's own function, called on the index entry
  * directly, because {@link ListedAnimal} is a structural superset of `AnimalAxes`. Issue #56
@@ -438,6 +448,10 @@ export function compareByFreshestConfirmed(
  * for, and the good-with rule that excludes only an explicit `No` are all already stated
  * once, in `matching.ts`.
  *
+ * A bonded group is matched **as a group** (#59), so a pair with one dog that is `No` with
+ * cats is a `No` pair, and a mother with her pups reaches a `Puppy` and an `Adult` subscriber
+ * alike. Members share one confirmation, so the first member's date orders the unit.
+ *
  * `now` is an argument for `matching.ts`'s reason: the age-band axis is derived from a date,
  * and a rule that reads the clock itself is a rule no test can pin.
  */
@@ -445,10 +459,42 @@ export function selectListed(
   animals: readonly ListedAnimal[],
   criteria: SubscriptionCriteria,
   now: Date,
-): readonly ListedAnimal[] {
-  return animals
-    .filter((animal) => matches(criteria, axesOf(animal), now))
-    .sort(compareByFreshestConfirmed);
+): readonly ListedUnit[] {
+  return unitsOf(animals)
+    .filter((unit) => matches(criteria, adoptionUnitOf(unit), now))
+    .sort(([left], [right]) => compareByFreshestConfirmed(left, right));
+}
+
+/**
+ * A listed unit as the matcher's {@link AdoptionUnit}: the lone animal's axes, or a group of
+ * its members'. Exported so a card answers good-with from the same unit the filter matched.
+ */
+export function adoptionUnitOf([first, second, ...others]: ListedUnit): AdoptionUnit {
+  return second === undefined
+    ? axesOf(first)
+    : { members: [axesOf(first), axesOf(second), ...others.map(axesOf)] };
+}
+
+/** Entries grouped by `bondedGroupId`; a lone animal is a unit of one. */
+function unitsOf(animals: readonly ListedAnimal[]): ListedUnit[] {
+  const groups = new Map<string, ListedAnimal[]>();
+  const units: ListedAnimal[][] = [];
+  const byId = [...animals].sort((l, r) => (l.id < r.id ? -1 : l.id > r.id ? 1 : 0));
+  for (const animal of byId) {
+    if (animal.bondedGroupId === null) {
+      units.push([animal]);
+      continue;
+    }
+    const group = groups.get(animal.bondedGroupId);
+    if (group) {
+      group.push(animal);
+    } else {
+      const created = [animal];
+      groups.set(animal.bondedGroupId, created);
+      units.push(created);
+    }
+  }
+  return units as unknown as ListedUnit[];
 }
 
 /**

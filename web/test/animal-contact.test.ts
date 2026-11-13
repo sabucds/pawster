@@ -14,7 +14,7 @@ import type { StoredContactPoint } from "../src/lib/shelter/store.ts";
  * what stands between what a shelter typed into its profile and a link an adopter taps.
  */
 
-const PREFILL = prefillMessage("Canela", "pawster.test/a/7f3k9mqp");
+const PREFILL = prefillMessage(["Canela"], "pawster.test/a/7f3k9mqp");
 
 function handoff(kind: ContactPointKind, value: string) {
   const points: StoredContactPoint[] = [{ kind, value }];
@@ -33,6 +33,14 @@ describe("the prefilled message", () => {
     expect(PREFILL).toContain("pawster.test/a/7f3k9mqp");
     expect(PREFILL).toBe(
       "Hola, les escribo por Canela (pawster.test/a/7f3k9mqp). ¿Sigue disponible?",
+    );
+  });
+});
+
+describe("the prefilled message for animals adopted together", () => {
+  it("names every member, and asks in the plural", () => {
+    expect(prefillMessage(["Canela", "Pimienta", "Toby"], "pawster.test/a/7f3k9mqp")).toBe(
+      "Hola, les escribo por Canela, Pimienta y Toby (pawster.test/a/7f3k9mqp). ¿Siguen disponibles?",
     );
   });
 });

@@ -44,7 +44,7 @@ function listed(overrides: Partial<ListedAnimal> = {}): ListedAnimal {
 }
 
 const card = (overrides: Partial<ListedAnimal> = {}, now: Date = NOW) =>
-  cardModel(listed(overrides), now, MEDIA);
+  cardModel([listed(overrides)], now, MEDIA);
 
 describe("the provenance line", () => {
   /**
@@ -298,12 +298,12 @@ describe("the photo box", () => {
     const one = card({ id: "a1" });
     const two = card({ id: "a2", name: "Simón", region: "Zulia" });
 
-    expect(one.photo.width).toBe(two.photo.width);
-    expect(one.photo.height).toBe(two.photo.height);
+    expect(one.photos[0]!.width).toBe(two.photos[0]!.width);
+    expect(one.photos[0]!.height).toBe(two.photos[0]!.height);
   });
 
   it("points at the bucket's public base and the index's own key", () => {
-    expect(card({ thumbnailKey: "d/deadbeef.webp" }).photo.src).toBe(
+    expect(card({ thumbnailKey: "d/deadbeef.webp" }).photos[0]!.src).toBe(
       "https://media.pawster.test/d/deadbeef.webp",
     );
   });
@@ -375,5 +375,70 @@ describe("the card as a whole", () => {
     expect(html).not.toContain("refugio-los-teques");
     expect(html).not.toContain("Esterilizada");
     expect(html).not.toContain("Sin esterilizar");
+  });
+});
+
+describe("a bonded group's card", () => {
+  const mother = listed({
+    id: "a1",
+    name: "Canela",
+    bondedGroupId: "g1",
+    thumbnailKey: "d/mother.webp",
+    goodWith: { children: "Yes", dogs: "Yes", cats: "Yes" },
+  });
+  const pup = (id: string, name: string, sex: "Male" | "Female") =>
+    listed({
+      id,
+      name,
+      sex,
+      bondedGroupId: "g1",
+      thumbnailKey: `d/${id}.webp`,
+      estimatedBirthDate: new Date("2026-07-01T00:00:00.000Z"),
+      goodWith: { children: "Yes", dogs: "Yes", cats: "Unknown" },
+    });
+  const group = cardModel(
+    [mother, pup("a2", "Pimienta", "Female"), pup("a3", "Clavo", "Male"), pup("a4", "Anís", "Male")],
+    NOW,
+    MEDIA,
+  );
+
+  it("names every member", () => {
+    expect(group.name).toBe("Canela, Pimienta, Clavo y Anís");
+  });
+
+  it("carries one composition line saying what the group is", () => {
+    expect(group.meta).toBe("Perra adulta y 3 cachorros · se adoptan juntos");
+  });
+
+  it("agrees a pair of females in the feminine", () => {
+    const pair = cardModel([pup("a2", "Pimienta", "Female"), pup("a5", "Sal", "Female")], NOW, MEDIA);
+
+    expect(pair.meta).toBe("2 cachorras · se adoptan juntas");
+    expect(pair.provenance).toBe("Miranda · Confirmadas ayer");
+  });
+
+  it("is confirmed as one, in the plural", () => {
+    expect(group.provenance).toBe("Miranda · Confirmados ayer");
+  });
+
+  it("shows a strip of every member's photo, in a box the height of a single photo", () => {
+    expect(group.photos.map((photo) => photo.src)).toEqual([
+      `${MEDIA}/d/mother.webp`,
+      `${MEDIA}/d/a2.webp`,
+      `${MEDIA}/d/a3.webp`,
+      `${MEDIA}/d/a4.webp`,
+    ]);
+    for (const photo of group.photos) {
+      expect(photo.height).toBe(CARD_PHOTO_HEIGHT);
+    }
+    expect(group.photos.reduce((sum, photo) => sum + photo.width, 0)).toBeLessThanOrEqual(
+      CARD_PHOTO_WIDTH,
+    );
+    expect(renderCard(group)).toContain('data-testid="card-photo-strip"');
+  });
+
+  it("answers good-with as its least tolerant member", () => {
+    expect(group.goodWith.positives).toBe("Con niños y perros");
+    expect(group.goodWith.unknown).not.toBeNull();
   });
 });
