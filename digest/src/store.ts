@@ -10,13 +10,13 @@
 import type { Database } from "@pawster/db";
 import {
   animals,
+  contactPointCount,
   digestSent,
-  shelterContactPoints,
+  latestVerificationOutcome,
   shelters,
   subscribers,
   subscriptions,
   uploadSessionPhotos,
-  verifications,
 } from "@pawster/db";
 import type {
   AnimalFacts,
@@ -29,21 +29,7 @@ import type {
 import { isListed } from "@pawster/domain";
 import { and, eq, isNull, sql } from "drizzle-orm";
 
-/** The same two shelter-level facts `web/src/lib/listing/store.ts` reads, the same way. */
-const contactPointCount = sql<number>`(
-  select count(*) from ${shelterContactPoints}
-  where ${shelterContactPoints.shelterId} = ${animals.shelterId}
-)`;
-
-const latestVerificationOutcome = sql<
-  ShelterFacts["latestVerificationOutcome"]
->`(
-  select ${verifications.outcome} from ${verifications}
-  where ${verifications.shelterId} = ${animals.shelterId}
-  order by ${verifications.id} desc limit 1
-)`;
-
-/** `isListed()` over a row that selected the availability and the shelter facts above. */
+/** `isListed()` over a row that selected the availability and the shelter facts from `db/src/shelter-facts.ts`. */
 const listedRow = (row: AnimalFacts & ShelterFacts) => isListed(row, row);
 
 /**
@@ -71,8 +57,8 @@ export async function readListedForDigest(db: Database): Promise<DigestAnimal[]>
       goodWithCats: animals.goodWithCats,
       availability: animals.availability,
       bondedGroupId: animals.bondedGroupId,
-      contactPointCount,
-      latestVerificationOutcome,
+      contactPointCount: contactPointCount(animals.shelterId),
+      latestVerificationOutcome: latestVerificationOutcome(animals.shelterId),
       departedAt: shelters.departedAt,
       demo: shelters.demo,
     })
@@ -190,8 +176,8 @@ export async function readDigestRows(
       lastConfirmedAt: animals.lastConfirmedAt,
       sourceDigest: uploadSessionPhotos.sourceDigest,
       availability: animals.availability,
-      contactPointCount,
-      latestVerificationOutcome,
+      contactPointCount: contactPointCount(animals.shelterId),
+      latestVerificationOutcome: latestVerificationOutcome(animals.shelterId),
       departedAt: shelters.departedAt,
     })
     .from(animals)
