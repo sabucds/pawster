@@ -9,6 +9,8 @@
  * confirmation nudge fires, 90 is where a shelter is called dormant.
  */
 
+import { DAY_MS } from "./retention.ts";
+
 export type StalenessBand = "Fresh" | "Ageing" | "Stale";
 
 /** Inclusive upper bound, in whole days, of each band below `Stale`. */
@@ -27,7 +29,7 @@ const THRESHOLDS: ReadonlyArray<readonly [StalenessBand, number]> = [
  */
 export function daysBetween(from: Date, to: Date): number {
   const elapsed = to.getTime() - from.getTime();
-  return Math.max(0, Math.floor(elapsed / 86_400_000));
+  return Math.max(0, Math.floor(elapsed / DAY_MS));
 }
 
 /**

@@ -12,6 +12,8 @@
  * Every figure below is [ADR 0013](../../../../docs/adr/0013-shelters-sign-in-with-an-emailed-code.md)'s.
  */
 
+import { DAY_MS } from "@pawster/domain";
+
 /** Six digits (ADR 0013). Short enough to read off a shared phone and retype. */
 export const ONE_TIME_CODE_DIGITS = 6;
 
@@ -38,7 +40,7 @@ export const ONE_TIME_CODE_MAX_ATTEMPTS = 5;
  * the scarce resource. At 90 days roughly 40 shelters generate about 0.4 sign-ins a day,
  * where 7 days would cost fifteen times the mail for no gain in the common case.
  */
-export const SESSION_TTL_MS = 90 * 24 * 60 * 60_000;
+export const SESSION_TTL_MS = 90 * DAY_MS;
 
 /**
  * How stale a cookie may get before a request re-issues it.
@@ -52,7 +54,7 @@ export const SESSION_TTL_MS = 90 * 24 * 60 * 60_000;
  * It must stay well under {@link SESSION_TTL_MS}: a threshold anywhere near the lifetime
  * would let a cookie expire between two refreshes that both declined to act.
  */
-export const SESSION_REFRESH_AFTER_MS = 24 * 60 * 60_000;
+export const SESSION_REFRESH_AFTER_MS = DAY_MS;
 
 /**
  * The global ceiling on sign-in mail: about 20 sends a day.
@@ -228,7 +230,7 @@ export function refuseMail(
 }
 
 /** The trailing-day window every send-scoped limit is counted over. */
-export const MAIL_BUDGET_WINDOW_MS = 24 * 60 * 60_000;
+export const MAIL_BUDGET_WINDOW_MS = DAY_MS;
 
 /**
  * A rolling 24 hours rather than a calendar day, and the difference matters.

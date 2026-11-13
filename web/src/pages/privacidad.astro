@@ -5,6 +5,7 @@ import {
   OPT_IN_TTL_MS,
   OPT_IN_WINDOW_MS,
   UNSUBSCRIBE_GRACE_MS,
+  wholeDays,
 } from "@pawster/domain";
 import Resumen from "../layouts/Resumen.astro";
 
@@ -48,7 +49,6 @@ export const prerender = true;
  * people should be able to find without holding a link.
  */
 
-const days = (ms: number) => Math.round(ms / (24 * 60 * 60_000));
 const hours = (ms: number) => Math.round(ms / (60 * 60_000));
 
 interface Row {
@@ -73,13 +73,13 @@ const ROWS: readonly Row[] = [
   },
   {
     what: "Una solicitud que no llegaste a activar",
-    howLong: `${days(OPT_IN_TTL_MS)} días`,
+    howLong: `${wholeDays(OPT_IN_TTL_MS)} días`,
     why: "Si no le diste al enlace, no tenemos tu permiso para nada. El enlace vence y la solicitud se borra el mismo día.",
     enforced: true,
   },
   {
     what: "Tu IP, al pedir el enlace de activación",
-    howLong: `${days(OPT_IN_TTL_MS)} días`,
+    howLong: `${wholeDays(OPT_IN_TTL_MS)} días`,
     why: "Solo para que nadie use el formulario para llenarle el correo a otra persona. Va en esa misma solicitud y se borra con ella; si activas, no guardamos ninguna IP tuya.",
     enforced: true,
   },
@@ -91,13 +91,13 @@ const ROWS: readonly Row[] = [
   },
   {
     what: "Tus búsquedas después de darte de baja",
-    howLong: `${days(UNSUBSCRIBE_GRACE_MS)} días, y luego se borran solas`,
+    howLong: `${wholeDays(UNSUBSCRIBE_GRACE_MS)} días, y luego se borran solas`,
     why: "Darse de baja es un clic sin confirmación, a propósito, para que funcione desde el correo. A veces lo aprieta un programa o se aprieta sin querer, así que guardamos las búsquedas por si quieres volver. Después se borra todo sin que tengas que pedirlo.",
     enforced: true,
   },
   {
     what: "Que te avisamos de que no había coincidencias",
-    howLong: `Se manda una sola vez, a los ${days(NEVER_MATCHED_NUDGE_MS)} días`,
+    howLong: `Se manda una sola vez, a los ${wholeDays(NEVER_MATCHED_NUDGE_MS)} días`,
     why: "Para que siempre tengas un enlace que sirva, aunque nunca te llegue un resumen.",
     enforced: true,
   },
@@ -114,7 +114,7 @@ const ROWS: readonly Row[] = [
    */
   {
     what: "Si eres un refugio y dejas Pawster: tus formas de contacto y el correo del refugio",
-    howLong: `${days(DEPARTURE_GRACE_MS)} días desde que pides irte, y luego se borran solos`,
+    howLong: `${wholeDays(DEPARTURE_GRACE_MS)} días desde que pides irte, y luego se borran solos`,
     why: "Esos días son para que puedas arrepentirte: hasta entonces, un clic lo deja todo como estaba. Después ya no hay manera de escribirle al refugio por Pawster, ni de entrar con ese correo.",
     enforced: true,
   },

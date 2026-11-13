@@ -1,5 +1,6 @@
 ---
 import { createDb } from "@pawster/db";
+import { DAY_MS } from "@pawster/domain";
 import { env } from "cloudflare:workers";
 import Admin from "../../layouts/Admin.astro";
 import {
@@ -66,7 +67,7 @@ const rows = await Promise.all(
      * admin needs to see is the one that promise is measured in.
      */
     daysWaiting: Math.floor(
-      (now.getTime() - shelter.registeredAt.getTime()) / (24 * 60 * 60_000),
+      (now.getTime() - shelter.registeredAt.getTime()) / DAY_MS,
     ),
   })),
 );

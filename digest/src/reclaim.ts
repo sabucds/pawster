@@ -21,6 +21,7 @@ import {
   uploadSessions,
 } from "@pawster/db";
 import {
+  DAY_MS,
   DERIVATIVE_PREFIX,
   type StorageMode,
   derivativesFor,
@@ -30,7 +31,6 @@ import { derivativeKey } from "@pawster/web/src/lib/photos/keys.ts";
 import { eq, gte, inArray, or } from "drizzle-orm";
 import { sendMail } from "./resend.ts";
 
-const DAY_MS = 24 * 60 * 60_000;
 const REFUSE_FLOOR = 200;
 const REFUSE_SHARE = 0.1;
 /** R2's `delete` takes up to 1,000 keys per call. */

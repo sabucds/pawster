@@ -17,6 +17,7 @@
  */
 
 import { DERIVATIVES, type DerivativeName } from "./derivative.ts";
+import { DAY_MS } from "./retention.ts";
 
 /**
  * An animal carries between one and six photos, first primary — enforced as a
@@ -89,7 +90,7 @@ export const ACCEPTED_ORIGINAL_TYPES: readonly string[] = [
  * ADR 0012: "losing five successful uploads to one dropped connection is the failure this
  * platform can least afford."
  */
-export const UPLOAD_SESSION_TTL_MS = 24 * 60 * 60_000;
+export const UPLOAD_SESSION_TTL_MS = DAY_MS;
 
 /**
  * Cloudflare's monthly ceiling on unique image transformations, and so the platform's
@@ -189,7 +190,7 @@ export const STORAGE_REFUSE_BYTES = 9.5 * GB;
  * trusting the last value." The row is expected to be up to 24 hours stale by design, so
  * three days is a missed run plus slack, not a tight bound.
  */
-export const STORAGE_MEASUREMENT_MAX_AGE_MS = 3 * 24 * 60 * 60_000;
+export const STORAGE_MEASUREMENT_MAX_AGE_MS = 3 * DAY_MS;
 
 /**
  * The one row ADR 0016's nightly pass writes and this path reads. Written by issue #66;

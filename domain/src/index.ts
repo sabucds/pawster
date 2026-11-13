@@ -127,6 +127,7 @@ export type {
 export { ageBandsFor, goodWithFor, matches } from "./matching.ts";
 export {
   DEPARTURE_GRACE_MS,
+  DAY_MS,
   DIGEST_DELIVERY_TTL_MS,
   NEVER_MATCHED_NUDGE_MS,
   SENT_SET_UNLISTED_TTL_MS,
@@ -140,6 +141,7 @@ export {
   optInMailLedgerCutoff,
   optInPurgeCutoff,
   unsubscribedErasureCutoff,
+  wholeDays,
 } from "./retention.ts";
 export type { ConfirmableShelter, ConfirmationClaim } from "./confirmation-links.ts";
 export {
