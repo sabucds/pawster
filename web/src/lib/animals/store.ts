@@ -36,6 +36,7 @@ import type {
   Sterilisation,
 } from "@pawster/domain";
 import { and, count, desc, eq, inArray, isNotNull, ne, sql } from "drizzle-orm";
+import { withItsGroup } from "./confirm.ts";
 import type { AnimalEditInput, AnimalInput } from "./publish.ts";
 import { newShortId } from "./short-id.ts";
 
@@ -337,8 +338,6 @@ export async function editAnimal(
   now: Date,
 ): Promise<void> {
   const mine = and(eq(animals.shelterId, owner.shelterId), inArray(animals.id, [owner.id, ...bondedWith]));
-  /** The group this animal is in once the bond below has been written. */
-  const itsGroup = sql`(select ${animals.bondedGroupId} from ${animals} where ${animals.id} = ${owner.id})`;
 
   /**
    * One batch, so the bond, the facts and the spread land together or not at all.
@@ -382,7 +381,7 @@ export async function editAnimal(
     db
       .update(animals)
       .set({ availability: animal.availability, lastConfirmedAt: now, lastConfirmedVia: "session" })
-      .where(eq(animals.bondedGroupId, itsGroup)),
+      .where(withItsGroup(owner.id)),
     /** A group of one is not a group. */
     db
       .update(animals)

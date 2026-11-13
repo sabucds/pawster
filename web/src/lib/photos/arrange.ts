@@ -25,7 +25,8 @@
 import type { Database } from "@pawster/db";
 import { animals, transformationSpends, uploadSessionPhotos } from "@pawster/db";
 import { MIN_PHOTOS_PER_ANIMAL, derivativesFor } from "@pawster/domain";
-import { eq, or, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
+import { withItsGroup } from "../animals/confirm.ts";
 import { derivativeKey } from "./keys.ts";
 import { mintDerivatives } from "./pipeline.ts";
 import { listSessionPhotos } from "./store.ts";
@@ -94,15 +95,7 @@ export async function arrangePhotos(
     db
       .update(animals)
       .set({ lastConfirmedAt: now, lastConfirmedVia: "session" })
-      .where(
-        or(
-          eq(animals.id, animal.id),
-          eq(
-            animals.bondedGroupId,
-            sql`(select ${animals.bondedGroupId} from ${animals} where ${animals.id} = ${animal.id})`,
-          ),
-        ),
-      ),
+      .where(withItsGroup(animal.id)),
     ...removed.map((row) =>
       db.delete(uploadSessionPhotos).where(eq(uploadSessionPhotos.id, row.id)),
     ),

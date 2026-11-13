@@ -10,9 +10,24 @@
 import type { Database } from "@pawster/db";
 import { animals, shelters } from "@pawster/db";
 import type { Availability, ConfirmableShelter } from "@pawster/domain";
-import { and, eq, isNull, or, sql } from "drizzle-orm";
+import { type SQL, and, eq, isNull, or, sql } from "drizzle-orm";
 
 export type ConfirmedVia = "session" | "link";
+
+/**
+ * The animal and every member of its bonded group. A group is adopted and confirmed together,
+ * so a Confirmation, and a state change, reach all of it. Read through a subquery, so it sees
+ * the group as it stands when the statement runs, after any bond written earlier in a batch.
+ */
+export function withItsGroup(animalId: string): SQL {
+  return or(
+    eq(animals.id, animalId),
+    eq(
+      animals.bondedGroupId,
+      sql`(select ${animals.bondedGroupId} from ${animals} where ${animals.id} = ${animalId})`,
+    ),
+  )!;
+}
 
 /**
  * What `verifyConfirmationToken()` needs from the row. A shelter that has asked to leave reads
@@ -56,7 +71,6 @@ export async function confirmAnimal(
   owner: { readonly shelterId: string; readonly animalId: string },
   change: { readonly via: ConfirmedVia; readonly now: Date; readonly availability?: Availability },
 ): Promise<void> {
-  const itsGroup = sql`(select ${animals.bondedGroupId} from ${animals} where ${animals.id} = ${owner.animalId})`;
   await db
     .update(animals)
     .set({
@@ -67,7 +81,7 @@ export async function confirmAnimal(
     .where(
       and(
         eq(animals.shelterId, owner.shelterId),
-        or(eq(animals.id, owner.animalId), eq(animals.bondedGroupId, itsGroup)),
+        withItsGroup(owner.animalId),
       ),
     );
 }
