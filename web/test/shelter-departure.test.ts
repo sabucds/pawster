@@ -191,3 +191,21 @@ describe("the thirty days after departure", () => {
     expect(await departedAt(shelterId)).not.toBeNull();
   });
 });
+
+describe("the privacy notice", () => {
+  it("carries the two shelter rows: erased at thirty days, and kept with the reason", async () => {
+    const html = await (await get("/privacidad")).text();
+    const rows = html.match(/<tr data-testid="retention-row"[\s\S]*?<\/tr>/g) ?? [];
+
+    const erased = rows.find((row) => row.includes("formas de contacto"));
+    expect(erased).toContain("correo del refugio");
+    expect(erased).toContain("30 días");
+    expect(erased).toContain('data-enforced="true"');
+
+    const kept = rows.find((row) => row.includes("páginas de archivo"));
+    expect(kept).toContain("registro de verificación");
+    expect(kept).toContain("Para siempre");
+    expect(kept).toContain("promesa");
+    expect(kept).toContain("nuestras propias decisiones");
+  });
+});
