@@ -104,7 +104,7 @@ export default {
       db,
       departureErasureCutoff(now),
     );
-    // After the erasure, so a shelter departed today already counts as unlisted.
+    // Matches only listed animals; the consumer checks again at send time (#65).
     const listed = await readListedForDigest(db);
     const prunedSentRows = await pruneSentSets(
       db,
@@ -310,15 +310,32 @@ export default {
     const db = createDb(env.DB);
     for (const message of batch.messages) {
       try {
-        const { period, subscriberId, sections } = message.body;
+        const { period, subscriberId } = message.body;
+        // Read again at send time, because delisting is immediate (#65): a unit with a member
+        // adopted or departed since the run is neither shown nor remembered.
+        const enqueued = message.body.sections;
+        const rows = await readDigestRows(
+          db,
+          enqueued.flatMap((section) => [...section.units, ...section.repeats].flat()),
+        );
+        const listed = (unit: string[]) => unit.every((id) => rows.has(id));
+        const sections = enqueued.map((section) => ({
+          ...section,
+          units: section.units.filter(listed),
+          repeats: section.repeats.filter(listed),
+        }));
+        const showsAny = (list: typeof enqueued) =>
+          list.some((section) => section.units.length > 0);
+        if (showsAny(enqueued) && !showsAny(sections)) {
+          // Everything it was going to show is gone: no email, and nothing to remember.
+          message.ack();
+          continue;
+        }
         const unsubscribe = await unsubscribeUrl(env, subscriberId);
         const html = await renderDigestHtml({
           sections,
-          animals: await readDigestRows(
-            db,
-            sections.flatMap((section) => section.units.flat()),
-          ),
-          // The period, not the clock: a redelivery tomorrow must render the same bytes.
+          animals: rows,
+          // The period, not the clock, so a redelivery tomorrow dates the email the same way.
           asOf: new Date(period),
           siteOrigin: env.SITE_ORIGIN,
           mediaBase: env.MEDIA_BASE_URL,
@@ -369,7 +386,7 @@ export default {
             message.body.period,
             sentAt.getTime(),
           ),
-          ...message.body.sections.flatMap((section) =>
+          ...sections.flatMap((section) =>
             [...section.units, ...section.repeats]
               .flat()
               .map((animalId) =>

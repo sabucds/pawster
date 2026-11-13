@@ -14,7 +14,7 @@ export interface DigestSend {
   /** `digest/<period>/<subscriberId>`. Resend's idempotency window is 24 hours, which the
    * one-shard-per-day design keeps us inside. */
   idempotencyKey: string;
-  /** Rendered by `email.ts`. Must be byte-identical on redelivery, or Resend 409s the reused key. */
+  /** Rendered by `email.ts`. A redelivery may render differently; Resend then 409s the key. */
   html: string;
   /** Built and signed by `unsubscribe.ts`; this module only posts what it is handed. */
   unsubscribeUrl: string;
@@ -45,6 +45,10 @@ export async function sendDigestEmail(
     }),
   });
 
+  // A 409 on our key means this email already went out (or is going out right now): the
+  // retry of a message whose D1 write failed renders today's rows, which may differ from
+  // what was sent. Treat it as sent, so the consumer writes the sent-set instead of looping.
+  if (response.status === 409) return;
   if (!response.ok) {
     throw new Error(`Resend rejected the send: ${response.status}`);
   }

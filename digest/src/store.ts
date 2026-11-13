@@ -19,6 +19,7 @@ import {
   verifications,
 } from "@pawster/db";
 import type {
+  AnimalFacts,
   DigestAnimal,
   Sex,
   ShelterFacts,
@@ -41,6 +42,9 @@ const latestVerificationOutcome = sql<
   where ${verifications.shelterId} = ${animals.shelterId}
   order by ${verifications.id} desc limit 1
 )`;
+
+/** `isListed()` over a row that selected the availability and the shelter facts above. */
+const listedRow = (row: AnimalFacts & ShelterFacts) => isListed(row, row);
 
 /**
  * Every listed animal, read once per run and matched against every search in the shard.
@@ -80,16 +84,7 @@ export async function readListedForDigest(db: Database): Promise<DigestAnimal[]>
     .innerJoin(shelters, eq(shelters.id, animals.shelterId));
 
   return rows
-    .filter((row) =>
-      isListed(
-        { availability: row.availability },
-        {
-          latestVerificationOutcome: row.latestVerificationOutcome,
-          contactPointCount: row.contactPointCount,
-          departedAt: row.departedAt,
-        },
-      ),
-    )
+    .filter(listedRow)
     .map((row) => ({
       id: row.id,
       species: row.species,
@@ -174,9 +169,9 @@ export interface DigestRowAnimal {
  * the ids go in as a single JSON array through `json_each`, so D1's 100-parameter cap is never
  * near. The join keeps every column qualified, which a Drizzle select over one table does not.
  *
- * Not filtered by `isListed()`: the producer decided what to send, and an animal adopted in the
- * minutes since is still the animal the email was composed with. One that was deleted outright
- * is simply missing from the result, and its row is dropped.
+ * Filtered by `isListed()` again, at send time: delisting is immediate (#65), so an animal
+ * adopted, or whose shelter asked to leave, since the run is missing from the result like one
+ * deleted outright, and the consumer drops its row.
  */
 export async function readDigestRows(
   db: Database,
@@ -193,8 +188,13 @@ export async function readDigestRows(
       region: animals.region,
       lastConfirmedAt: animals.lastConfirmedAt,
       sourceDigest: uploadSessionPhotos.sourceDigest,
+      availability: animals.availability,
+      contactPointCount,
+      latestVerificationOutcome,
+      departedAt: shelters.departedAt,
     })
     .from(animals)
+    .innerJoin(shelters, eq(shelters.id, animals.shelterId))
     .leftJoin(
       uploadSessionPhotos,
       and(
@@ -203,5 +203,5 @@ export async function readDigestRows(
       ),
     )
     .where(sql`${animals.id} in (select value from json_each(${JSON.stringify(ids)}))`);
-  return new Map(rows.map((row) => [row.id, row]));
+  return new Map(rows.filter(listedRow).map((row) => [row.id, row]));
 }

@@ -824,6 +824,59 @@ describe("the email", () => {
     expect(await countIn("digest_sent")).toBe(sentRows);
     expect(outbound.callsTo("resend").some((call) => call.url.includes("/batch"))).toBe(false);
   });
+
+  it("treats a 409 on a reused key as already sent, and remembers what it carried", async () => {
+    // The send went out, the write after it failed, and the animal changed before the retry:
+    // the retry renders different bytes under the same key and Resend answers 409.
+    await seedSubscriber("s-wed", "wed@example.org", 3);
+    await withSomethingToSend("s-wed");
+    const enqueued = await enqueuedBy(WEDNESDAY);
+    outbound.on(
+      "resend",
+      () =>
+        new Response(JSON.stringify({ name: "invalid_idempotent_request" }), { status: 409 }),
+    );
+
+    await deliverAll(enqueued);
+
+    expect(await countIn("digest_sent")).toBe(1);
+  });
+
+  it("leaves out an animal delisted between the run and the send, and remembers only the rest", async () => {
+    // #65: delisting is immediate, and a queued email is no exception.
+    await seedSubscriber("s-wed", "wed@example.org", 3);
+    await seedShelter("staying");
+    await seedShelter("leaving");
+    await seedAnimal("kept", { shelterId: "staying" });
+    await seedAnimal("gone", { shelterId: "leaving" });
+    await seedSubscription("sub-all", "s-wed");
+    const enqueued = await enqueuedBy(WEDNESDAY);
+    await env.DB.prepare("UPDATE shelters SET departed_at = ? WHERE id = 'leaving'")
+      .bind(WEDNESDAY.getTime())
+      .run();
+
+    const html = await (async () => {
+      await deliverAll(enqueued);
+      return JSON.parse(digests()[0]!.body!).html as string;
+    })();
+
+    expect(html).toContain("Animal kept");
+    expect(html).not.toContain("Animal gone");
+    const remembered = await env.DB.prepare("SELECT animal_id FROM digest_sent").all();
+    expect(remembered.results).toEqual([{ animal_id: "kept" }]);
+  });
+
+  it("sends nothing when everything it was going to show has been delisted", async () => {
+    await seedSubscriber("s-wed", "wed@example.org", 3);
+    await withSomethingToSend("s-wed");
+    const enqueued = await enqueuedBy(WEDNESDAY);
+    await env.DB.prepare("UPDATE animals SET availability = 'Adopted'").run();
+
+    await deliverAll(enqueued);
+
+    expect(digests()).toEqual([]);
+    expect(await countIn("digest_sent")).toBe(0);
+  });
 });
 
 /** The chip texts in one section's header, in order. */

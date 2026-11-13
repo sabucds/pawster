@@ -14,9 +14,9 @@
  * The words are `web/`'s, imported rather than copied, so the email says an animal exactly the
  * way its listing card does. One language, es-VE, for the reason `nudge.ts` gives.
  *
- * **Rendering must be deterministic for one message.** Resend answers a reused idempotency key
- * whose body differs with a 409, which would retry a redelivered message into the dead-letter
- * queue. So "now" is the run's period, never the clock at delivery.
+ * **"Now" is the run's period, never the clock at delivery.** A redelivery still reads today's
+ * rows, so its body can differ from the first send's, and Resend answers the reused key with a
+ * 409. `resend.ts` takes that 409 as sent.
  */
 
 import { deriveAgeBand } from "@pawster/domain";
