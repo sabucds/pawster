@@ -71,8 +71,12 @@ export {
   derivativeKeyMaterial,
   derivativeSpecFingerprint,
 } from "./derivative.ts";
-export type { DigestPeriod } from "./digest.ts";
-export { DIGEST_DAILY_BUDGET, digestIdempotencyKey } from "./digest.ts";
+export type { DigestAnimal, DigestPeriod } from "./digest.ts";
+export {
+  DIGEST_DAILY_BUDGET,
+  digestCandidates,
+  digestIdempotencyKey,
+} from "./digest.ts";
 export type { KeyedHashPurpose } from "./keyed-hash.ts";
 export { digestsEqual, sign, toBase64Url } from "./keyed-hash.ts";
 export type {
