@@ -109,7 +109,7 @@ describe("composeDigest", () => {
     Array.from({ length: n }, (_, i) => [`${prefix}-${i}`]);
 
   it("shows twelve per search and counts the rest as more", () => {
-    const [section] = composeDigest([{ subscriptionId: "a", units: units("dog", 15) }]);
+    const [section] = composeDigest([{ subscriptionId: "a", criteria: {}, units: units("dog", 15) }]);
     expect(section!.units).toEqual(units("dog", 12));
     expect(section!.more).toBe(3);
     expect(section!.repeats).toEqual([]);
@@ -117,9 +117,9 @@ describe("composeDigest", () => {
 
   it("stops at twenty-four rows across searches, in the order given", () => {
     const sections = composeDigest([
-      { subscriptionId: "a", units: units("dog", 12) },
-      { subscriptionId: "b", units: units("cat", 12) },
-      { subscriptionId: "c", units: units("bird", 5) },
+      { subscriptionId: "a", criteria: {}, units: units("dog", 12) },
+      { subscriptionId: "b", criteria: {}, units: units("cat", 12) },
+      { subscriptionId: "c", criteria: {}, units: units("bird", 5) },
     ]);
     expect(sections.map((s) => [s.units.length, s.more])).toEqual([
       [12, 0],
@@ -131,8 +131,8 @@ describe("composeDigest", () => {
   it("shows a unit two searches match once, under the first, and remembers it for both", () => {
     const bonded = ["dog-1", "dog-2"];
     const [first, second] = composeDigest([
-      { subscriptionId: "a", units: [bonded] },
-      { subscriptionId: "b", units: [bonded, ["cat-1"]] },
+      { subscriptionId: "a", criteria: {}, units: [bonded] },
+      { subscriptionId: "b", criteria: {}, units: [bonded, ["cat-1"]] },
     ]);
     expect(first!.units).toEqual([bonded]);
     expect(second!.units).toEqual([["cat-1"]]);

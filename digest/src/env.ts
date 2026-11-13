@@ -1,4 +1,4 @@
-import type { SubscriptionCriteria } from "@pawster/domain";
+import type { DigestSection } from "@pawster/domain";
 
 export interface DigestMessage {
   /** The day this run covers, `YYYY-MM-DD`. */
@@ -13,22 +13,6 @@ export interface DigestMessage {
    * and remembers exactly the same thing.
    */
   sections: DigestSection[];
-}
-
-export interface DigestSection {
-  subscriptionId: string;
-  /** The search, for the chips that head its section. */
-  criteria: SubscriptionCriteria;
-  /**
-   * The rows shown. Each unit is its members' animal ids: one id for a single animal, two or
-   * more for a bonded group. The consumer writes these and `repeats` into the sent-set after
-   * the send succeeds, and nothing else, so what did not fit arrives next time.
-   */
-  units: string[][];
-  /** Matched here but shown under an earlier section of the same email. */
-  repeats: string[][];
-  /** Matched but not shown: the "and N more" line. */
-  more: number;
 }
 
 export interface Env {

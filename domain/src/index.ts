@@ -72,10 +72,10 @@ export {
   derivativeSpecFingerprint,
 } from "./derivative.ts";
 export type {
-  ComposedSection,
   DigestAnimal,
   DigestPeriod,
-  DigestSearchMatches,
+  DigestSection,
+  DigestSubscriptionMatches,
 } from "./digest.ts";
 export {
   composeDigest,
@@ -127,11 +127,12 @@ export type {
 export { ageBandsFor, goodWithFor, matches } from "./matching.ts";
 export {
   DEPARTURE_GRACE_MS,
+  DAY_MS,
   DIGEST_DELIVERY_TTL_MS,
   NEVER_MATCHED_NUDGE_MS,
   SENT_SET_UNLISTED_TTL_MS,
-  digestDeliveryPurgeCutoff,
-  sentSetPruneCutoff,
+  digestDeliveryErasureCutoff,
+  sentSetExpiryCutoff,
   OPT_IN_TTL_MS,
   OPT_IN_WINDOW_MS,
   UNSUBSCRIBE_GRACE_MS,
@@ -140,6 +141,7 @@ export {
   optInMailLedgerCutoff,
   optInPurgeCutoff,
   unsubscribedErasureCutoff,
+  wholeDays,
 } from "./retention.ts";
 export type { ConfirmableShelter, ConfirmationClaim } from "./confirmation-links.ts";
 export {

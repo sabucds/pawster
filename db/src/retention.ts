@@ -232,11 +232,10 @@ export async function runSubscriberPurges(
 /**
  * What an erased account email becomes. `account_email` is `NOT NULL UNIQUE`, so it cannot
  * be cleared; a per-shelter address under `.invalid` (RFC 2606) is unique, can never receive
- * mail, and marks the erasure as done so the next run skips the shelter.
+ * mail, and marks the erasure as done so the next run skips the shelter. SQL over the row's
+ * own id, so the write and the "already erased" check below share one spelling.
  */
-export function erasedAccountEmail(shelterId: string): string {
-  return `departed+${shelterId}@invalid`;
-}
+const erasedAccountEmail = sql<string>`'departed+' || ${shelters.id} || '@invalid'`;
 
 /**
  * ADR 0015's day-30 erasure: a shelter that departed at or before `cutoff` loses its contact
@@ -254,7 +253,7 @@ export async function eraseDepartedShelters(
     .where(
       and(
         lte(shelters.departedAt, cutoff),
-        ne(shelters.accountEmail, sql`'departed+' || ${shelters.id} || '@invalid'`),
+        ne(shelters.accountEmail, erasedAccountEmail),
       ),
     );
   for (const { id } of due) {
@@ -263,7 +262,7 @@ export async function eraseDepartedShelters(
       db
         .update(shelters)
         .set({
-          accountEmail: erasedAccountEmail(id),
+          accountEmail: erasedAccountEmail,
           sessionEpoch: sql`${shelters.sessionEpoch} + 1`,
         })
         .where(eq(shelters.id, id)),
@@ -273,7 +272,7 @@ export async function eraseDepartedShelters(
 }
 
 /** Drops Digest Delivery rows older than `cutoff` (ADR 0010's 90 days). */
-export async function purgeDigestDeliveries(
+export async function eraseDigestDeliveries(
   db: Database,
   cutoff: Date,
 ): Promise<number> {
@@ -285,14 +284,14 @@ export async function purgeDigestDeliveries(
 }
 
 /**
- * ADR 0010's sent-set rule: a row is pruned 90 days after its animal unlists. Nothing records
+ * ADR 0010's sent-set rule: a row expires 90 days after its animal unlists. Nothing records
  * when an animal unlists, so each run reconciles: a row whose animal is not in `listedIds`
  * gets `unlisted_since = now` if it had none, a row whose animal is listed again loses it, and
- * rows unlisted since before `cutoff` go. Returns how many rows it pruned.
+ * rows unlisted since before `cutoff` go. Returns how many rows expired.
  *
  * The ids travel as one JSON parameter, because D1 caps a statement at 100 bound values.
  */
-export async function pruneSentSets(
+export async function expireSentSets(
   db: Database,
   listedIds: readonly string[],
   now: Date,

@@ -26,6 +26,7 @@
 
 import { manageUrl, unsubscribeUrl } from "@pawster/domain";
 import type { Env } from "./env.ts";
+import { sendMail } from "./resend.ts";
 
 /**
  * How many nudges one run may send, and **they are spent from the digest's own reservation
@@ -68,52 +69,37 @@ export async function sendNudgeEmail(env: Env, nudge: Nudge): Promise<void> {
   });
   const unsubscribe = await unsubscribeUrl(env, nudge.subscriberId);
 
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${env.RESEND_API_KEY}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      from: env.DIGEST_FROM_ADDRESS,
-      to: [nudge.to],
-      subject: "Todavía no hay animales que coincidan con tu búsqueda",
-      /**
-       * Plain text, with the link on a line of its own so every mail client makes it
-       * clickable without markup.
-       *
-       * The message says the true thing — nothing matched — rather than inventing activity,
-       * and it leads with what the subscriber can do about it. The last line is the one the
-       * ADR asks for: the link works, and it is the way out as well as the way in.
-       */
-      text: [
-        "Han pasado tres meses desde que activaste tu búsqueda en Pawster y todavía no ha aparecido ningún animal que coincida con ella.",
-        "",
-        "No hace falta que hagas nada: si aparece alguno, te llega el resumen como siempre.",
-        "",
-        "Desde aquí puedes ver lo que guardamos tuyo, cambiar tu búsqueda, darte de baja o borrarlo todo:",
-        url,
-        "",
-        "Guarda este enlace: es el único que tienes para entrar, porque en Pawster no hay contraseñas.",
-      ].join("\n"),
-      /**
-       * The same one-click headers every digest carries (RFC 8058). A nudge is a mail a
-       * subscriber did not ask for individually, so it must be as unsubscribable as the
-       * digest it stands in for — and `List-Unsubscribe` is what a mail client turns into the
-       * button people actually press instead of the spam report.
-       *
-       * It is the *manage* link that is in the body and the *unsubscribe* link that is in the
-       * header, and they are different links on purpose: the header must never open a page
-       * that can erase anything, and the body link must be the one that survives.
-       */
-      headers: {
-        "List-Unsubscribe": `<${unsubscribe}>`,
-        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
-      },
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Resend rejected the nudge: ${response.status}`);
-  }
+  await sendMail(env, {
+    to: nudge.to,
+    subject: "Todavía no hay animales que coincidan con tu búsqueda",
+    /**
+     * Plain text, with the link on a line of its own so every mail client makes it
+     * clickable without markup.
+     *
+     * The message says the true thing — nothing matched — rather than inventing activity,
+     * and it leads with what the subscriber can do about it. The last line is the one the
+     * ADR asks for: the link works, and it is the way out as well as the way in.
+     */
+    text: [
+      "Han pasado tres meses desde que activaste tu búsqueda en Pawster y todavía no ha aparecido ningún animal que coincida con ella.",
+      "",
+      "No hace falta que hagas nada: si aparece alguno, te llega el resumen como siempre.",
+      "",
+      "Desde aquí puedes ver lo que guardamos tuyo, cambiar tu búsqueda, darte de baja o borrarlo todo:",
+      url,
+      "",
+      "Guarda este enlace: es el único que tienes para entrar, porque en Pawster no hay contraseñas.",
+    ].join("\n"),
+    /**
+     * The same one-click headers every digest carries (RFC 8058). A nudge is a mail a
+     * subscriber did not ask for individually, so it must be as unsubscribable as the
+     * digest it stands in for — and `List-Unsubscribe` is what a mail client turns into the
+     * button people actually press instead of the spam report.
+     *
+     * It is the *manage* link that is in the body and the *unsubscribe* link that is in the
+     * header, and they are different links on purpose: the header must never open a page
+     * that can erase anything, and the body link must be the one that survives.
+     */
+    unsubscribeUrl: unsubscribe,
+});
 }

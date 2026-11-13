@@ -1,14 +1,14 @@
 /**
- * ADR 0016's nightly reclamation sweep, and the storage measurement that falls out of it.
+ * ADR 0016's nightly Reclamation, and the storage measurement that falls out of it.
  *
  * A derivative under `d/` is deleted only when no animal references it, no upload session
  * younger than 24 hours holds it, and the object itself is older than 24 hours. "This key is
  * dead" is never a fact about a key: keys are content-addressed, so two animals can share
  * one, and the only way to know nobody holds it is to compute every key that is held.
  *
- * The sweep refuses rather than deletes when anything looks wrong. A failed reference read
+ * Reclamation refuses rather than deletes when anything looks wrong. A failed reference read
  * throws before any listing starts, and a delete set larger than `max(200, 10%)` of what
- * `d/` holds deletes nothing. A skipped sweep costs about a megabyte; a wrong one is
+ * `d/` holds deletes nothing. A skipped Reclamation costs about a megabyte; a wrong one is
  * permanent, because originals are gone after seven days and derivatives are cached
  * `immutable`.
  */
@@ -21,24 +21,24 @@ import {
   uploadSessions,
 } from "@pawster/db";
 import {
+  DAY_MS,
   DERIVATIVE_PREFIX,
   type StorageMode,
-  derivativeKeyFor,
-  derivativeKeyMaterial,
   derivativesFor,
   deriveStorageMode,
 } from "@pawster/domain";
+import { derivativeKey } from "@pawster/web/src/lib/photos/keys.ts";
 import { eq, gte, inArray, or } from "drizzle-orm";
+import { sendMail } from "./resend.ts";
 
-const DAY_MS = 24 * 60 * 60_000;
 const REFUSE_FLOOR = 200;
 const REFUSE_SHARE = 0.1;
 /** R2's `delete` takes up to 1,000 keys per call. */
 const DELETE_BATCH = 1000;
 
-export interface SweepOutcome {
-  readonly sweep: "swept" | "refused";
-  /** How many objects `d/` held when listed, and how many the sweep found unreferenced. */
+export interface ReclamationOutcome {
+  readonly reclamation: "reclaimed" | "refused";
+  /** How many objects `d/` held when listed, and how many Reclamation found unreferenced. */
   readonly listed: number;
   readonly unreferenced: number;
   readonly reclaimedObjects: number;
@@ -48,14 +48,14 @@ export interface SweepOutcome {
 }
 
 /**
- * Run the sweep and record the measurement. Throws, having deleted nothing, if the reference
- * read or any listing fails; the caller records that as an aborted sweep.
+ * Run Reclamation and record the measurement. Throws, having deleted nothing, if the reference
+ * read or any listing fails; the caller records that as an aborted Reclamation.
  */
 export async function reclaimAndMeasure(
   buckets: { readonly MEDIA: R2Bucket; readonly ORIGINALS: R2Bucket },
   db: Database,
   now: Date,
-): Promise<SweepOutcome> {
+): Promise<ReclamationOutcome> {
   const held = await heldDerivativeKeys(db, now);
 
   const derivatives = await listAll(buckets.MEDIA, DERIVATIVE_PREFIX);
@@ -89,7 +89,7 @@ export async function reclaimAndMeasure(
   });
 
   return {
-    sweep: refused ? "refused" : "swept",
+    reclamation: refused ? "refused" : "reclaimed",
     listed: derivatives.length,
     unreferenced: doomed.length,
     reclaimedObjects: refused ? 0 : doomed.length,
@@ -124,24 +124,15 @@ async function heldDerivativeKeys(db: Database, now: Date): Promise<Set<string>>
         ),
       ),
     );
+  // The upload path's own key function, so Reclamation cannot compute a key it did not write.
   const keys = await Promise.all(
     photos.flatMap((photo) =>
-      derivativesFor(photo.position === 0 ? "primary" : "additional").map(async (name) =>
-        derivativeKeyFor(await sha256Hex(derivativeKeyMaterial(photo.sourceDigest, name)), name),
+      derivativesFor(photo.position === 0 ? "primary" : "additional").map((name) =>
+        derivativeKey(photo.sourceDigest, name),
       ),
     ),
   );
   return new Set(keys);
-}
-
-/**
- * The same hash `web/src/lib/photos/keys.ts` writes keys with. `domain/` holds no
- * `crypto.subtle`, so each Worker hashes for itself; the sweep's tests place objects with
- * `web/`'s function, so the two cannot drift apart unnoticed.
- */
-async function sha256Hex(input: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(input));
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 async function listAll(bucket: R2Bucket, prefix?: string): Promise<R2Object[]> {
@@ -156,17 +147,17 @@ async function listAll(bucket: R2Bucket, prefix?: string): Promise<R2Object[]> {
 }
 
 /**
- * What the admin needs to hear about this sweep, or `null` when it went quietly: a sweep that
+ * What the admin needs to hear about this Reclamation, or `null` when it went quietly: one that
  * aborted or refused, and any storage mode past normal.
  */
-export function sweepAlert(outcome: SweepOutcome | null): string | null {
+export function reclamationAlert(outcome: ReclamationOutcome | null): string | null {
   if (outcome === null) {
-    return "The reclamation sweep aborted: the reference read or a bucket listing failed, so nothing was deleted or measured. It runs again tomorrow.";
+    return "Reclamation aborted: the reference read or a bucket listing failed, so nothing was deleted or measured. It runs again tomorrow.";
   }
   const lines: string[] = [];
-  if (outcome.sweep === "refused") {
+  if (outcome.reclamation === "refused") {
     lines.push(
-      `The reclamation sweep refused: ${outcome.unreferenced} of ${outcome.listed} derivatives under d/ looked unreferenced, more than max(${REFUSE_FLOOR}, ${REFUSE_SHARE * 100}%). Nothing was deleted.`,
+      `Reclamation refused: ${outcome.unreferenced} of ${outcome.listed} derivatives under d/ looked unreferenced, more than max(${REFUSE_FLOOR}, ${REFUSE_SHARE * 100}%). Nothing was deleted.`,
     );
   }
   if (outcome.mode !== "normal") {
@@ -179,18 +170,5 @@ export async function mailAdmin(
   env: { RESEND_API_KEY: string; DIGEST_FROM_ADDRESS: string; ADMIN_EMAIL: string },
   text: string,
 ): Promise<void> {
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${env.RESEND_API_KEY}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      from: env.DIGEST_FROM_ADDRESS,
-      to: [env.ADMIN_EMAIL],
-      subject: "Pawster: storage sweep needs a look",
-      text,
-    }),
-  });
-  if (!response.ok) throw new Error(`Resend rejected the admin mail: ${response.status}`);
+  await sendMail(env, { to: env.ADMIN_EMAIL, subject: "Pawster: reclamation needs a look", text });
 }

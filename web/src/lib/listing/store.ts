@@ -30,14 +30,14 @@
 import type { Database } from "@pawster/db";
 import {
   animals,
-  shelterContactPoints,
+  contactPointCount,
+  latestVerificationOutcome,
   shelters,
   uploadSessionPhotos,
-  verifications,
 } from "@pawster/db";
 import type { GoodWithFlags, ListedAnimal, ShelterFacts } from "@pawster/domain";
 import { isListed } from "@pawster/domain";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { derivativeKey } from "../photos/keys.ts";
 
 /**
@@ -61,38 +61,6 @@ export interface ListableRead {
   readonly animals: readonly ListedAnimal[];
   readonly withoutPhoto: number;
 }
-
-/**
- * How many public contact points the shelter offers, as a scalar subquery.
- *
- * A count and not the points, matching `ShelterFacts`: the rule only asks whether an adopter
- * can reach anyone, and handing a pure function a volunteer's WhatsApp number to not look at
- * is worse than not having it.
- */
-const contactPointCount = sql<number>`(
-  select count(*) from ${shelterContactPoints}
-  where ${shelterContactPoints.shelterId} = ${animals.shelterId}
-)`;
-
-/**
- * The outcome off the top of the shelter's append-only log
- * ([ADR 0003](../../../../docs/adr/0003-verification-is-an-append-only-log.md)), or `null`
- * where it has none — which is *pending*, spelled as the absence it is.
- *
- * Ordered by the log's `id` and never by `decidedAt`, for the reason `db/src/schema.ts`
- * gives: two decisions in the same millisecond are indistinguishable by the clock, so the
- * clock is not a total order and a shelter could read `Verified` or `Revoked` depending on
- * which query ran. This is `../verification/store.ts`'s `readLatestVerificationOutcome`
- * expressed for a set rather than for one shelter — the same definition of "latest",
- * because it is the same `ORDER BY`.
- */
-const latestVerificationOutcome = sql<
-  ShelterFacts["latestVerificationOutcome"]
->`(
-  select ${verifications.outcome} from ${verifications}
-  where ${verifications.shelterId} = ${animals.shelterId}
-  order by ${verifications.id} desc limit 1
-)`;
 
 /**
  * Every animal an adopter may see, with the thumbnail its card shows, in id order.
@@ -138,8 +106,8 @@ export async function readListableAnimals(
       shelterId: animals.shelterId,
       /** `null` where the primary photograph's row has gone — see {@link ListableRead}. */
       sourceDigest: uploadSessionPhotos.sourceDigest,
-      contactPointCount,
-      latestVerificationOutcome,
+      contactPointCount: contactPointCount(animals.shelterId),
+      latestVerificationOutcome: latestVerificationOutcome(animals.shelterId),
       departedAt: shelters.departedAt,
       demo: shelters.demo,
     })

@@ -9,6 +9,7 @@ import {
 import { exports as workerExports } from "cloudflare:workers";
 import { createDb, subscribers } from "@pawster/db";
 import {
+  DIGEST_DAILY_BUDGET,
   MANAGE_PATH,
   OPT_IN_TTL_MS,
   OPT_IN_WINDOW_MS,
@@ -449,6 +450,32 @@ describe("the shard's ordering", () => {
       "s-later",
     ]);
   });
+
+  it("spends the whole digest budget even on a day confirmation nudges go out", async () => {
+    // ADR 0009: confirmation nudges come out of the 30 held back from Resend's hundred,
+    // never out of the digest's 70.
+    const ids = Array.from({ length: DIGEST_DAILY_BUDGET }, (_, i) => `s-${i}`);
+    await env.DB.batch(
+      ids.map((id) =>
+        env.DB.prepare(
+          "INSERT INTO subscribers (id, email, send_day, opted_in_at, manage_token_version) VALUES (?, ?, 3, ?, 0)",
+          // Opted in last week, so none is owed the ninety-day nudge, which does spend the 70.
+        ).bind(id, `${id}@example.org`, WEDNESDAY.getTime() - 7 * 24 * 60 * 60_000),
+      ),
+    );
+    await withSomethingToSend(...ids);
+    // The shelter's only animal, unconfirmed for long enough to be owed a nudge.
+    await env.DB.prepare("UPDATE animals SET last_confirmed_at = ?")
+      .bind(new Date("2026-01-01").getTime())
+      .run();
+
+    const enqueued = await enqueuedBy(WEDNESDAY);
+
+    expect(
+      outbound.callsTo("resend").filter((call) => call.body!.includes("shelter-1@example.org")),
+    ).toHaveLength(1);
+    expect(enqueued).toHaveLength(DIGEST_DAILY_BUDGET);
+  });
 });
 
 /** Deliver everything the run enqueued, the way the real queue would. */
@@ -544,9 +571,9 @@ describe("matching", () => {
 
   it("sends an animal whose matchable_since predates the subscriber's last digest", async () => {
     /**
-     * ADR 0009 says `matchable_since` narrows candidates. It is set once at publication and
-     * never moved, so narrowing by it would drop exactly the two cases above. This pins that
-     * the producer does not: the sent-set alone decides what is new.
+     * ADR 0009 says `matchable_since` narrows candidates. No time cutoff can without dropping
+     * the graduation above or the overflow below. This pins that the producer does not: the
+     * sent-set alone decides what is new.
      */
     await seedSubscriber("s-wed", "wed@example.org", 3, {
       lastDigestAt: new Date("2026-08-26"),
@@ -796,6 +823,59 @@ describe("the email", () => {
     expect(second!.body).toBe(first!.body);
     expect(await countIn("digest_sent")).toBe(sentRows);
     expect(outbound.callsTo("resend").some((call) => call.url.includes("/batch"))).toBe(false);
+  });
+
+  it("treats a 409 on a reused key as already sent, and remembers what it carried", async () => {
+    // The send went out, the write after it failed, and the animal changed before the retry:
+    // the retry renders different bytes under the same key and Resend answers 409.
+    await seedSubscriber("s-wed", "wed@example.org", 3);
+    await withSomethingToSend("s-wed");
+    const enqueued = await enqueuedBy(WEDNESDAY);
+    outbound.on(
+      "resend",
+      () =>
+        new Response(JSON.stringify({ name: "invalid_idempotent_request" }), { status: 409 }),
+    );
+
+    await deliverAll(enqueued);
+
+    expect(await countIn("digest_sent")).toBe(1);
+  });
+
+  it("leaves out an animal delisted between the run and the send, and remembers only the rest", async () => {
+    // #65: delisting is immediate, and a queued email is no exception.
+    await seedSubscriber("s-wed", "wed@example.org", 3);
+    await seedShelter("staying");
+    await seedShelter("leaving");
+    await seedAnimal("kept", { shelterId: "staying" });
+    await seedAnimal("gone", { shelterId: "leaving" });
+    await seedSubscription("sub-all", "s-wed");
+    const enqueued = await enqueuedBy(WEDNESDAY);
+    await env.DB.prepare("UPDATE shelters SET departed_at = ? WHERE id = 'leaving'")
+      .bind(WEDNESDAY.getTime())
+      .run();
+
+    const html = await (async () => {
+      await deliverAll(enqueued);
+      return JSON.parse(digests()[0]!.body!).html as string;
+    })();
+
+    expect(html).toContain("Animal kept");
+    expect(html).not.toContain("Animal gone");
+    const remembered = await env.DB.prepare("SELECT animal_id FROM digest_sent").all();
+    expect(remembered.results).toEqual([{ animal_id: "kept" }]);
+  });
+
+  it("sends nothing when everything it was going to show has been delisted", async () => {
+    await seedSubscriber("s-wed", "wed@example.org", 3);
+    await withSomethingToSend("s-wed");
+    const enqueued = await enqueuedBy(WEDNESDAY);
+    await env.DB.prepare("UPDATE animals SET availability = 'Adopted'").run();
+
+    await deliverAll(enqueued);
+
+    expect(digests()).toEqual([]);
+    expect(await countIn("digest_sent")).toBe(0);
   });
 });
 

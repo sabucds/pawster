@@ -3,6 +3,7 @@ import * as schema from "./schema.ts";
 
 export * from "./confirmation.ts";
 export * from "./retention.ts";
+export * from "./shelter-facts.ts";
 export * from "./schema.ts";
 
 export type Database = ReturnType<typeof createDb>;

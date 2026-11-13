@@ -175,6 +175,16 @@ describe("the confirmation nudge", () => {
     expect(nudges()).toHaveLength(0);
   });
 
+  it("never nudges a shelter that has asked to leave", async () => {
+    await seedShelter("leaving");
+    await seedAnimal("Canela", "leaving", daysAgo(60));
+    await db().update(shelters).set({ departedAt: daysAgo(3) }).where(eq(shelters.id, "leaving"));
+
+    await runScheduled(NOW);
+
+    expect(nudges()).toHaveLength(0);
+  });
+
   it("keeps the link current when the send fails, so the next run retries", async () => {
     await seedShelter("s1");
     await seedAnimal("Canela", "s1", daysAgo(31));

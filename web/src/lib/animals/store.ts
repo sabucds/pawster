@@ -36,6 +36,7 @@ import type {
   Sterilisation,
 } from "@pawster/domain";
 import { and, count, desc, eq, inArray, isNotNull, ne, sql } from "drizzle-orm";
+import { withItsGroup } from "./confirm.ts";
 import type { AnimalEditInput, AnimalInput } from "./publish.ts";
 import { newShortId } from "./short-id.ts";
 
@@ -317,12 +318,12 @@ export async function publishAnimal(
 /**
  * Save an edit, which is also a Confirmation.
  *
- * **`lastConfirmedAt` moves and `matchableSince` does not**, and the asymmetry is the reason both
- * columns exist. `CONTEXT.md` makes a Confirmation "a shelter's deliberate write to one animal —
- * an edit, a new photo, or an explicit 'still available' click — which records that the animal
- * was true as of that moment", so every edit is one by definition and issue #55 requires it.
- * Touching `matchableSince` would re-announce the animal to every subscriber who has already
- * been shown it, turning a corrected typo into a second notification.
+ * **`lastConfirmedAt` moves and `matchableSince` does not.** `CONTEXT.md` makes a Confirmation
+ * "a shelter's deliberate write to one animal — an edit, a new photo, or an explicit 'still
+ * available' click — which records that the animal was true as of that moment", so every edit
+ * is one by definition and issue #55 requires it. `matchableSince` stays put so the shelter's
+ * list (`listShelterAnimals`) does not reshuffle on every edit. Moving it would not re-announce
+ * anything either way: the digest's sent-set decides what is new (`db/src/schema.ts`).
  *
  * `uploadSessionId` is absent from the update, and so is the shelter: an animal belongs to
  * exactly one shelter for life and is assembled from exactly one session, and a write path that
@@ -336,9 +337,7 @@ export async function editAnimal(
   bondedWith: readonly string[],
   now: Date,
 ): Promise<void> {
-  const mine = and(eq(animals.shelterId, owner.shelterId), inArray(animals.id, [owner.id, ...bondedWith]));
-  /** The group this animal is in once the bond below has been written. */
-  const itsGroup = sql`(select ${animals.bondedGroupId} from ${animals} where ${animals.id} = ${owner.id})`;
+  const newGroup = and(eq(animals.shelterId, owner.shelterId), inArray(animals.id, [owner.id, ...bondedWith]));
 
   /**
    * One batch, so the bond, the facts and the spread land together or not at all.
@@ -352,7 +351,7 @@ export async function editAnimal(
     db
       .update(animals)
       .set({ bondedGroupId: bondedWith.length === 0 ? null : crypto.randomUUID() })
-      .where(bondedWith.length === 0 ? eq(animals.id, owner.id) : mine),
+      .where(bondedWith.length === 0 ? eq(animals.id, owner.id) : newGroup),
     db
       .update(animals)
       .set({
@@ -382,7 +381,7 @@ export async function editAnimal(
     db
       .update(animals)
       .set({ availability: animal.availability, lastConfirmedAt: now, lastConfirmedVia: "session" })
-      .where(eq(animals.bondedGroupId, itsGroup)),
+      .where(withItsGroup(owner.id)),
     /** A group of one is not a group. */
     db
       .update(animals)

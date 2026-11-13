@@ -10,11 +10,30 @@
 import type { Database } from "@pawster/db";
 import { animals, shelters } from "@pawster/db";
 import type { Availability, ConfirmableShelter } from "@pawster/domain";
-import { and, eq, or, sql } from "drizzle-orm";
+import { type SQL, and, eq, isNull, or, sql } from "drizzle-orm";
 
 export type ConfirmedVia = "session" | "link";
 
-/** What `verifyConfirmationToken()` needs from the row. */
+/**
+ * The animal and every member of its bonded group. A group is adopted and confirmed together,
+ * so a Confirmation, and a state change, reach all of it. Read through a subquery, so it sees
+ * the group as it stands when the statement runs, after any bond written earlier in a batch.
+ */
+export function withItsGroup(animalId: string): SQL {
+  return or(
+    eq(animals.id, animalId),
+    eq(
+      animals.bondedGroupId,
+      sql`(select ${animals.bondedGroupId} from ${animals} where ${animals.id} = ${animalId})`,
+    ),
+  )!;
+}
+
+/**
+ * What `verifyConfirmationToken()` needs from the row. A shelter that has asked to leave reads
+ * as missing, so its links answer like expired ones: nothing it leaves behind is confirmed
+ * from an email. Signed in, it can still confirm during the grace period (#65).
+ */
 export async function readConfirmableShelter(
   db: Database,
   shelterId: string,
@@ -22,7 +41,7 @@ export async function readConfirmableShelter(
   const [row] = await db
     .select({ accountEmail: shelters.accountEmail, nudgeVersion: shelters.nudgeVersion })
     .from(shelters)
-    .where(eq(shelters.id, shelterId))
+    .where(and(eq(shelters.id, shelterId), isNull(shelters.departedAt)))
     .limit(1);
   return row ?? null;
 }
@@ -52,7 +71,6 @@ export async function confirmAnimal(
   owner: { readonly shelterId: string; readonly animalId: string },
   change: { readonly via: ConfirmedVia; readonly now: Date; readonly availability?: Availability },
 ): Promise<void> {
-  const itsGroup = sql`(select ${animals.bondedGroupId} from ${animals} where ${animals.id} = ${owner.animalId})`;
   await db
     .update(animals)
     .set({
@@ -63,7 +81,7 @@ export async function confirmAnimal(
     .where(
       and(
         eq(animals.shelterId, owner.shelterId),
-        or(eq(animals.id, owner.animalId), eq(animals.bondedGroupId, itsGroup)),
+        withItsGroup(owner.animalId),
       ),
     );
 }

@@ -19,7 +19,7 @@ import worker from "../src/index.ts";
 
 /**
  * The parts of the daily preamble issue #66 adds: the Digest Delivery and sent-set purges,
- * departure destruction, and the reclamation sweep. Each runs through `scheduled()`, the
+ * departure destruction, and Reclamation. Each runs through `scheduled()`, the
  * same path the Cron Trigger takes, with `now` injected as the scheduled time.
  */
 type ScheduledInvocable = {
@@ -163,7 +163,7 @@ describe("Digest Delivery", () => {
 
     const { results } = await env.DB.prepare("SELECT id FROM digest_deliveries").all();
     expect(results).toEqual([{ id: "kept" }]);
-    expect((await lastRun())!.purged_deliveries).toBe(1);
+    expect((await lastRun())!.erased_deliveries).toBe(1);
   });
 });
 
@@ -234,7 +234,7 @@ describe("the sent-set", () => {
     expect(await sentAnimals()).toEqual(["listed"]);
   });
 
-  it("prunes a row 90 days after its animal unlists, and not a moment before", async () => {
+  it("expires a row 90 days after its animal unlists, and not a moment before", async () => {
     await seedListedAnimal("adopted", "Adopted");
     await seedSent("adopted", new Date(NOW.getTime() - DAY));
 
@@ -244,7 +244,7 @@ describe("the sent-set", () => {
 
     await runScheduled(new Date(NOW.getTime() + SENT_SET_UNLISTED_TTL_MS + 1));
     expect(await sentAnimals()).toEqual([]);
-    expect((await lastRun())!.pruned_sent_rows).toBe(1);
+    expect((await lastRun())!.expired_sent_rows).toBe(1);
   });
 
   it("restarts the clock when the animal is listed again", async () => {
@@ -261,15 +261,14 @@ describe("the sent-set", () => {
 });
 
 /**
- * The sweep. Miniflare's R2 stamps `uploaded` from the real clock, so these tests put objects
- * now and run the sweep at a scheduled time measured from the real clock: 25 hours on makes
+ * Reclamation. Miniflare's R2 stamps `uploaded` from the real clock, so these tests put objects
+ * now and run Reclamation at a scheduled time measured from the real clock: 25 hours on makes
  * every object old enough to reclaim, 23 hours on makes none of them old enough.
  *
- * The keys come from `web/`'s `derivativeKey`, the function the upload path writes with. The
- * sweep computes its own, so a drift between the two fails here instead of deleting a live
- * animal's photos.
+ * The keys come from `web/`'s `derivativeKey`, the function the upload path writes with and
+ * the one Reclamation computes held keys with.
  */
-describe("the reclamation sweep", () => {
+describe("Reclamation", () => {
   const HOUR = 60 * 60_000;
   const later = (hours: number) => new Date(Date.now() + hours * HOUR);
 
@@ -302,7 +301,7 @@ describe("the reclamation sweep", () => {
     await runScheduled(later(25));
 
     expect(await mediaKeys()).toEqual(["i/index.json", "pointer.json"]);
-    expect(await lastRun()).toMatchObject({ sweep: "swept", reclaimed_objects: 1 });
+    expect(await lastRun()).toMatchObject({ reclamation: "reclaimed", reclaimed_objects: 1 });
   });
 
   it("keeps what an animal's photos reference, by role, and drops a demoted primary's extra pair", async () => {
@@ -379,7 +378,7 @@ describe("the reclamation sweep", () => {
     }
 
     expect(await mediaKeys()).toEqual([orphan]);
-    expect(await lastRun()).toMatchObject({ sweep: "aborted", reclaimed_objects: 0 });
+    expect(await lastRun()).toMatchObject({ reclamation: "aborted", reclaimed_objects: 0 });
     expect(adminMails()).toHaveLength(1);
   });
 
@@ -392,7 +391,7 @@ describe("the reclamation sweep", () => {
     await runScheduled(later(25));
 
     expect(await mediaKeys()).toHaveLength(201);
-    expect(await lastRun()).toMatchObject({ sweep: "refused", reclaimed_objects: 0 });
+    expect(await lastRun()).toMatchObject({ reclamation: "refused", reclaimed_objects: 0 });
     const [mail] = adminMails();
     expect(mail?.text).toContain("201");
   });

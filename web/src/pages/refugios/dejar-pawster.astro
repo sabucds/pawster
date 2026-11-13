@@ -1,6 +1,6 @@
 ---
 import { createDb } from "@pawster/db";
-import { DEPARTURE_GRACE_MS } from "@pawster/domain";
+import { DEPARTURE_GRACE_MS, wholeDays } from "@pawster/domain";
 import { env } from "cloudflare:workers";
 import FormErrors from "../../components/FormErrors.astro";
 import Refugios from "../../layouts/Refugios.astro";
@@ -82,7 +82,7 @@ if (Astro.request.method === "POST") {
 
 const facts = await readShelterFacts(db, session.shelterId);
 const departedAt = facts?.departedAt ?? null;
-const graceDays = DEPARTURE_GRACE_MS / 86_400_000;
+const graceDays = wholeDays(DEPARTURE_GRACE_MS);
 const cancelRefused = Astro.request.method === "POST" && errors.length === 0;
 ---
 

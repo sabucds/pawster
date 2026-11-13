@@ -7,14 +7,8 @@
 
 import { and, asc, eq, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import type { Database } from "./index.ts";
-import { animals, shelters, verifications } from "./schema.ts";
-
-/** Pending, refused and revoked shelters are never nudged: only a latest `Verified` counts. */
-const latestOutcome = sql<string | null>`(
-  select ${verifications.outcome} from ${verifications}
-  where ${verifications.shelterId} = ${shelters.id}
-  order by ${verifications.id} desc limit 1
-)`;
+import { animals, shelters } from "./schema.ts";
+import { latestVerificationOutcome } from "./shelter-facts.ts";
 
 export interface ShelterNudge {
   readonly shelterId: string;
@@ -25,9 +19,9 @@ export interface ShelterNudge {
 }
 
 /**
- * Verified shelters with at least one Available animal confirmed no later than
- * `staleBefore`, and not nudged since `nudgedBefore`. One entry per shelter, because a
- * nudge is one email per shelter and never one per animal.
+ * Verified shelters that have not asked to leave, with at least one Available animal confirmed
+ * no later than `staleBefore`, and not nudged since `nudgedBefore`. One entry per shelter,
+ * because a nudge is one email per shelter and never one per animal.
  */
 export async function findShelterNudgesOwed(
   db: Database,
@@ -43,7 +37,9 @@ export async function findShelterNudgesOwed(
     .from(shelters)
     .where(
       and(
-        eq(latestOutcome, "Verified"),
+        // Pending, refused and revoked shelters are never nudged: only a latest `Verified` counts.
+        eq(latestVerificationOutcome(shelters.id), "Verified"),
+        isNull(shelters.departedAt),
         or(isNull(shelters.nudgedAt), lte(shelters.nudgedAt, cutoffs.nudgedBefore)),
         sql`exists (
           select 1 from ${animals}

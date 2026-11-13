@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "1198dfae-347e-4c0c-bb66-c758faa92496",
+  "id": "66e98a1f-20cc-4963-b37f-600f84ae63b7",
   "prevId": "cb5840d1-b6b4-4a07-be69-8cf9653b9546",
   "tables": {
     "animals": {
@@ -360,16 +360,16 @@
           "notNull": true,
           "autoincrement": false
         },
-        "purged_deliveries": {
-          "name": "purged_deliveries",
+        "erased_deliveries": {
+          "name": "erased_deliveries",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
           "default": 0
         },
-        "pruned_sent_rows": {
-          "name": "pruned_sent_rows",
+        "expired_sent_rows": {
+          "name": "expired_sent_rows",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
@@ -384,8 +384,8 @@
           "autoincrement": false,
           "default": 0
         },
-        "sweep": {
-          "name": "sweep",
+        "reclamation": {
+          "name": "reclamation",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

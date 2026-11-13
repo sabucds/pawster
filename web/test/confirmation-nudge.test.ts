@@ -167,6 +167,19 @@ describe("the confirmation link", () => {
     expect(await animalRow("canela")).toEqual(before);
   });
 
+  it("stops working once the shelter has asked to leave", async () => {
+    const { shelterId, link } = await nudged();
+    await seedAnimal({ id: "canela", shelterId, lastConfirmedAt: stale() });
+    const before = await animalRow("canela");
+    await env.DB.prepare("UPDATE shelters SET departed_at = ? WHERE id = ?")
+      .bind(Date.now(), shelterId)
+      .run();
+
+    expect((await get(link)).status).toBe(410);
+    expect((await post(link, { accion: "confirmar-todos" })).status).toBe(410);
+    expect(await animalRow("canela")).toEqual(before);
+  });
+
   it("stops working once the account email changes", async () => {
     const { shelterId, cookie, link } = await nudged();
     await seedAnimal({ id: "canela", shelterId, lastConfirmedAt: stale() });

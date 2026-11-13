@@ -25,6 +25,14 @@
  * Workers rather than in two files that can disagree.
  */
 
+/** One day in milliseconds. Every period in days, in every workspace, is a multiple of it. */
+export const DAY_MS = 24 * 60 * 60_000;
+
+/** A period as the whole number of days a page or an email states it in. */
+export function wholeDays(ms: number): number {
+  return Math.round(ms / DAY_MS);
+}
+
 /**
  * Seven days, and **one constant serves both** the opt-in link's lifetime and the purge
  * cutoff that destroys the row the link names.
@@ -39,7 +47,7 @@
  * ADR 0010's reason for the figure itself: "an unconfirmed opt-in is an address we hold no
  * consent for at all, so it is hard-deleted at seven days."
  */
-export const OPT_IN_TTL_MS = 7 * 24 * 60 * 60_000;
+export const OPT_IN_TTL_MS = 7 * DAY_MS;
 
 /**
  * The trailing-day window the global opt-in ceiling and the per-address cooldown are both
@@ -49,7 +57,7 @@ export const OPT_IN_TTL_MS = 7 * 24 * 60 * 60_000;
  * attacker two full allocations back to back across the boundary, and 00:00 UTC is 20:00 in
  * Venezuela — the middle of the evening rather than a quiet hour.
  */
-export const OPT_IN_WINDOW_MS = 24 * 60 * 60_000;
+export const OPT_IN_WINDOW_MS = DAY_MS;
 
 /**
  * The instant before which pending opt-in rows are due for destruction; anything created at
@@ -99,7 +107,7 @@ export function optInMailLedgerCutoff(now: Date): Date {
  * exactly one purpose — undoing a click that may have been an accident — so the clock starts
  * at the click.
  */
-export const UNSUBSCRIBE_GRACE_MS = 90 * 24 * 60 * 60_000;
+export const UNSUBSCRIBE_GRACE_MS = 90 * DAY_MS;
 
 /** The instant before which an unsubscribed subscriber is due to be erased entirely. */
 export function unsubscribedErasureCutoff(now: Date): Date {
@@ -124,7 +132,7 @@ export function unsubscribedErasureCutoff(now: Date): Date {
  *
  * Measured from the opt-in, because that is when the silence started.
  */
-export const NEVER_MATCHED_NUDGE_MS = 90 * 24 * 60 * 60_000;
+export const NEVER_MATCHED_NUDGE_MS = 90 * DAY_MS;
 
 /**
  * The instant before which a subscriber who has never received a digest is owed their one
@@ -147,7 +155,7 @@ export function neverMatchedNudgeCutoff(now: Date): Date {
  * The privacy page states this period from this constant, so the promise and the rule cannot
  * drift apart.
  */
-export const DEPARTURE_GRACE_MS = 30 * 24 * 60 * 60_000;
+export const DEPARTURE_GRACE_MS = 30 * DAY_MS;
 
 /** The instant before which a departure can no longer be cancelled and is due for erasure. */
 export function departureErasureCutoff(now: Date): Date {
@@ -159,9 +167,9 @@ export function departureErasureCutoff(now: Date): Date {
  * subscriber a digest that day" for as long as a complaint about it can still arrive, and
  * the row holds a subscriber id and never an address.
  */
-export const DIGEST_DELIVERY_TTL_MS = 90 * 24 * 60 * 60_000;
+export const DIGEST_DELIVERY_TTL_MS = 90 * DAY_MS;
 
-export function digestDeliveryPurgeCutoff(now: Date): Date {
+export function digestDeliveryErasureCutoff(now: Date): Date {
   return new Date(now.getTime() - DIGEST_DELIVERY_TTL_MS);
 }
 
@@ -172,8 +180,8 @@ export function digestDeliveryPurgeCutoff(now: Date): Date {
  * after it leaves, and a long-listed animal's rows are kept as long as it stays listed. A
  * fixed window from the send would forget a still-listed animal and send it again as new.
  */
-export const SENT_SET_UNLISTED_TTL_MS = 90 * 24 * 60 * 60_000;
+export const SENT_SET_UNLISTED_TTL_MS = 90 * DAY_MS;
 
-export function sentSetPruneCutoff(now: Date): Date {
+export function sentSetExpiryCutoff(now: Date): Date {
   return new Date(now.getTime() - SENT_SET_UNLISTED_TTL_MS);
 }

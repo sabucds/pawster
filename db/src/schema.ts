@@ -398,10 +398,11 @@ export const animals = sqliteTable(
     /**
      * When the animal first became matchable. Set once at publication and never moved.
      *
-     * Distinct from `lastConfirmedAt`, and the pair is the point: a confirmation records
-     * that the animal is still true *now*, while this records when it entered the pool. The
-     * digest's "what is new" reads this one, so folding the two together would make every
-     * edit re-announce an animal that subscribers were shown weeks ago.
+     * Distinct from `lastConfirmedAt`: a confirmation records that the animal is still true
+     * *now*, while this records when it entered the pool, and the shelter's own list sorts by
+     * it. The digest does not read it. ADR 0009 meant it to narrow the digest's candidates,
+     * but no time cutoff can do that without dropping overflow a capped email left for next
+     * week or a puppy that grew into a band, so the sent-set alone decides what is new.
      */
     matchableSince: integer("matchable_since", {
       mode: "timestamp_ms",
@@ -865,18 +866,18 @@ export const digestRuns = sqliteTable("digest_runs", {
   purgedOptInMails: integer("purged_opt_in_mails").notNull(),
   erasedSubscribers: integer("erased_subscribers").notNull(),
   /** Issue #66's preamble. Default 0 so the rows written before it still read. */
-  purgedDeliveries: integer("purged_deliveries").notNull().default(0),
-  prunedSentRows: integer("pruned_sent_rows").notNull().default(0),
+  erasedDeliveries: integer("erased_deliveries").notNull().default(0),
+  expiredSentRows: integer("expired_sent_rows").notNull().default(0),
   erasedDepartures: integer("erased_departures").notNull().default(0),
   /**
-   * How the reclamation sweep ended: `swept`, `refused` (the delete set was too large, so
+   * How the Reclamation ended: `reclaimed`, `refused` (the delete set was too large, so
    * nothing was deleted and the admin was mailed) or `aborted` (a read failed, so nothing was
    * deleted). Null on rows written before #66.
    */
-  sweep: text("sweep", { enum: ["swept", "refused", "aborted"] }),
+  reclamation: text("reclamation", { enum: ["reclaimed", "refused", "aborted"] }),
   reclaimedObjects: integer("reclaimed_objects").notNull().default(0),
   reclaimedBytes: integer("reclaimed_bytes").notNull().default(0),
-  /** Bytes across both buckets after the sweep; null when the listing itself failed. */
+  /** Bytes across both buckets after Reclamation; null when the listing itself failed. */
   storedBytes: integer("stored_bytes"),
 });
 
@@ -1091,7 +1092,7 @@ export const uploadSessions = sqliteTable(
  * bytes plus the spec (ADR 0012), so every key this row implies is recomputable from
  * `sourceDigest` and `position` — storing them would be storing a derived value that could
  * disagree with the function that derives it, which is the drift ADR 0004 avoids for age
- * bands. It also matters to the sweep: reclamation asks "does a live session hold this
+ * bands. It also matters to Reclamation: reclamation asks "does a live session hold this
  * key", and it can only ask that if the keys come from one place.
  */
 export const uploadSessionPhotos = sqliteTable(
@@ -1209,12 +1210,12 @@ export const storageMeasurements = sqliteTable(
      */
     totalBytes: integer("total_bytes").notNull(),
     /**
-     * The mode the sweep concluded, for the admin mail and the run summary.
+     * The mode Reclamation concluded, for the admin mail and the run summary.
      *
      * **The upload path does not read this**; it derives the mode from `totalBytes` in the
      * same row, so the number and the mode cannot disagree in the direction that matters.
      * Kept because ADR 0016 specifies the row as "measured bytes, timestamp, resulting
-     * mode", and because what the sweep *concluded* is the thing an admin needs when
+     * mode", and because what Reclamation *concluded* is the thing an admin needs when
      * asking why a mail arrived.
      */
     mode: text("mode", {

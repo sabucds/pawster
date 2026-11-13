@@ -14,9 +14,9 @@
  * The words are `web/`'s, imported rather than copied, so the email says an animal exactly the
  * way its listing card does. One language, es-VE, for the reason `nudge.ts` gives.
  *
- * **Rendering must be deterministic for one message.** Resend answers a reused idempotency key
- * whose body differs with a 409, which would retry a redelivered message into the dead-letter
- * queue. So "now" is the run's period, never the clock at delivery.
+ * **"Now" is the run's period, never the clock at delivery.** A redelivery still reads today's
+ * rows, so its body can differ from the first send's, and Resend answers the reused key with a
+ * 409. `resend.ts` takes that 409 as sent.
  */
 
 import { deriveAgeBand } from "@pawster/domain";
@@ -31,7 +31,7 @@ import {
 import { describeCriteria } from "@pawster/web/src/lib/axis-labels.ts";
 import { escapeHtml } from "@pawster/web/src/lib/listing/card.ts";
 import { derivativeKey } from "@pawster/web/src/lib/photos/keys.ts";
-import type { DigestSection } from "./env.ts";
+import type { DigestSection } from "@pawster/domain";
 import type { DigestRowAnimal } from "./store.ts";
 
 /** The thumbnail is the 144×144 JPEG derivative, drawn at half size for high-density screens. */
