@@ -1,9 +1,11 @@
 ---
 import { createDb } from "@pawster/db";
 import {
+  DORMANT_AFTER_DAYS,
   GOOD_WITH_AXES,
   deriveAgeBand,
   deriveStalenessBand,
+  isDormant,
 } from "@pawster/domain";
 import { env } from "cloudflare:workers";
 import { animalPath, animalUrl, messageAddress } from "../../../lib/animals/address.ts";
@@ -31,6 +33,7 @@ import {
 } from "../../../lib/animals/words.ts";
 import { readShelterFacts } from "../../../lib/auth/store.ts";
 import {
+  readShelterLastActivity,
   readShelterPublicIdentity,
   readStoredContactPoints,
 } from "../../../lib/shelter/store.ts";
@@ -69,21 +72,15 @@ import {
  *   is issue #55's criterion holding: an unlisted animal of an unverified shelter has no public
  *   existence to describe, and a page saying "this is hidden" would leak that the id is real.
  *
- * **A Departure cannot be observed yet.** `readShelterFacts()` returns `departedAt: null` for
- * every shelter until issue #65 adds the column, so the `ShelterDeparted` wording is written,
- * unit-tested in `visibility.test.ts`, and unreachable from here — the same position issue #55
- * was in with verification before #53 landed the log. Nothing about this page changes when #65
- * arrives.
+ * A Departure archives every animal of the shelter at once, through `publicView()`'s
+ * `ShelterDeparted` reason (issue #65): the wording is fixed platform text, and nothing the
+ * shelter wrote reaches it.
  *
- * ## The one thing on the prototype's field budget that is missing
+ * ## The dormancy notice
  *
- * The public-listing prototype lists "shelter, its verification badge **and any dormancy
- * notice**" among what only this page shows, and the dormancy notice is not here. A Dormant
- * Shelter is one with no activity of any kind for ninety days (`CONTEXT.md`), and nothing on the
- * platform records activity yet — the fact the notice would be derived from does not exist, so a
- * notice would either never fire or fire on something else. It arrives with issue #65, which
- * owns shelter-level notices, and it is a block above the contact hand-off rather than anything
- * that changes the rules on this page.
+ * A Dormant Shelter has done nothing for ninety days (`CONTEXT.md`). Its animals stay listed,
+ * and a listed animal's page says so about the shelter, above the contact hand-off. It is a
+ * notice and never a state: nothing reads it to archive anything.
  *
  * ## Copy
  *
@@ -124,6 +121,8 @@ if (!shelter) return new Response("No encontrado", { status: 404 });
 const now = new Date();
 
 const listed = view.kind === "listed";
+const lastActivity = listed ? await readShelterLastActivity(db, animal.shelterId) : null;
+const dormant = lastActivity !== null && isDormant(lastActivity, now);
 const band = deriveAgeBand(animal.species, animal.estimatedBirthDate, now);
 const meta = metaLine(animal, band);
 const gallery = await readAnimalGallery(db, animal, env.MEDIA_PUBLIC_ORIGIN);
@@ -495,6 +494,14 @@ const socialTitle = `${animal.name} — ${meta}`;
         conditional because the state it would be conditional on is a 404.
       */}
       <p data-testid="verified">Refugio verificado</p>
+      {
+        dormant && (
+          <p data-testid="dormant-shelter">
+            Este refugio no ha tenido actividad en Pawster en más de {DORMANT_AFTER_DAYS} días.
+            Puede que tarde en responder.
+          </p>
+        )
+      }
     </section>
 
     {

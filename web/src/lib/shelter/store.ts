@@ -13,9 +13,9 @@
  */
 
 import type { Database } from "@pawster/db";
-import { oneTimeCodes, shelterContactPoints, shelters } from "@pawster/db";
+import { animals, oneTimeCodes, shelterContactPoints, shelters } from "@pawster/db";
 import type { ContactPointKind } from "@pawster/db";
-import { and, eq, ne, sql } from "drizzle-orm";
+import { and, eq, max, ne, sql } from "drizzle-orm";
 import type { ContactPointInput } from "./fields.ts";
 import type { ProfileInput } from "./profile.ts";
 
@@ -305,4 +305,32 @@ export async function readShelterPublicIdentity(
     .where(eq(shelters.id, shelterId))
     .limit(1);
   return row ?? null;
+}
+
+/**
+ * The last time this shelter did anything the platform records, for the Dormant Shelter notice
+ * (`CONTEXT.md`, issue #65): the latest `last_confirmed_at` across its animals, or its
+ * registration if that is later. Publishing, editing, confirming and rearranging photos all
+ * move `last_confirmed_at`, so this is the shelter's own work on its animals.
+ *
+ * Profile edits and sign-ins leave no timestamp and so do not count. That only ever errs
+ * towards showing the notice, which changes no listing.
+ *
+ * A join rather than two selects, so every column is qualified: drizzle leaves column names
+ * bare in a query-builder select without a join, and `animals.shelter_id = shelters.id` would
+ * not survive that.
+ */
+export async function readShelterLastActivity(
+  db: Database,
+  shelterId: string,
+): Promise<Date | null> {
+  const [row] = await db
+    .select({ createdAt: shelters.createdAt, lastConfirmedAt: max(animals.lastConfirmedAt) })
+    .from(shelters)
+    .leftJoin(animals, eq(animals.shelterId, shelters.id))
+    .where(eq(shelters.id, shelterId))
+    .groupBy(shelters.id);
+  if (!row) return null;
+  const { createdAt, lastConfirmedAt } = row;
+  return lastConfirmedAt !== null && lastConfirmedAt > createdAt ? lastConfirmedAt : createdAt;
 }

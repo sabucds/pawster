@@ -137,7 +137,7 @@ export {
   verifyConfirmationToken,
 } from "./confirmation-links.ts";
 export type { StalenessBand } from "./staleness.ts";
-export { daysBetween, deriveStalenessBand } from "./staleness.ts";
+export { DORMANT_AFTER_DAYS, daysBetween, deriveStalenessBand, isDormant } from "./staleness.ts";
 export type {
   ManageClaim,
   SubscriberLinkOrigin,

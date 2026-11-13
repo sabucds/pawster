@@ -209,3 +209,34 @@ describe("the privacy notice", () => {
     expect(kept).toContain("nuestras propias decisiones");
   });
 });
+
+describe("a dormant shelter", () => {
+  /** A shelter registered long ago whose only animal was last confirmed `days` ago. */
+  async function silentFor(days: number): Promise<string> {
+    const { shelterId } = await signIn();
+    await verifyShelter(shelterId);
+    await env.DB.prepare("UPDATE shelters SET created_at = ? WHERE id = ?")
+      .bind(Date.now() - 400 * DAY, shelterId)
+      .run();
+    await seedAnimal({ id: "canela", shelterId, lastConfirmedAt: new Date(Date.now() - days * DAY) });
+    return shelterId;
+  }
+
+  it("keeps its animals listed, with a notice about the shelter", async () => {
+    const shelterId = await silentFor(120);
+    await regenerate();
+
+    expect(await listedIds()).toEqual(["canela"]);
+    const html = await (await get("/a/canela/canela")).text();
+    expect(html).toContain('data-testid="dormant-shelter"');
+    expect(html).toContain('data-testid="contact"');
+    expect(await departedAt(shelterId)).toBeNull();
+  });
+
+  it("carries no notice while the shelter has been active within ninety days", async () => {
+    await silentFor(20);
+
+    const html = await (await get("/a/canela/canela")).text();
+    expect(html).not.toContain('data-testid="dormant-shelter"');
+  });
+});
