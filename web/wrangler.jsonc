@@ -37,19 +37,26 @@
     { "binding": "ORIGINALS", "bucket_name": "pawster-originals" }
   ],
 
-  // Seven secrets are deliberately absent: `SESSION_SECRET` signs the Session cookie,
+  // Nine secrets are deliberately absent: `SESSION_SECRET` signs the Session cookie,
   // `SIGN_IN_SECRET` keys the One-Time Code hash, `ORIGINAL_SECRET` signs the capability
   // handed to the image pipeline, `ADMIN_LINK_SECRET` signs every admin link (ADR 0019),
   // `SUBSCRIBER_SECRET` keys the opt-in token and the signup IP fingerprints,
-  // `DO_NOT_CONTACT_PEPPER` keys the Do-Not-Contact list (ADR 0010), and `RESEND_API_KEY` is
+  // `DO_NOT_CONTACT_PEPPER` keys the Do-Not-Contact list (ADR 0010), `SUBSCRIBER_LINK_SECRET`
+  // signs and verifies the unsubscribe and manage links a subscriber holds (#62),
+  // `RESEND_WEBHOOK_SECRET` is Resend's own Svix key and is what stands between the delivery
+  // webhook and an endpoint that retires any address a caller names, and `RESEND_API_KEY` is
   // the mail credential. A committed plaintext `var` for any of them would put a credential
   // in the repository — the same rule `digest/wrangler.jsonc` follows for
-  // `UNSUBSCRIBE_SECRET`. They are set with `wrangler secret put`, and the test seam supplies
+  // `SUBSCRIBER_LINK_SECRET`. They are set with `wrangler secret put`, and the test seam supplies
   // fixed ones, so the suite still needs no credentials.
   //
   // `DO_NOT_CONTACT_PEPPER` is the one that must never be rotated: ADR 0010 records that a
   // lost pepper fails *open*, silently resuming mail to people who reported us as spam. The
   // canary in `web/src/lib/subscriber/store.ts` is what turns that silence into a 500.
+  //
+  // `SUBSCRIBER_LINK_SECRET` must be *the same value* `digest/` holds: that Worker builds the
+  // links and this one verifies them, so a deploy where the two differ rejects every link a
+  // subscriber has.
   "vars": {
     // A different sender from the digest's, so a shelter's mail client and Postmaster Tools
     // can tell a credential from a newsletter, and so a spam complaint about the digest

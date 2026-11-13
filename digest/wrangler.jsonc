@@ -38,10 +38,15 @@
     ]
   },
 
-  // `UNSUBSCRIBE_SECRET` is deliberately absent: it signs unsubscribe links, so it is a
-  // secret (`wrangler secret put UNSUBSCRIBE_SECRET`) and never a plaintext `var` in a
+  // `SUBSCRIBER_LINK_SECRET` is deliberately absent: it signs both of a subscriber's links — the
+  // one-click unsubscribe link in every digest's `List-Unsubscribe` header and the manage link
+  // the ninety-day nudge carries — so it is a
+  // secret (`wrangler secret put SUBSCRIBER_LINK_SECRET`) and never a plaintext `var` in a
   // committed file. The test seam supplies a fixed one, so the suite still needs no
   // credentials.
+  //
+  // It must be *the same value* `web/` holds under the same name: this Worker builds the links
+  // and that one verifies them (#62).
   "vars": {
     "HEALTHCHECK_URL": "https://hc-ping.com/00000000-0000-0000-0000-000000000000",
     "DIGEST_FROM_ADDRESS": "digest@pawster.dpdns.org",

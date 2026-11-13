@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * Seven structural rules that no test can enforce, checked over the source instead.
+ * Eight structural rules that no test can enforce, checked over the source instead.
  *
- * All seven exist because the thing they forbid *passes* at runtime. A module-scope Drizzle
+ * All eight exist because the thing they forbid *passes* at runtime. A module-scope Drizzle
  * client runs fine locally and breaks in production; a `db/` import inside `domain/` is just
  * an import; a query that rewrites a shelter's slug succeeds and quietly breaks every URL an
  * adopter already held; a query that selects a shelter's account email into something public
@@ -10,7 +10,9 @@
  * while spending five times the Worker's CPU budget; S3 credentials in the Worker work
  * exactly as well as not having them, minus the credential that can leak; and an
  * `authenticate()` call on an admin route would work perfectly, which is the problem — it
- * would be an admin session, and ADR 0002 built none.
+ * would be an admin session, and ADR 0002 built none; and a subscriber written into Resend
+ * Contacts would be written successfully, which is the problem — consent would then have two
+ * owners that can disagree (#62).
  *
  * None has a failing test to point at. Four of them share a sharper reason for that, worth
  * naming: the slug, account-email and admin-cookie rules could each have a test *per route*,
@@ -434,6 +436,38 @@ for (const file of files) {
       );
     }
 
+    /**
+     * Rule 8: no subscriber is mirrored into Resend Contacts or an Audience.
+     *
+     * Issue #62: "We deliberately do **not** mirror subscribers into Resend Contacts — consent
+     * is the one piece of state that must have a single owner." Two systems that both believe
+     * they know whether somebody is subscribed will disagree, and the digest reads ours; a
+     * subscriber unsubscribed here and still present there is a person we would go on mailing.
+     *
+     * Here rather than in a test for the reason rules 3, 4 and 7 are: a test can assert that
+     * *today* no route posts to `/contacts`, and `subscriber-manage.test.ts` does exactly that
+     * over the paths it exercises. It can say nothing about the route nobody has written yet,
+     * which is where adding a contact would look like a convenience — and the call would
+     * succeed, which is the problem.
+     *
+     * Comment lines are skipped, because this decision has to be writable about: the webhook
+     * and ADR 0010 both name the API in order to rule it out.
+     */
+    const contacts = isComment
+      ? null
+      : line.match(/api\.resend\.com\/(?:contacts|audiences)|\/v1\/(?:contacts|audiences)\b/);
+    if (contacts) {
+      fail(
+        file,
+        lineNumber,
+        "a subscriber reaches Resend Contacts",
+        `${contacts[0]} — consent has a single owner, and it is our database (#62). Two ` +
+          "systems that both believe they know whether somebody is subscribed will disagree, " +
+          "and a subscriber unsubscribed here but still present there is a person we would go " +
+          "on mailing.",
+      );
+    }
+
     if (!inDomain) return;
 
     // Rule 2: `domain/` is pure — no I/O, and no `db/`.
@@ -460,11 +494,75 @@ for (const file of files) {
       }
     }
 
-    if (!/\.test\.ts$/.test(relPath) && /\bfetch\s*\(/.test(line)) {
+    /**
+     * Comment lines are skipped here for the reason rules 5 and 6 already skip them: "a rule
+     * that fired on prose would be a rule that made the reasoning unwritable, and the
+     * reasoning is the more valuable half."
+     *
+     * That was an oversight rather than a distinction. This rule forbids a thing the package
+     * also has to be able to *write about* — `keyed-hash.ts` names the call it does not make,
+     * in order to say that moving the platform's keyed hash into `domain/` left the purity
+     * rules intact — and it fired on that sentence. Rules 3, 4 and 7 scan comments too, and
+     * should: the shapes they forbid never appear in prose.
+     */
+    if (!isComment && !/\.test\.ts$/.test(relPath) && /\bfetch\s*\(/.test(line)) {
       fail(file, lineNumber, "domain/ performs I/O", line.trim());
     }
   });
 }
+
+/**
+ * `pawster-media`'s public origin is spelled twice, and the two spellings must agree.
+ *
+ * The animal page is server-rendered and reads `env.MEDIA_PUBLIC_ORIGIN`, a Worker var in
+ * `web/wrangler.jsonc`. The listing is prerendered and its island runs in a browser with no
+ * request context, so it cannot read a binding at all (ADR 0007) and carries the origin as a
+ * build-time constant instead. Two mechanisms is correct and unavoidable.
+ *
+ * Two *values* is a bug with no natural symptom: each surface is internally consistent, its
+ * own tests pass, and what an adopter sees is photographs loading on one page and 404ing on
+ * the other — which reads as a broken catalogue rather than a misconfigured one.
+ *
+ * Checked here rather than in a `web/` test because the test isolate's binding is a fixture
+ * (`https://media.pawster.test`), so a test can only compare a fixture against the constant.
+ * Only a reader with a filesystem can compare the two *deployed* spellings, and that is this
+ * script.
+ */
+function checkMediaOriginAgrees() {
+  const wranglerPath = join(ROOT, "web/wrangler.jsonc");
+  const mediaPath = join(ROOT, "web/src/lib/listing/media.ts");
+
+  const wrangler = readFileSync(wranglerPath, "utf8");
+  const media = readFileSync(mediaPath, "utf8");
+
+  const inWrangler = /"MEDIA_PUBLIC_ORIGIN"\s*:\s*"([^"]+)"/.exec(wrangler);
+  const inSource = /PROVISIONED_MEDIA_BASE_URL\s*=\s*\n?\s*"([^"]+)"/.exec(media);
+
+  if (!inWrangler) {
+    fail("web/wrangler.jsonc", 0, "MEDIA_PUBLIC_ORIGIN is missing", "the animal page reads it");
+    return;
+  }
+  if (!inSource) {
+    fail(
+      "web/src/lib/listing/media.ts",
+      0,
+      "PROVISIONED_MEDIA_BASE_URL is missing",
+      "the prerendered listing is built against it",
+    );
+    return;
+  }
+  if (inWrangler[1] !== inSource[1]) {
+    fail(
+      "web/src/lib/listing/media.ts",
+      0,
+      "the media origin disagrees with wrangler.jsonc",
+      `wrangler.jsonc says ${inWrangler[1]}, media.ts says ${inSource[1]} — ` +
+        "photographs will load on one surface and 404 on the other",
+    );
+  }
+}
+
+checkMediaOriginAgrees();
 
 if (failures.length > 0) {
   console.error(`\n${failures.length} source-rule violation(s):\n`);
@@ -479,5 +577,6 @@ if (failures.length > 0) {
 console.log(
   `source rules ok — ${files.length} files checked for module-scope Drizzle clients, ` +
     "domain/ purity, writes to shelters.slug, reads of the account-email column, " +
-    "the IMAGES binding, S3 credentials and cookies on an admin route",
+    "the IMAGES binding, S3 credentials, cookies on an admin route, writes to " +
+    "Resend Contacts and the media origin",
 );

@@ -1,0 +1,61 @@
+---
+import Resumen from "../../layouts/Resumen.astro";
+
+export const prerender = true;
+
+/**
+ * What a subscriber sees after "delete everything".
+ *
+ * Prerendered and identityless, and both follow from what just happened: there is no row left
+ * to read, no token that still names anything, and nothing to personalise with. That is the
+ * page working correctly rather than a limitation — a confirmation that could still greet
+ * somebody by name would be evidence the button had not done what it said.
+ *
+ * ## It states the subprocessor tail rather than claiming a clean sweep
+ *
+ * ADR 0010: "'Delete everything' is scoped honestly, because a subprocessor tail exists that
+ * we cannot clear. Resend retains email and log data for 30 days on every plan below
+ * Enterprise, keeps backups for 7 days, and maintains its own automatic suppression list
+ * holding addresses in *plaintext*."
+ *
+ * Saying so here, and not only in the privacy notice, is the difference between a promise and
+ * a claim. This is the one moment somebody is actually reading about their own deletion, and
+ * the sentence they would most resent finding out later is the one about copies we do not
+ * control.
+ */
+---
+
+<Resumen title="Borrado" heading="Listo, ya no tenemos nada tuyo">
+  <p data-testid="erased">
+    Borramos tu correo y tus búsquedas. No te queda nada en Pawster y no te vamos a escribir
+    más.
+  </p>
+
+  <p data-testid="subprocessor-tail">
+    <!--
+      The honest scope. Claiming this reached every copy everywhere would be false, and a
+      reader who found out later would be right to disbelieve the rest of the page.
+    -->
+    Lo único que puede quedar por unos días son las copias que guarda Resend, la empresa que
+    manda nuestros correos: los mensajes y sus registros se les borran solos a los 30 días, y
+    sus copias de seguridad a los 7. Eso no lo controlamos nosotros.
+  </p>
+
+  <p data-testid="dnc-note">
+    <!--
+      Only true for somebody who reported us as spam, and phrased so it is not a lie for
+      everybody else: the page cannot tell which reader this is, because the row it would have
+      had to read is the one that was just destroyed.
+    -->
+    Si alguna vez marcaste nuestro correo como spam, guardamos un código del que no se puede
+    sacar tu dirección, y nada más. Es lo que hace que el formulario se niegue a inscribirte
+    otra vez, que es justo lo que pediste al marcarlo.
+  </p>
+
+  <p>
+    Si algún día quieres volver, puedes <a href="/resumen">guardar una búsqueda nueva</a>
+    desde cero.
+  </p>
+
+  <p><a href="/privacidad">Qué guardamos y por cuánto tiempo</a></p>
+</Resumen>

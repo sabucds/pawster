@@ -1,4 +1,10 @@
 /**
+ * Imported for its side effect: evaluating it is ADR 0010's boot check, so a Worker deployed
+ * without DO_NOT_CONTACT_PEPPER fails to start rather than quietly refusing nobody. See
+ * ../../../lib/subscriber/pepper.ts.
+ */
+import "../../../lib/subscriber/pepper.ts";
+/**
  * Save a search, and mail the link that proves the address.
  *
  * The subscriber path's counterpart to `api/refugios/codigo.ts`, and the same three things

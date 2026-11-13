@@ -7,117 +7,38 @@
  * and ADR 0013 calls it "cheap enough to ignore the CPU ceiling", unlike the password
  * hashing that ceiling ruled out.
  *
- * ## One labels table, several keys
+ * ## One labels table, several keys — and it now lives in `domain/`
  *
  * `SIGN_IN_SECRET` keys the code hash and the sign-in IP fingerprint; `SESSION_SECRET` signs
  * the cookie. Two rather than four on the shelter path, because every additional secret is
  * another thing `wrangler secret put` has to be told about and another way a deploy can be
  * half-configured — and a key earns its own existence only by having a different blast
- * radius, which `ORIGINAL_SECRET` (ADR 0012), `ADMIN_LINK_SECRET` (ADR 0019) and
- * `DO_NOT_CONTACT_PEPPER` (ADR 0010) all do and each of their own files argues.
+ * radius, which `ORIGINAL_SECRET` (ADR 0012), `ADMIN_LINK_SECRET` (ADR 0019),
+ * `DO_NOT_CONTACT_PEPPER` (ADR 0010) and `SUBSCRIBER_LINK_SECRET` all do and each of their
+ * own files argues.
  *
- * Reusing one key for two purposes is only safe if the two message spaces cannot overlap,
- * so every message here is **domain-separated by a literal label** — `code:`, `ip:`,
- * `session:` — that no caller chooses. Without it, a value that could be read as either
- * kind of message would produce a hash valid for both, and the labels are what makes that
- * impossible rather than merely unlikely.
+ * Reusing one key for two purposes is only safe if the two message spaces cannot overlap, so
+ * every message is **domain-separated by a literal label** that no caller chooses. The table
+ * of those labels used to be here, and the property it guarantees is that *no two messages
+ * anywhere in the platform can be read as each other* — which a single list makes checkable
+ * by reading one screen.
  *
- * **The labels table below spans every key in the platform, deliberately.** The property
- * worth guaranteeing is that no two messages anywhere can be read as each other, and a
- * single list is what makes that checkable by reading one screen; a labels table per feature
- * would let two of them collide with nobody in a position to notice. Which secret keys a
- * given label is recorded on the label itself, and the wrapper that calls {@link sign} lives
- * in the feature's own module rather than here.
+ * Issue #62 moved that table, and the `sign()` over it, to
+ * [`@pawster/domain`'s `keyed-hash.ts`](../../../../../domain/src/keyed-hash.ts), because a
+ * manage link is built in `digest/` and verified in `web/` and `digest/` cannot import `web/`.
+ * Keeping the table here would have forced a second one into `digest/`, which is the exact
+ * outcome the guarantee rules out. It is re-exported below so every call site in `web/` is
+ * unchanged and there is still one place a label is written down.
  */
 
+import { sign, toBase64Url } from "@pawster/domain";
 import { ONE_TIME_CODE_DIGITS, ONE_TIME_CODE_SPACE } from "./policy.ts";
 
-const LABELS = {
-  /** A One-Time Code, bound to the shelter it was issued to. */
-  code: "code:",
-  /** A client IP fingerprint for the sign-in mail ledger. */
-  ip: "ip:",
-  /** A Session cookie payload. */
-  session: "session:",
-  /**
-   * A capability over one original object, handed to Cloudflare's image pipeline and to
-   * nothing else (ADR 0012). Keyed by `ORIGINAL_SECRET` rather than by either of the two
-   * above — see `web/src/lib/photos/capability.ts` for why this one earns a third secret.
-   */
-  original: "original:",
-  /**
-   * An admin capability: a decision link, a pending-list link, or the revocation token that
-   * only a terminal mints (`../verification/link.ts`). Keyed by `ADMIN_LINK_SECRET`, which
-   * earns a key of its own for the reason that file gives — it is rotated *because a link
-   * leaked out of the admin's inbox*, and that emergency must not also invalidate every
-   * One-Time Code sitting in a shelter's inbox.
-   */
-  admin: "admin:",
-  /**
-   * An opt-in link's token. Keyed by `SUBSCRIBER_SECRET`.
-   *
-   * The four labels below are the subscriber path's, and they live here rather than in a
-   * second labels table for the reason this one exists at all: the guarantee is that no two
-   * *messages* in the platform can be read as each other, and one table is what makes that
-   * checkable by reading a single list. `original:` already sets the precedent that a label
-   * here need not be keyed by a secret named in this file's own comment.
-   */
-  optIn: "optin:",
-  /** A signup caller's IP fingerprint. Keyed by `SUBSCRIBER_SECRET`. */
-  signupIp: "signup-ip:",
-  /** A subscriber address's fingerprint in the opt-in mail ledger. Keyed by `SUBSCRIBER_SECRET`. */
-  subscriber: "subscriber:",
-  /**
-   * A Do-Not-Contact entry. Keyed by `DO_NOT_CONTACT_PEPPER` and by nothing else — ADR 0010
-   * requires a pepper that never rotates, and `web/src/lib/subscriber/crypto.ts` records why
-   * that makes it a secret of its own rather than a fifth use of `SUBSCRIBER_SECRET`.
-   */
-  doNotContact: "dnc:",
-} as const;
-
-type Purpose = keyof typeof LABELS;
-
 /**
- * Base64url without padding, which is what every value here is stored and transmitted as.
- * `=` is not URL-safe and `+`/`/` are not cookie-safe, so the standard alphabet would have
- * needed escaping at both boundaries.
+ * The keyed hash, its base64url encoding and its constant-time compare, re-exported from the
+ * one package all three consumers share. See this module's comment for why they moved.
  */
-export function toBase64Url(bytes: ArrayBuffer | Uint8Array): string {
-  const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-  let binary = "";
-  for (const byte of view) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-/**
- * `HMAC-SHA256(secret, label || message)` as base64url.
- *
- * The key is imported per call. That is deliberate rather than lazy: a `CryptoKey` cached
- * at module scope would outlive the request that created it, which is the same rule
- * `db/src/index.ts` states for the Drizzle client and the same reason —
- * `scripts/check-source-rules.mjs` only watches for Drizzle clients, so nothing would
- * catch this one. Importing a 32-byte HMAC key is arithmetic, not I/O.
- */
-export async function sign(
-  secret: string,
-  purpose: Purpose,
-  message: string,
-): Promise<string> {
-  const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const signature = await crypto.subtle.sign(
-    "HMAC",
-    key,
-    encoder.encode(LABELS[purpose] + message),
-  );
-  return toBase64Url(signature);
-}
+export { digestsEqual, sign, toBase64Url } from "@pawster/domain";
 
 /**
  * The stored form of a One-Time Code.
@@ -181,23 +102,4 @@ export function generateOneTimeCode(): string {
  */
 export function generateRequestToken(): string {
   return toBase64Url(crypto.getRandomValues(new Uint8Array(32)));
-}
-
-/**
- * Compare two base64url digests without leaking, through timing, how far along they first
- * differ.
- *
- * `===` on strings short-circuits at the first differing character. For a *keyed* hash that
- * is a weak oracle — an attacker cannot choose the digest they are aiming at without the
- * key — but this is the comparison that stands between a guessed code and a session, and
- * writing the constant-time form costs three lines. Length is compared first and in the
- * clear, which reveals nothing: every digest here is the same width by construction.
- */
-export function digestsEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) {
-    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  }
-  return diff === 0;
 }

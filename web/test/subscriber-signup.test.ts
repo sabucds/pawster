@@ -130,7 +130,15 @@ describe("2 — the opt-in link is single-use", () => {
 
     const first = await activate(token);
     expect(first.status).toBe(303);
-    expect(first.headers.get("location")).toMatch(/^\/resumen\/listo\?dia=\d$/);
+    /**
+     * The day *and* a manage token. ADR 0010 requires the opt-in success page to carry a
+     * working manage link — it is one of the two guarantees that a subscriber who never
+     * matches anything still holds a live link — so asserting the day alone would pass for a
+     * redirect that had quietly stopped issuing one.
+     */
+    expect(first.headers.get("location")).toMatch(
+      /^\/resumen\/listo\?dia=\d&t=[\w-]+\.\d+\.[\w-]+$/,
+    );
 
     const second = await activate(token);
     expect(second.status).toBe(303);

@@ -167,6 +167,61 @@ real measurement can overturn.
 The honest reading: two and a half milliseconds against ten leaves room, the number moved by
 2.5× in one ticket, and nothing automated will tell us when it stops leaving room.
 
+## Filter index size
+
+```sh
+npm run check:filter-index
+```
+
+Serializes a synthetic catalogue through `domain/src/filter-index.ts`'s **own** `serializeIndex`
+— the function the regenerator calls — and gzips the result. It exits non-zero if the index
+stops fitting [ADR 0007](adr/0007-prerender-first-and-filter-in-the-browser.md)'s ~150 KB
+metered-connection budget at 2,500 listed animals, which is
+[ADR 0018](adr/0018-the-filter-index-is-rewritten-whole-and-found-through-a-pointer.md)'s own
+working figure for the platform's scale.
+
+### Recorded 2026-09-14, with the listing (#56)
+
+| Listed animals | Raw | Gzipped | Per animal, gzipped |
+|---|---|---|---|
+| 2,500 | 604.1 KB | **29.8 KB** | 11.9 B |
+| 9,500 | 2,295.4 KB | 84.3 KB | 8.9 B |
+
+**ADR 0018's 33.4 KB is close to right, and not for the reasons it gives.** That figure comes
+from the issue #17 prototype, which synthesised 4-character animal ids, 3-character shelter ids
+and a thumbnail key of `id + "-1"`. Two of those three are wrong about the shipped row, in
+opposite directions and by different amounts:
+
+- The thumbnail key is **much** bigger than the prototype assumed: `d/` plus a 64-character hex
+  digest plus an extension ([ADR 0012](adr/0012-derivatives-are-generated-once-at-upload.md)),
+  and high-entropy, so gzip cannot fold it away.
+- The shelter id is a `crypto.randomUUID()` at 36 characters, but it repeats across every animal
+  that shelter published, so gzip *does* fold it.
+- The animal id is now an eight-character short id
+  ([ADR 0020](adr/0020-an-animals-address-is-a-short-id-and-never-404s.md)), not the UUID it was
+  when this section was first written. That alone took the index from 20.4 B/animal to 11.9.
+
+The measured **11.9 B/animal gzipped against the ADR's 13.4** is therefore a coincidence of
+three errors cancelling, not a confirmation. What matters is the conclusion, which survives:
+ADR 0018 says the index's read budget and R2's storage cap "expire at almost the same moment",
+and measured, they do. 9,500 animals is **84.3 KB**, inside
+[ADR 0007](adr/0007-prerender-first-and-filter-in-the-browser.md)'s ~150 KB budget, which is not
+crossed until about **19,430** listed animals.
+
+Two notes for the next reader, so the number is not mistaken for more than it is:
+
+- **The per-animal cost falls as the catalogue grows** — 11.9 B at 2,500 and 8.9 B at 9,500 —
+  because the repeated parts (region names, shelter ids, the key prefix) amortise. Reading the
+  2,500-animal figure as a rate and multiplying it out overstates the result.
+- **The 9,500 figure was already called optimistic.** ADR 0012 derived it, and ADR 0016 says it
+  is generous "by about a gigabyte's worth" — so R2's 10 GB is reached at fewer animals than
+  that, and a lower real ceiling is a smaller index. The index is not what will bind first.
+
+The cheapest lever, if it ever does bind, is the animal id. It is 36 of those characters, and
+the issue #17 prototype's own contact CTA writes a short one — `pawster.org/a/m6p2` — so a
+shorter public address was the intended shape before #55 chose UUIDs. Changing it changes every
+animal's public URL, which is why it is named here rather than done.
+
 ## Upright derivatives from a rotated source — unverified offline
 
 Not a measurement yet, and recorded here rather than left implicit because the upload path

@@ -1,18 +1,27 @@
 /**
- * The es-VE words for the things a subscriber picks from a list: the criteria vocabularies
- * and the weekdays.
+ * The es-VE words for the things a *user* picks from a list: the six criteria vocabularies and
+ * the weekdays.
  *
- * The scope is deliberately "vocabulary values", not "all subscriber copy". Two surfaces
- * render the same six axes — the form offers them as checkboxes and the opt-in page reads back
- * what was chosen — so a second copy of *these* would be two lists that can disagree about
- * what a subscriber ticked. Prose stays where it is read: a page's sentences are in the page,
- * and the opt-in email's body is in `mail.ts`, because a paragraph has one surface and moving
- * it here would buy nothing but distance. `CONTEXT.md`'s *User-facing Spanish* table governs
- * every word in all of those places.
+ * The scope is deliberately "vocabulary values", not "all copy". **Three surfaces now render
+ * the same six axes** — the digest signup form offers them as checkboxes, the opt-in page reads
+ * back what was chosen, and issue #56's listing panel offers them to an adopter — so a second
+ * copy of *these* would be two lists that can disagree about what somebody ticked. Prose stays
+ * where it is read: a page's sentences are in the page, and the opt-in email's body is in
+ * `subscriber/mail.ts`, because a paragraph has one surface and moving it here would buy
+ * nothing but distance. `CONTEXT.md`'s *User-facing Spanish* table governs every word in all of
+ * those places.
+ *
+ * ## Why it is here rather than under `subscriber/`
+ *
+ * It arrived with the digest signup (#61) and its header already named this move: "the form
+ * asks for it as free text until #56's filter panel offers the reference data as a list". With
+ * the listing shipped, the labels are read by an adopter who has no subscription at all, so a
+ * path saying `subscriber/` would be telling the next reader something false about who these
+ * words are for. Nothing else changed in the move.
  *
  * ## The shape ADR 0018 asks for, in the package that needs it
  *
- * [ADR 0018](../../../../docs/adr/0018-strings-are-typed-phrase-functions.md) settles that UI
+ * [ADR 0018](../../../docs/adr/0018-strings-are-typed-phrase-functions.md) settles that UI
  * strings are typed modules in a `strings/` workspace. That workspace does not exist yet —
  * standing it up needs the per-locale routing decision that belongs with the listing (#56,
  * #57), which is the same reason `layouts/Refugios.astro` hard-codes its copy. What is
@@ -23,8 +32,8 @@
  *
  * There is no `agree()` and no gendered pair here, and that is not a shortcut. ADR 0018's
  * gender machinery resolves a word against **one animal's sex**, and a criterion has no
- * animal: `Hembra` is a box a subscriber ticks, not a claim about anybody. The pairs land in
- * `strings/` with the listing card, where there is a sex to agree with.
+ * animal: `Hembra` is a box a user ticks, not a claim about anybody. The pairs are in
+ * `animals/words.ts`, which the listing *card* uses — there there is a sex to agree with.
  */
 
 import {
@@ -182,8 +191,13 @@ function labelFor(field: string, value: string): string {
  *
  * ADR 0005 makes the region vocabulary per-country reference data rather than something this
  * repository closes, so there is no record of words to write here: a region renders as the
- * administrative division's own name, which is already Spanish. The form asks for it as free
- * text until #56's filter panel offers the reference data as a list.
+ * administrative division's own name, which is already Spanish.
+ *
+ * **The reference data still does not exist**, so #56's listing does not offer it from a list
+ * either — it offers the regions that have animals in them, read out of the filter index. That
+ * is the honest set until the lookup lands: a checkbox for a state with nothing in it is a
+ * filter that can only ever empty the page. The digest signup form still asks for free text,
+ * because it has no index to read.
  */
 export const REGION_HEADING = "¿Dónde está?";
 

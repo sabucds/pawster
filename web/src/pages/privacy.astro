@@ -1,0 +1,34 @@
+---
+export const prerender = false;
+
+/**
+ * `/privacy` → `/privacidad`.
+ *
+ * Issue #62 names the English path in an acceptance criterion, and every user-facing route on
+ * the platform is Spanish because ADR 0007 makes es-VE the default and English the
+ * translation. A redirect honours both without a second copy of the retention table — which
+ * would be exactly the drift that page is derived from constants to avoid.
+ *
+ * ## Why this is a route and not an `astro.config.mjs` redirect
+ *
+ * The config form is the obvious one, and it is better in every respect but the decisive one:
+ * it lands in the adapter's `_redirects`, which Cloudflare's asset layer serves **without
+ * invoking the Worker**, so it would also be free under ADR 0007. It is not used because
+ * nothing can test it. The suite reaches the Worker through `SELF.fetch()`; Static Assets and
+ * `_redirects` are not in that path, so a config redirect answers 200 under test and 308 in
+ * production, and the criterion would be asserted by a test that could never fail.
+ *
+ * A route costs one Worker invocation on an English URL that almost nobody types, and buys a
+ * test that actually exercises the answer. That trade is the right way round here: ADR 0007's
+ * rule is that the Worker runs as rarely as possible, and "rarely" is satisfied by a path with
+ * no inbound links.
+ *
+ * `prerender = false` is what makes it a redirect at all. Prerendered, this page becomes an
+ * HTML document carrying a meta refresh and answers 200 — which is precisely the bug the
+ * failing test found.
+ *
+ * 308 rather than 301, because it preserves the method and says this will not change.
+ */
+
+return Astro.redirect("/privacidad", 308);
+---

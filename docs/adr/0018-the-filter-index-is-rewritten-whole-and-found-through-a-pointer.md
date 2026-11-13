@@ -319,6 +319,30 @@ detection the platform needs.
   metered connection, filtering has to move server-side" - arrives when R2's 10 GB does, not before
   it. The index never becomes the binding constraint ahead of storage, and no intermediate scaling
   work is needed.
+
+  > **Measured, and this bullet's conclusion holds — for different reasons than it gives.**
+  > Issue #56 shipped the index and `npm run check:filter-index` re-derives its size from the
+  > serializer that writes it: **11.9 B/animal gzipped at 2,500 animals**, so the 9,500-animal
+  > endgame is **84.3 KB** and ADR 0007's ~150 KB budget is not crossed until about **19,430**.
+  > The read budget still outlives the storage cap.
+  >
+  > The 13.4 B/animal above was never a measurement of this index. It comes from the issue #17
+  > prototype, which synthesised 4-character animal ids, 3-character shelter ids and a thumbnail
+  > key of `id + "-1"`. Three things differ in the shipped row and they do not point the same
+  > way: the derivative key is far *larger* than the prototype's (`d/` plus a 64-character hex
+  > digest, ADR 0012, high-entropy and unfoldable); the shelter id is a `crypto.randomUUID()`
+  > but repeats across a shelter's animals, so gzip folds it; and the animal's own id is an
+  > eight-character short id (ADR 0020), close to what the prototype assumed. The figures agree
+  > to within 11% by cancellation, not by the prototype having been right.
+  >
+  > This amendment previously recorded the opposite finding — 20.4 B/animal, and a budget crossed
+  > at ~7,578 — and it was correct when written, because an animal's id was then a 36-character
+  > UUID. ADR 0020 replaced it a ticket later and took 28 characters an animal out of the index.
+  > That history is left here rather than quietly overwritten, because the lesson is the durable
+  > part: this index's size is set by its *identifiers*, so any ADR that changes one changes this
+  > number, and the answer is to re-run the command rather than to reason about it.
+  >
+  > The full reasoning is in [`measurements.md`](../measurements.md#filter-index-size).
 - **Regeneration frequency is act-shaped, not animal-shaped.** Confirmations are the platform's most
   frequent write, so they dominate: each is a full rewrite, and a nudge answered for a shelterful is
   one. Even ten thousand acts a month is ~30,000 Class A operations against 1M free.

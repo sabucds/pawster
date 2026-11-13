@@ -1,7 +1,24 @@
 {
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
-    "types": []
+    // `types: []` keeps every *package's* ambient types out — no `@types/node`, no
+    // `@cloudflare/workers-types` — which is what makes this package's purity a compile
+    // error rather than a convention.
+    "types": [],
+    // `DOM` is added to the base `["ES2022"]` for one reason: `keyed-hash.ts` uses WebCrypto
+    // (`crypto.subtle`), `TextEncoder` and `btoa`, and those are declared nowhere else.
+    //
+    // The browser's lib is the honest choice rather than the Workers one, because the browser
+    // is a consumer this package genuinely has — `browser-bundle.test.ts` bundles it for one,
+    // and ADR 0007's filtering island imports it. Every global named above is in the
+    // intersection of the browser and `workerd`, so typing against the browser cannot admit
+    // something the Worker lacks.
+    //
+    // It does widen what would *typecheck* here to include `document` and `fetch`, which this
+    // package must never touch. That is not left to taste: `scripts/check-source-rules.mjs`
+    // fails the build on `fetch(` anywhere in `domain/`, and it reads the source rather than
+    // the types, so the rule is unaffected by anything in this file.
+    "lib": ["ES2022", "DOM"]
   },
   "include": ["src/**/*.ts"]
 }

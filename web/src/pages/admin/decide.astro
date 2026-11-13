@@ -129,6 +129,13 @@ if (submitted) {
      */
     const params = new URLSearchParams({ t: token!, recorded: parsed.value.outcome });
     if (result.shelterMailed === false) params.set("mail", "failed");
+    /**
+     * Carried in the query for the same reason the mail failure is: there is no flash state
+     * to keep it in. It says the entry landed and the *listing* did not, which for a
+     * revocation is the difference between a delisting that has happened and one that will
+     * happen tonight.
+     */
+    if (!result.listingUpdated) params.set("listing", "stale");
     return new Response(null, {
       status: 303,
       headers: { location: `${ADMIN_DECISION_PATH}?${params.toString()}` },
@@ -158,6 +165,7 @@ const anythingVisible =
 
 const recorded = Astro.url.searchParams.get("recorded");
 const mailFailed = Astro.url.searchParams.get("mail") === "failed";
+const listingStale = Astro.url.searchParams.get("listing") === "stale";
 
 const priorEvidence = (): string => {
   const value = submitted?.get("evidence");
@@ -182,6 +190,17 @@ const dateTime = (at: Date): string => at.toISOString().slice(0, 16).replace("T"
             {" "}
             <strong data-testid="mail-failed">
               The shelter was not emailed — Resend refused the send. Write to them yourself.
+            </strong>
+          </>
+        )}
+        {listingStale && (
+          <>
+            {" "}
+            <strong data-testid="listing-stale">
+              The entry is recorded, but the public filter index was not rewritten, so
+              adopters still see this shelter's animals as they were. The nightly regeneration
+              will correct it; deciding again now would append a second entry, so prefer
+              waiting.
             </strong>
           </>
         )}

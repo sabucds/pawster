@@ -275,6 +275,17 @@ export interface OptedIn {
   readonly sendDay: SendDay;
   /** Which of the three slots the new subscription took. */
   readonly slot: number;
+  /**
+   * The generation of this subscriber's manage link that is live, so the success page can
+   * hand them one.
+   *
+   * Read from the row rather than assumed to be `0`, because this is not always a new
+   * subscriber: somebody adding a second search — or re-opting in after unsubscribing, which
+   * rotated it — has a version this path did not choose. ADR 0010 requires the opt-in success
+   * page to carry a working manage link, and a link built on a guessed version is a link that
+   * fails closed for exactly the people who have used the platform most.
+   */
+  readonly manageTokenVersion: number;
 }
 
 /**
@@ -314,13 +325,21 @@ export async function optIn(
       locale: pending.locale,
     })
     .onConflictDoNothing({ target: subscribers.email })
-    .returning({ id: subscribers.id, sendDay: subscribers.sendDay });
+    .returning({
+      id: subscribers.id,
+      sendDay: subscribers.sendDay,
+      manageTokenVersion: subscribers.manageTokenVersion,
+    });
 
   const subscriber =
     created ??
     (
       await db
-        .select({ id: subscribers.id, sendDay: subscribers.sendDay })
+        .select({
+          id: subscribers.id,
+          sendDay: subscribers.sendDay,
+          manageTokenVersion: subscribers.manageTokenVersion,
+        })
         .from(subscribers)
         .where(eq(subscribers.email, email))
         .limit(1)
@@ -359,6 +378,7 @@ export async function optIn(
         subscriberId: subscriber.id,
         sendDay: subscriber.sendDay as SendDay,
         slot: row.slot,
+        manageTokenVersion: subscriber.manageTokenVersion,
       };
     }
   }

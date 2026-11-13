@@ -29,7 +29,7 @@
  * few minutes. Rotating `SESSION_SECRET` signs every shelter on the platform out. Keys with
  * that different a blast radius should not share a rotation.
  *
- * The precedent is already here: `digest/` holds `UNSUBSCRIBE_SECRET` separately for the
+ * The precedent is already here: `digest/` holds `SUBSCRIBER_LINK_SECRET` separately for the
  * same reason, one secret per thing that can be revoked on its own.
  */
 
