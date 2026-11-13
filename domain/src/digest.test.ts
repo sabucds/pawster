@@ -33,6 +33,7 @@ describe("digestCandidates", () => {
   ): DigestAnimal => ({
     id,
     bondedGroupId: null,
+    demo: false,
     species: "dog",
     region: "Miranda",
     sex: "Female",
@@ -70,6 +71,20 @@ describe("digestCandidates", () => {
     expect(digestCandidates(listed, { goodWith: ["cats"] }, new Set(), NOW)).toEqual([
       ["c", "d"],
     ]);
+  });
+
+  it("never offers an animal of the demo shelter, alone or in a bonded group", () => {
+    expect(
+      digestCandidates([dog("a", { demo: true }), dog("b")], {}, new Set(), NOW),
+    ).toEqual([["b"]]);
+    // One demo member keeps the whole group out, even a group that mixes in real animals.
+    const listed = [
+      dog("c", { bondedGroupId: "g" }),
+      dog("d", { bondedGroupId: "g", demo: true }),
+      dog("e", { bondedGroupId: "h", demo: true }),
+      dog("f", { bondedGroupId: "h", demo: true }),
+    ];
+    expect(digestCandidates(listed, {}, new Set(), NOW)).toEqual([]);
   });
 
   it("counts a group as sent only once every member has been sent", () => {

@@ -69,6 +69,7 @@ export async function readListedForDigest(db: Database): Promise<DigestAnimal[]>
       contactPointCount,
       latestVerificationOutcome,
       departedAt: shelters.departedAt,
+      demo: shelters.demo,
     })
     .from(animals)
     /**
@@ -102,6 +103,7 @@ export async function readListedForDigest(db: Database): Promise<DigestAnimal[]>
         cats: row.goodWithCats,
       },
       bondedGroupId: row.bondedGroupId,
+      demo: row.demo,
     }));
 }
 

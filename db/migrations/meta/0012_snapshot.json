@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "97413837-7aa7-4287-b28d-788f4024ad08",
+  "id": "cb5840d1-b6b4-4a07-be69-8cf9653b9546",
   "prevId": "e020a5d7-6c13-4fc0-9274-67de7b0b4ba2",
   "tables": {
     "animals": {
@@ -227,66 +227,6 @@
         }
       }
     },
-    "digest_deliveries": {
-      "name": "digest_deliveries",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "subscriber_id": {
-          "name": "subscriber_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "period": {
-          "name": "period",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "sent_at": {
-          "name": "sent_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "digest_deliveries_sent_at_idx": {
-          "name": "digest_deliveries_sent_at_idx",
-          "columns": [
-            "sent_at"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "digest_deliveries_subscriber_id_subscribers_id_fk": {
-          "name": "digest_deliveries_subscriber_id_subscribers_id_fk",
-          "tableFrom": "digest_deliveries",
-          "tableTo": "subscribers",
-          "columnsFrom": [
-            "subscriber_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "digest_runs": {
       "name": "digest_runs",
       "columns": {
@@ -359,60 +299,6 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
-        },
-        "purged_deliveries": {
-          "name": "purged_deliveries",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "pruned_sent_rows": {
-          "name": "pruned_sent_rows",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "erased_departures": {
-          "name": "erased_departures",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "sweep": {
-          "name": "sweep",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "reclaimed_objects": {
-          "name": "reclaimed_objects",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "reclaimed_bytes": {
-          "name": "reclaimed_bytes",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "stored_bytes": {
-          "name": "stored_bytes",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
         }
       },
       "indexes": {},
@@ -443,13 +329,6 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
-        },
-        "unlisted_since": {
-          "name": "unlisted_since",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
           "autoincrement": false
         }
       },
@@ -863,6 +742,14 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        },
+        "demo": {
+          "name": "demo",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
         },
         "created_at": {
           "name": "created_at",

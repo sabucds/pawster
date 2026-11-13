@@ -38,6 +38,7 @@ function listed(overrides: Partial<ListedAnimal> = {}): ListedAnimal {
     thumbnailKey: "d/abc.webp",
     bondedGroupId: null,
     urgent: false,
+    demo: false,
     shelterId: "s1",
     ...overrides,
   };
@@ -277,6 +278,28 @@ describe("the urgency chip", () => {
   /** The written reason lives on the animal page; the index does not even carry it. */
   it("puts no reason on the card", () => {
     expect(renderCard(card({ urgent: true }))).not.toMatch(/Urgente:/);
+  });
+});
+
+describe("the demo label", () => {
+  it("tells the visitor a demo shelter's animal is an example, not up for adoption", () => {
+    const html = renderCard(card({ demo: true }));
+
+    expect(html).toContain('data-testid="demo-chip"');
+    expect(html).toContain("Ejemplo, no está en adopción");
+  });
+
+  it("labels a bonded group when any member is the demo shelter's", () => {
+    const pair = cardModel(
+      [listed({ id: "a1", bondedGroupId: "g" }), listed({ id: "a2", bondedGroupId: "g", demo: true })],
+      NOW,
+      MEDIA,
+    );
+    expect(renderCard(pair)).toContain('data-testid="demo-chip"');
+  });
+
+  it("is absent on a real shelter's animal", () => {
+    expect(renderCard(card())).not.toContain("demo-chip");
   });
 });
 

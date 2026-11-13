@@ -589,6 +589,19 @@ describe("matching", () => {
     expect(await enqueuedBy(WEDNESDAY)).toEqual([]);
   });
 
+  it("sends nothing from the demo shelter, even when a real animal shares its group id", async () => {
+    await seedSubscriber("s-wed", "wed@example.org", 3);
+    await seedShelter("demo");
+    await env.DB.prepare("UPDATE shelters SET demo = 1 WHERE id = 'demo'").run();
+    await seedAnimal("demo-dog", { shelterId: "demo" });
+    await seedShelter();
+    await seedAnimal("demo-pair", { shelterId: "demo", bondedGroupId: "pair" });
+    await seedAnimal("real-pair", { bondedGroupId: "pair" });
+    await seedSubscription("sub-all", "s-wed");
+
+    expect(await enqueuedBy(WEDNESDAY)).toEqual([]);
+  });
+
   it("gives each search its own section, and leaves out a search with nothing new", async () => {
     await seedSubscriber("s-wed", "wed@example.org", 3);
     await seedShelter();

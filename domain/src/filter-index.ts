@@ -91,6 +91,8 @@ export interface ListedAnimal {
    * animal page rather than the card (#17).
    */
   readonly urgent: boolean;
+  /** The animal belongs to the demo shelter (ADR 0021), so every card of it says so. */
+  readonly demo: boolean;
   /**
    * The shelter's id, and never its name. Verification is a precondition for listing, so
    * every listed animal's shelter is verified and the name changes no shortlisting decision —
@@ -205,6 +207,8 @@ interface WireAnimal {
   readonly g?: string;
   /** Omitted unless the mark is carried; `1` when it is. */
   readonly u?: 1;
+  /** Omitted unless the animal is the demo shelter's; `1` when it is. */
+  readonly e?: 1;
   readonly h: string;
 }
 
@@ -333,6 +337,7 @@ function toWire(animal: ListedAnimal): WireAnimal {
     f: animal.lastConfirmedAt.getTime(),
     ...(animal.bondedGroupId === null ? {} : { g: animal.bondedGroupId }),
     ...(animal.urgent ? { u: 1 as const } : {}),
+    ...(animal.demo ? { e: 1 as const } : {}),
     h: animal.shelterId,
   };
 }
@@ -351,6 +356,7 @@ function fromWire(wire: WireAnimal): ListedAnimal {
     thumbnailKey: wire.k,
     bondedGroupId: wire.g ?? null,
     urgent: wire.u === 1,
+    demo: wire.e === 1,
     shelterId: wire.h,
   };
 }

@@ -197,6 +197,22 @@ describe("what reaches the index", () => {
     expect(listed.objects).toHaveLength(2);
   });
 
+  it("lists the demo shelter's animal and marks it, so its card can say so", async () => {
+    await seedListableShelter("shelter-1");
+    await seedListableShelter("demo");
+    await env.DB.prepare("UPDATE shelters SET demo = 1 WHERE id = 'demo'").run();
+    await seedAnimal({ id: "a1", shelterId: "shelter-1" });
+    await seedAnimal({ id: "a2", shelterId: "demo" });
+
+    await regenerate();
+    const { index } = await currentIndex();
+
+    expect(index.animals.map((animal) => [animal.id, animal.demo])).toEqual([
+      ["a1", false],
+      ["a2", true],
+    ]);
+  });
+
   it("carries each member's bonded group, so the browser can draw one card", async () => {
     await seedListableShelter();
     await seedAnimal({ id: "a1", bondedGroupId: "g1" });
