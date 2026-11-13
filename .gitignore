@@ -12,3 +12,6 @@ dist/
 
 # `wrangler deploy --outdir`, written by the bundle-size measurement
 bundled/
+
+# Local git worktrees
+.claude/worktrees/
