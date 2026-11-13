@@ -5,11 +5,15 @@ import {
 } from "cloudflare:test";
 import { exports as workerExports } from "cloudflare:workers";
 import {
+  type DerivativeName,
   DEPARTURE_GRACE_MS,
+  derivativesFor,
   DIGEST_DELIVERY_TTL_MS,
   SENT_SET_UNLISTED_TTL_MS,
 } from "@pawster/domain";
 import { beforeEach, describe, expect, it } from "vitest";
+import { outbound } from "../../test/outbound.ts";
+import { derivativeKey } from "../../web/src/lib/photos/keys.ts";
 import type { DigestMessage } from "../src/env.ts";
 import worker from "../src/index.ts";
 
@@ -253,5 +257,164 @@ describe("the sent-set", () => {
     await runScheduled(new Date(NOW.getTime() + SENT_SET_UNLISTED_TTL_MS + 2 * DAY));
 
     expect(await sentAnimals()).toEqual(["back"]);
+  });
+});
+
+/**
+ * The sweep. Miniflare's R2 stamps `uploaded` from the real clock, so these tests put objects
+ * now and run the sweep at a scheduled time measured from the real clock: 25 hours on makes
+ * every object old enough to reclaim, 23 hours on makes none of them old enough.
+ *
+ * The keys come from `web/`'s `derivativeKey`, the function the upload path writes with. The
+ * sweep computes its own, so a drift between the two fails here instead of deleting a live
+ * animal's photos.
+ */
+describe("the reclamation sweep", () => {
+  const HOUR = 60 * 60_000;
+  const later = (hours: number) => new Date(Date.now() + hours * HOUR);
+
+  const keysOf = (digest: string, names: DerivativeName[]) =>
+    Promise.all(names.map((name) => derivativeKey(digest, name)));
+  const allKeysOf = (digest: string) => keysOf(digest, derivativesFor("primary"));
+  async function put(...keys: string[]) {
+    for (const key of keys) await env.MEDIA.put(key, "x");
+  }
+  async function mediaKeys() {
+    return (await env.MEDIA.list()).objects.map((object) => object.key).sort();
+  }
+  const adminMails = () =>
+    outbound
+      .callsTo("resend")
+      .map((call) => JSON.parse(call.body!) as { to: string[]; text: string })
+      .filter((mail) => mail.to.includes(env.ADMIN_EMAIL));
+
+  beforeEach(async () => {
+    for (const bucket of [env.MEDIA, env.ORIGINALS]) {
+      const keys = (await bucket.list()).objects.map((object) => object.key);
+      if (keys.length > 0) await bucket.delete(keys);
+    }
+  });
+
+  it("lists d/ only, so the index and anything at the root are never candidates", async () => {
+    const orphan = await derivativeKey("orphan", "cardThumbnail");
+    await put("i/index.json", "pointer.json", orphan);
+
+    await runScheduled(later(25));
+
+    expect(await mediaKeys()).toEqual(["i/index.json", "pointer.json"]);
+    expect(await lastRun()).toMatchObject({ sweep: "swept", reclaimed_objects: 1 });
+  });
+
+  it("keeps what an animal's photos reference, by role, and drops a demoted primary's extra pair", async () => {
+    await seedListedAnimal("a", "Available", [
+      { digest: "front", position: 0 },
+      { digest: "side", position: 1 },
+    ]);
+    // `side` was once the primary, so it still has all four.
+    await put(...(await allKeysOf("front")), ...(await allKeysOf("side")));
+
+    await runScheduled(later(25));
+
+    expect(await mediaKeys()).toEqual(
+      [...(await allKeysOf("front")), ...(await keysOf("side", derivativesFor("additional")))].sort(),
+    );
+  });
+
+  it("keeps a derivative shared by two animals while either still references it", async () => {
+    await seedListedAnimal("a", "Available", [{ digest: "shared", position: 0 }]);
+    await seedListedAnimal("b", "Available", [{ digest: "shared", position: 0 }]);
+    const keys = await allKeysOf("shared");
+    await put(...keys);
+
+    await env.DB.exec("DELETE FROM animals WHERE id = 'a'");
+    await runScheduled(later(25));
+    expect(await mediaKeys()).toEqual([...keys].sort());
+
+    await env.DB.exec("DELETE FROM animals WHERE id = 'b'");
+    await runScheduled(later(26));
+    expect(await mediaKeys()).toEqual([]);
+  });
+
+  it("keeps what a 23-hour-old upload session holds, and reclaims it once the session is abandoned", async () => {
+    const runAt = later(25);
+    const seedSession = (id: string, createdAt: number) =>
+      env.DB.batch([
+        env.DB.prepare(
+          "INSERT OR IGNORE INTO shelters (id, slug, display_name, account_email, base_region, country_code, created_at) VALUES ('shelter-1', 'shelter-1', 'Refugio', 'shelter-1@example.org', 'Miranda', 'VE', 0)",
+        ),
+        env.DB.prepare(
+          "INSERT INTO upload_sessions (id, shelter_id, created_at) VALUES (?, 'shelter-1', ?)",
+        ).bind(id, createdAt),
+        env.DB.prepare(
+          "INSERT INTO upload_session_photos (id, session_id, position, source_digest, original_key, content_type, byte_size, width, height, created_at) VALUES (?, ?, 0, ?, ?, 'image/jpeg', 1, 1, 1, ?)",
+        ).bind(`${id}-0`, id, id, `o/${id}`, createdAt),
+      ]);
+    await seedSession("live", runAt.getTime() - 23 * HOUR);
+    await seedSession("abandoned", runAt.getTime() - 25 * HOUR);
+    await put(...(await allKeysOf("live")), ...(await allKeysOf("abandoned")));
+
+    await runScheduled(runAt);
+
+    expect(await mediaKeys()).toEqual([...(await allKeysOf("live"))].sort());
+  });
+
+  it("keeps an unreferenced derivative uploaded 23 hours ago", async () => {
+    const orphan = await derivativeKey("orphan", "cardThumbnail");
+    await put(orphan);
+
+    await runScheduled(later(23));
+
+    expect(await mediaKeys()).toEqual([orphan]);
+  });
+
+  it("aborts and deletes nothing when the reference read fails, and the digest still runs", async () => {
+    const orphan = await derivativeKey("orphan", "cardThumbnail");
+    await put(orphan);
+
+    await env.DB.exec("ALTER TABLE upload_session_photos RENAME TO hidden_photos");
+    try {
+      await runScheduled(later(25));
+    } finally {
+      await env.DB.exec("ALTER TABLE hidden_photos RENAME TO upload_session_photos");
+    }
+
+    expect(await mediaKeys()).toEqual([orphan]);
+    expect(await lastRun()).toMatchObject({ sweep: "aborted", reclaimed_objects: 0 });
+    expect(adminMails()).toHaveLength(1);
+  });
+
+  it("refuses a delete set above max(200, 10%), deletes nothing and mails the admin the counts", async () => {
+    const orphans = await Promise.all(
+      Array.from({ length: 201 }, (_, i) => derivativeKey(`orphan-${i}`, "cardThumbnail")),
+    );
+    await put(...orphans);
+
+    await runScheduled(later(25));
+
+    expect(await mediaKeys()).toHaveLength(201);
+    expect(await lastRun()).toMatchObject({ sweep: "refused", reclaimed_objects: 0 });
+    const [mail] = adminMails();
+    expect(mail?.text).toContain("201");
+  });
+
+  it("measures the bytes left in both buckets and records them with the mode", async () => {
+    await env.MEDIA.put("i/index.json", "abc");
+    await env.ORIGINALS.put("o/photo", "12345");
+    await env.MEDIA.put(await derivativeKey("orphan", "cardThumbnail"), "1234567");
+    const runAt = later(25);
+
+    await runScheduled(runAt);
+
+    expect(await lastRun()).toMatchObject({
+      reclaimed_objects: 1,
+      reclaimed_bytes: 7,
+      stored_bytes: 8,
+    });
+    expect(
+      await env.DB.prepare("SELECT total_bytes, mode, measured_at FROM storage_measurements").all(),
+    ).toMatchObject({
+      results: [{ total_bytes: 8, mode: "normal", measured_at: runAt.getTime() }],
+    });
+    expect(adminMails()).toEqual([]);
   });
 });

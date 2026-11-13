@@ -27,6 +27,7 @@ import { asc } from "drizzle-orm";
 import type { DigestMessage, DigestSection, Env } from "./env.ts";
 import { sendConfirmationNudges } from "./confirmation-nudge.ts";
 import { NUDGES_PER_RUN, sendNudgeEmail } from "./nudge.ts";
+import { type SweepOutcome, mailAdmin, reclaimAndMeasure, sweepAlert } from "./reclaim.ts";
 import { pingWatchdog } from "./watchdog.ts";
 import { sendDigestEmail } from "./resend.ts";
 import {
@@ -106,6 +107,28 @@ export default {
       now,
       sentSetPruneCutoff(now),
     );
+
+    /**
+     * ADR 0016's reclamation sweep, the last preamble step. A failure anywhere in it is
+     * recorded as an aborted sweep and the digest still runs: the sweep throws before it
+     * deletes anything, and a skipped sweep heals itself tomorrow.
+     */
+    let sweep: SweepOutcome | null = null;
+    try {
+      sweep = await reclaimAndMeasure(env, db, now);
+    } catch {
+      // Recorded below as `aborted`.
+    }
+    let adminMails = 0;
+    const alert = sweepAlert(sweep);
+    if (alert !== null) {
+      try {
+        await mailAdmin(env, alert);
+        adminMails = 1;
+      } catch {
+        // The run record and the watchdog ping still carry the sweep's outcome.
+      }
+    }
 
     /**
      * The ninety-day "still nothing" nudge, and it runs **before** the shard for the same
@@ -197,7 +220,7 @@ export default {
 
     const due = shard
       .filter((subscriber) => sectionsBySubscriber.has(subscriber.id))
-      .slice(0, Math.max(0, DIGEST_DAILY_BUDGET - nudged - confirmationNudges));
+      .slice(0, Math.max(0, DIGEST_DAILY_BUDGET - nudged - confirmationNudges - adminMails));
 
     let units = 0;
     for (const subscriber of due) {
@@ -229,6 +252,10 @@ export default {
       purgedDeliveries,
       erasedDepartures,
       prunedSentRows,
+      sweep: sweep?.sweep ?? "aborted",
+      reclaimedObjects: sweep?.reclaimedObjects ?? 0,
+      reclaimedBytes: sweep?.reclaimedBytes ?? 0,
+      storedBytes: sweep?.storedBytes ?? null,
     };
     await db.insert(digestRuns).values({ ...run, ranAt: now });
 

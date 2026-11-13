@@ -43,4 +43,10 @@ export interface Env {
    * It was named `UNSUBSCRIBE_SECRET` until issue #62 gave it a second kind of link to sign.
    */
   SUBSCRIBER_LINK_SECRET: string;
+  /** Derivatives under `d/`, which the sweep reclaims, and the filter index under `i/`. */
+  MEDIA: R2Bucket;
+  /** Originals for their seven days. Only measured, never deleted from here. */
+  ORIGINALS: R2Bucket;
+  /** Where a refused or failed sweep and a storage alarm are mailed. */
+  ADMIN_EMAIL: string;
 }
