@@ -48,7 +48,7 @@ import {
   provenanceLine,
 } from "../animals/words.ts";
 import { animalPath } from "../animals/address.ts";
-import { URGENT_CHIP_LABEL } from "./words.ts";
+import { DEMO_CHIP_LABEL, URGENT_CHIP_LABEL } from "./words.ts";
 
 /**
  * The good-with slot — `convivencia` to its reader: **three visual weights, not one tri-state
@@ -120,6 +120,8 @@ export interface CardModel {
    * urgency-first ordering would let a handful of them own the first screen (#17, ADR 0001).
    */
   readonly urgent: boolean;
+  /** The demo shelter's (ADR 0021): the card carries a chip saying it is not for adoption. */
+  readonly demo: boolean;
   /**
    * One photo, or a strip of one per bonded-group member. The strip's photos split the single
    * frame's width and keep its height, so a group's card is exactly as tall as the lone
@@ -184,6 +186,7 @@ export function cardModel(
       unknown: goodWithUnknownLine(axesAnswering(goodWith, "Unknown")),
     },
     urgent: unit.some((member) => member.urgent),
+    demo: unit.some((member) => member.demo),
     photos: unit.map((member) => ({
       src: `${mediaBase}/${member.thumbnailKey}`,
       width: Math.floor(CARD_PHOTO_WIDTH / unit.length),
@@ -272,7 +275,11 @@ export function renderCard(card: CardModel): string {
     .join("");
 
   return `<li class="card" data-testid="card" data-animal-id="${escapeHtml(card.id)}">
-  <a class="card-link" href="${escapeHtml(card.href)}">
+  <a class="card-link" href="${escapeHtml(card.href)}">${
+    card.demo
+      ? `<span class="chip-demo" data-testid="demo-chip">${DEMO_CHIP_LABEL}</span>`
+      : ""
+  }
     ${
       card.photos.length === 1
         ? images

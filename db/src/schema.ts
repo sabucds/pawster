@@ -97,6 +97,11 @@ export const shelters = sqliteTable("shelters", {
    * that, the daily preamble erases the contact points and account email (issue #66).
    */
   departedAt: integer("departed_at", { mode: "timestamp_ms" }),
+  /**
+   * The demo shelter (ADR 0021): its animals are listed and labelled on every public page,
+   * and never enter a digest. Only `scripts/seed-demo-shelter.mjs` sets it; no form can.
+   */
+  demo: integer("demo", { mode: "boolean" }).notNull().default(false),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   /**
    * **No `verified` column and no legal-name column**, and both absences are decisions

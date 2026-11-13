@@ -21,6 +21,9 @@ import { publicView } from "../../../lib/animals/visibility.ts";
 import {
   ARCHIVE_ELSEWHERE,
   ARCHIVE_PHOTOS_DROPPED,
+  DEMO_NOTICE,
+  DEMO_SHELTER_NOTE,
+  DEMO_SOCIAL_LEAD,
   ageWithBasis,
   archiveExplanation,
   archiveHeadline,
@@ -37,6 +40,7 @@ import {
   readShelterPublicIdentity,
   readStoredContactPoints,
 } from "../../../lib/shelter/store.ts";
+import { DEMO_CHIP_LABEL } from "../../../lib/listing/words.ts";
 
 /**
  * The animal page, the contact hand-off and the archive page — one route, because they are one
@@ -181,18 +185,21 @@ const archive =
  * consumer at somewhere between 150 and 300 characters and a sentence cut mid-word by WhatsApp
  * looks like a broken page — better to choose where it ends.
  */
+const socialText = shelter.demo
+  ? `${DEMO_SOCIAL_LEAD} ${animal.description}`
+  : animal.description;
 const socialDescription =
-  animal.description.length > 160
-    ? `${animal.description.slice(0, 157).trimEnd()}…`
-    : animal.description;
-const socialTitle = `${animal.name} — ${meta}`;
+  socialText.length > 160 ? `${socialText.slice(0, 157).trimEnd()}…` : socialText;
+/** The demo shelter's animal is labelled in the title too, which is what a forward shows first. */
+const demoPrefix = shelter.demo ? `${DEMO_CHIP_LABEL}: ` : "";
+const socialTitle = `${demoPrefix}${animal.name} — ${meta}`;
 ---
 
 <html lang="es">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{animal.name} — Pawster</title>
+    <title>{demoPrefix}{animal.name} — Pawster</title>
     <link rel="canonical" href={canonical} />
 
     {/*
@@ -287,11 +294,17 @@ const socialTitle = `${animal.name} — ${meta}`;
       .contact-rest { display: flex; gap: 7px; list-style: none; padding: 8px 0 0; }
       .contact-rest a { padding: 9px 12px; border: 1px solid #d8d8d2; border-radius: 9px; }
       .prefill { font-style: italic; }
+      .demo-notice {
+        padding: 10px 12px; border-radius: 9px; background: #1a1d22; color: #fff; font-weight: 700;
+      }
     </style>
   </head>
 
   <body>
     <p><a href="/">Volver al listado</a></p>
+
+    {/* First on the page, live or archived, so nobody reads this animal as one to adopt. */}
+    {shelter.demo && <p class="demo-notice" data-testid="demo-notice">{DEMO_NOTICE}</p>}
 
     {
       /*
@@ -494,6 +507,7 @@ const socialTitle = `${animal.name} — ${meta}`;
         conditional because the state it would be conditional on is a 404.
       */}
       <p data-testid="verified">Refugio verificado</p>
+      {shelter.demo && <p data-testid="demo-shelter">{DEMO_SHELTER_NOTE}</p>}
       {
         dormant && (
           <p data-testid="dormant-shelter">

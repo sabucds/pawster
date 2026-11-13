@@ -290,6 +290,8 @@ export interface ShelterPublicIdentity {
    * beside the shelter's name and never as the animal's location.
    */
   readonly baseRegion: string;
+  /** The demo shelter (ADR 0021), which the page labels wherever it names the shelter. */
+  readonly demo: boolean;
 }
 
 export async function readShelterPublicIdentity(
@@ -300,6 +302,7 @@ export async function readShelterPublicIdentity(
     .select({
       displayName: shelters.displayName,
       baseRegion: shelters.baseRegion,
+      demo: shelters.demo,
     })
     .from(shelters)
     .where(eq(shelters.id, shelterId))

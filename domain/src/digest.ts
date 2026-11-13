@@ -36,6 +36,8 @@ export const DIGEST_DAILY_BUDGET = 100 - 30;
 export interface DigestAnimal extends AnimalAxes {
   readonly id: string;
   readonly bondedGroupId: string | null;
+  /** The animal belongs to the demo shelter (ADR 0021). It is listed but never mailed. */
+  readonly demo: boolean;
 }
 
 /**
@@ -50,6 +52,9 @@ export interface DigestAnimal extends AnimalAxes {
  * **A unit counts as sent only when every member has been sent.** A member who joins a group
  * after it went out makes the group news again; that is the rule the spec left open, and it
  * errs towards one repeated card rather than a dog nobody is told about.
+ *
+ * **A unit with any demo member is never a candidate** (ADR 0021). Checking every member, not
+ * the first, keeps a group out even if a bad group id mixed a demo animal with real ones.
  */
 export function digestCandidates(
   listed: readonly DigestAnimal[],
@@ -58,6 +63,7 @@ export function digestCandidates(
   now: Date,
 ): string[][] {
   return unitsOf(listed)
+    .filter((unit) => !unit.some((animal) => animal.demo))
     .filter((unit) => !unit.every((animal) => sent.has(animal.id)))
     .filter((unit) => matches(criteria, adoptionUnitOf(unit), now))
     .map((unit) => unit.map((animal) => animal.id));

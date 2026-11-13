@@ -43,6 +43,7 @@ function listed(overrides: Partial<ListedAnimal> = {}): ListedAnimal {
     thumbnailKey: "d/abc.webp",
     bondedGroupId: null,
     urgent: false,
+    demo: false,
     shelterId: "s1",
     ...overrides,
   };
