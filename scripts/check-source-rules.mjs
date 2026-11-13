@@ -213,6 +213,12 @@ const ACCOUNT_EMAIL_READERS = [
    * it needs the address. It goes into the MAC check and is never rendered (issue #60).
    */
   "web/src/lib/animals/confirm.ts",
+  /**
+   * `eraseDepartedShelters()`: overwrites the address on day 30 of a departure, and compares
+   * it to the erased placeholder to skip shelters already erased. It never reads it out
+   * (issue #66).
+   */
+  "db/src/retention.ts",
 ];
 
 /**

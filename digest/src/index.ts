@@ -1,7 +1,10 @@
 import {
   createDb,
   digestRuns,
+  eraseDepartedShelters,
   findNeverMatchedSubscribers,
+  pruneSentSets,
+  purgeDigestDeliveries,
   recordNudge,
   runSubscriberPurges,
   subscribers,
@@ -10,12 +13,15 @@ import {
   composeDigest,
   DIGEST_DAILY_BUDGET,
   digestCandidates,
+  departureErasureCutoff,
+  digestDeliveryPurgeCutoff,
   digestIdempotencyKey,
   manageUrl,
   neverMatchedNudgeCutoff,
   optInMailLedgerCutoff,
   optInPurgeCutoff,
   readCriteria,
+  sentSetPruneCutoff,
   unsubscribeUrl,
   unsubscribedErasureCutoff,
 } from "@pawster/domain";
@@ -24,6 +30,7 @@ import type { SubscriptionCriteria } from "@pawster/domain";
 import type { DigestMessage, DigestSection, Env } from "./env.ts";
 import { sendConfirmationNudges } from "./confirmation-nudge.ts";
 import { NUDGES_PER_RUN, sendNudgeEmail } from "./nudge.ts";
+import { type SweepOutcome, mailAdmin, reclaimAndMeasure, sweepAlert } from "./reclaim.ts";
 import { pingWatchdog } from "./watchdog.ts";
 import { renderDigestHtml } from "./email.ts";
 import { sendDigestEmail } from "./resend.ts";
@@ -89,6 +96,44 @@ export default {
       mailLedger: optInMailLedgerCutoff(now),
       unsubscribed: unsubscribedErasureCutoff(now),
     });
+    const purgedDeliveries = await purgeDigestDeliveries(
+      db,
+      digestDeliveryPurgeCutoff(now),
+    );
+    const erasedDepartures = await eraseDepartedShelters(
+      db,
+      departureErasureCutoff(now),
+    );
+    // After the erasure, so a shelter departed today already counts as unlisted.
+    const listed = await readListedForDigest(db);
+    const prunedSentRows = await pruneSentSets(
+      db,
+      listed.map((animal) => animal.id),
+      now,
+      sentSetPruneCutoff(now),
+    );
+
+    /**
+     * ADR 0016's reclamation sweep, the last preamble step. A failure anywhere in it is
+     * recorded as an aborted sweep and the digest still runs: the sweep throws before it
+     * deletes anything, and a skipped sweep heals itself tomorrow.
+     */
+    let sweep: SweepOutcome | null = null;
+    try {
+      sweep = await reclaimAndMeasure(env, db, now);
+    } catch {
+      // Recorded below as `aborted`.
+    }
+    let adminMails = 0;
+    const alert = sweepAlert(sweep);
+    if (alert !== null) {
+      try {
+        await mailAdmin(env, alert);
+        adminMails = 1;
+      } catch {
+        // The run record and the watchdog ping still carry the sweep's outcome.
+      }
+    }
 
     /**
      * The ninety-day "still nothing" nudge, and it runs **before** the shard for the same
@@ -149,7 +194,7 @@ export default {
      */
     const confirmationNudges = await sendConfirmationNudges(env, now);
 
-    const [shard, searches, sentSets, listed] = await Promise.all([
+    const [shard, searches, sentSets] = await Promise.all([
       db
         .select({
           id: subscribers.id,
@@ -161,7 +206,6 @@ export default {
         .orderBy(asc(subscribers.lastDigestAt), asc(subscribers.optedInAt)),
       readShardSubscriptions(db, sendDay),
       readShardSentSets(db, sendDay),
-      readListedForDigest(db),
     ]);
 
     /**
@@ -189,7 +233,7 @@ export default {
 
     const due = shard
       .filter((subscriber) => matchesBySubscriber.has(subscriber.id))
-      .slice(0, Math.max(0, DIGEST_DAILY_BUDGET - nudged - confirmationNudges));
+      .slice(0, Math.max(0, DIGEST_DAILY_BUDGET - nudged - confirmationNudges - adminMails));
 
     let units = 0;
     for (const subscriber of due) {
@@ -225,6 +269,13 @@ export default {
       purgedOptIns: purged.optIns,
       purgedOptInMails: purged.mailLedger,
       erasedSubscribers: purged.erasedSubscribers,
+      purgedDeliveries,
+      erasedDepartures,
+      prunedSentRows,
+      sweep: sweep?.sweep ?? ("aborted" as const),
+      reclaimedObjects: sweep?.reclaimedObjects ?? 0,
+      reclaimedBytes: sweep?.reclaimedBytes ?? 0,
+      storedBytes: sweep?.storedBytes ?? null,
     };
     await db.insert(digestRuns).values({ ...run, ranAt: now });
 
@@ -304,6 +355,17 @@ export default {
           env.DB.prepare(
             "update subscribers set last_digest_at = ? where id = ?",
           ).bind(sentAt.getTime(), message.body.subscriberId),
+          // The Digest Delivery (`CONTEXT.md`): the subscriber's id and never the address,
+          // kept 90 days by the preamble. Guarded for the same reason as the sent-set rows.
+          env.DB.prepare(
+            `insert into digest_deliveries (id, subscriber_id, period, sent_at)
+             select ?1, ?2, ?3, ?4 where exists (select 1 from subscribers where id = ?2)`,
+          ).bind(
+            crypto.randomUUID(),
+            message.body.subscriberId,
+            message.body.period,
+            sentAt.getTime(),
+          ),
           ...message.body.sections.flatMap((section) =>
             [...section.units, ...section.repeats]
               .flat()
