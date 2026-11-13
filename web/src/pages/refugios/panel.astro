@@ -1,6 +1,6 @@
 ---
 import { createDb } from "@pawster/db";
-import { isListed } from "@pawster/domain";
+import { DEPARTURE_GRACE_MS, isListed } from "@pawster/domain";
 import { env } from "cloudflare:workers";
 import Refugios from "../../layouts/Refugios.astro";
 import { authenticate } from "../../lib/auth/guard.ts";
@@ -117,6 +117,20 @@ const unreachable = facts !== null && facts.contactPointCount === 0;
  * and hiding it would read as the row having been lost.
  */
 const animals = await listShelterAnimals(db, session.shelterId);
+
+/**
+ * When a departed shelter's contact points and account email are erased (issue #65, #66).
+ * Shown instead of the visibility notice, whose copy is about verification and would tell a
+ * departed shelter to wait for an answer it is not waiting for.
+ */
+const departedAt = facts?.departedAt ?? null;
+const erasedOn =
+  departedAt === null
+    ? null
+    : new Intl.DateTimeFormat("es-VE", {
+        dateStyle: "long",
+        timeZone: "America/Caracas",
+      }).format(new Date(departedAt.getTime() + DEPARTURE_GRACE_MS));
 ---
 
 <Refugios title="Tu refugio" heading={shelter.displayName}>
@@ -130,7 +144,19 @@ const animals = await listShelterAnimals(db, session.shelterId);
   </dl>
 
   {
-    anythingVisible ? (
+    erasedOn !== null ? (
+      <div data-testid="departed">
+        <p>
+          <strong>Pediste dejar Pawster.</strong> Tus animales ya no aparecen en el sitio. El{" "}
+          {erasedOn} se borran tus formas de contacto y el correo del refugio, y desde ese día
+          ya no se puede deshacer. Hasta entonces, un clic lo deja todo como estaba.
+        </p>
+        <form method="post" action="/refugios/dejar-pawster">
+          <input type="hidden" name="intent" value="cancel" />
+          <button type="submit">Quedarme en Pawster</button>
+        </form>
+      </div>
+    ) : anythingVisible ? (
       <p data-testid="visibility">
         Tu refugio está verificado. Los animales que publiques se ven en el sitio.
       </p>
@@ -196,6 +222,12 @@ const animals = await listShelterAnimals(db, session.shelterId);
     -->
     <a href="/refugios/perfil">Cambiar los datos del refugio</a>
   </p>
+
+  {erasedOn === null && (
+    <p>
+      <a href="/refugios/dejar-pawster">Dejar Pawster</a>
+    </p>
+  )}
 
   <form method="post" action="/api/refugios/salir">
     <button type="submit">Salir</button>

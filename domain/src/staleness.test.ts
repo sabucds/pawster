@@ -3,6 +3,7 @@ import {
   type StalenessBand,
   daysBetween,
   deriveStalenessBand,
+  isDormant,
 } from "./staleness.ts";
 
 const at = (iso: string) => new Date(`${iso}T00:00:00Z`);
@@ -56,5 +57,18 @@ describe("deriveStalenessBand", () => {
     expect(deriveStalenessBand(lastConfirmedAt, at("2026-02-01"))).toBe(
       "Ageing",
     );
+  });
+});
+
+describe("isDormant", () => {
+  const now = new Date("2026-11-13T12:00:00Z");
+  const daysAgo = (n: number) => new Date(now.getTime() - n * 86_400_000);
+
+  it("is not dormant at exactly ninety days of silence", () => {
+    expect(isDormant(daysAgo(90), now)).toBe(false);
+  });
+
+  it("is dormant past ninety days", () => {
+    expect(isDormant(daysAgo(91), now)).toBe(true);
   });
 });

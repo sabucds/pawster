@@ -738,6 +738,7 @@ describe("the shelter record", () => {
       "base_region",
       "country_code",
       "created_at",
+      "departed_at",
       "display_name",
       "id",
       "nudge_version",

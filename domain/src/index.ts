@@ -118,10 +118,12 @@ export type {
 } from "./matching.ts";
 export { ageBandsFor, goodWithFor, matches } from "./matching.ts";
 export {
+  DEPARTURE_GRACE_MS,
   NEVER_MATCHED_NUDGE_MS,
   OPT_IN_TTL_MS,
   OPT_IN_WINDOW_MS,
   UNSUBSCRIBE_GRACE_MS,
+  departureErasureCutoff,
   neverMatchedNudgeCutoff,
   optInMailLedgerCutoff,
   optInPurgeCutoff,
@@ -135,7 +137,7 @@ export {
   verifyConfirmationToken,
 } from "./confirmation-links.ts";
 export type { StalenessBand } from "./staleness.ts";
-export { daysBetween, deriveStalenessBand } from "./staleness.ts";
+export { DORMANT_AFTER_DAYS, daysBetween, deriveStalenessBand, isDormant } from "./staleness.ts";
 export type {
   ManageClaim,
   SubscriberLinkOrigin,

@@ -565,6 +565,10 @@ describe("matching", () => {
       "INSERT INTO shelters (id, slug, display_name, account_email, base_region, country_code, created_at) VALUES ('pending', 'pending', 'Pending', 'p@example.org', 'Miranda', 'VE', 0)",
     ).run();
     await seedAnimal("unverified", { shelterId: "pending" });
+    // A departed shelter's animals keep their availability but are no longer listed (#65).
+    await seedShelter("departed");
+    await env.DB.prepare("UPDATE shelters SET departed_at = 1 WHERE id = 'departed'").run();
+    await seedAnimal("left-behind", { shelterId: "departed" });
     await seedSubscription("sub-all", "s-wed");
 
     expect(await enqueuedBy(WEDNESDAY)).toEqual([]);

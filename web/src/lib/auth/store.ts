@@ -407,10 +407,8 @@ export async function recordSignInRequest(
 /**
  * The facts `domain/`'s `isListed()` needs about one shelter.
  *
- * One clause still cannot be read from the schema, and its absence is a ticket rather than a
- * gap here: `departedAt` is always `null` until Departure lands with issue #65. When that
- * ticket adds its column this function grows one more read and every caller keeps working,
- * which is the reason the listing rule takes flat facts rather than rows.
+ * `departedAt` is the shelter's own column (issue #65), read off the same row this function
+ * already fetched to prove the shelter exists.
  *
  * `latestVerificationOutcome` **is** read now (issue #53). It is the outcome off the top of
  * the append-only log, through `../verification/store.ts` rather than through a select of
@@ -424,7 +422,7 @@ export async function readShelterFacts(
   shelterId: string,
 ): Promise<ShelterFacts | null> {
   const [shelter] = await db
-    .select({ id: shelters.id })
+    .select({ departedAt: shelters.departedAt })
     .from(shelters)
     .where(eq(shelters.id, shelterId))
     .limit(1);
@@ -438,6 +436,6 @@ export async function readShelterFacts(
   return {
     latestVerificationOutcome: await readLatestVerificationOutcome(db, shelterId),
     contactPointCount: contacts?.n ?? 0,
-    departedAt: null,
+    departedAt: shelter.departedAt,
   };
 }

@@ -45,3 +45,23 @@ export function deriveStalenessBand(
   }
   return "Stale";
 }
+
+/**
+ * How long a shelter may be silent before it is a Dormant Shelter (`CONTEXT.md`, issue #65).
+ *
+ * The same ninety days as the Ageing band's upper bound and deliberately not derived from it:
+ * one is about an animal's record, the other about the shelter, and tuning either should not
+ * move the other.
+ */
+export const DORMANT_AFTER_DAYS = 90;
+
+/**
+ * Whether a shelter whose last activity was `lastActivityAt` is dormant as of `asOf`.
+ *
+ * A notice and nothing more: its animals stay listed. **Nothing reads this to depart a shelter**,
+ * because a silence turning into a mass archive is the invisible auto-unlisting the platform
+ * forbids. Only the shelter can leave.
+ */
+export function isDormant(lastActivityAt: Date, asOf: Date): boolean {
+  return daysBetween(lastActivityAt, asOf) > DORMANT_AFTER_DAYS;
+}

@@ -168,12 +168,17 @@ describe("what reaches the index", () => {
     expect((await regenerate()).animalCount).toBe(0);
   });
 
+  it("withholds an animal whose shelter has departed", async () => {
+    await seedListableShelter();
+    await seedAnimal({ shelterId: "shelter-1" });
+    await env.DB.prepare("UPDATE shelters SET departed_at = ? WHERE id = 'shelter-1'")
+      .bind(Date.now())
+      .run();
+
+    expect((await regenerate()).animalCount).toBe(0);
+  });
+
   /**
-   * *The fourth clause — `shelter.departedAt is null` — has no column to fail on until
-   * Departure lands with issue #65, so it has no test of its own here: one written today
-   * would be asserting `null === null`. `../src/lib/listing/store.ts` records where the field
-   * enters when that ticket adds it.*
-   *
    * A regeneration's unit is the act and never the animal, which is what keeps a bulk act
    * from being quadratic — three animals across two shelters is one index and one pointer.
    */

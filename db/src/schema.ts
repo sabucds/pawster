@@ -88,6 +88,15 @@ export const shelters = sqliteTable("shelters", {
   nudgeVersion: integer("nudge_version").notNull().default(0),
   /** When the last Confirmation Nudge was sent; null if never. Spaces nudges apart. */
   nudgedAt: integer("nudged_at", { mode: "timestamp_ms" }),
+  /**
+   * When the shelter asked to leave Pawster; null while it has not (ADR 0015, issue #65).
+   *
+   * A column on the shelter and never a verification entry: leaving is the shelter's own act,
+   * and the log is the record of the platform's decisions. Setting it delists every animal at
+   * once through `isListed()`. Clearing it within `DEPARTURE_GRACE_MS` is the cancel; past
+   * that, the daily preamble erases the contact points and account email (issue #66).
+   */
+  departedAt: integer("departed_at", { mode: "timestamp_ms" }),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   /**
    * **No `verified` column and no legal-name column**, and both absences are decisions

@@ -1,0 +1,146 @@
+---
+import { createDb } from "@pawster/db";
+import { DEPARTURE_GRACE_MS } from "@pawster/domain";
+import { env } from "cloudflare:workers";
+import FormErrors from "../../components/FormErrors.astro";
+import Refugios from "../../layouts/Refugios.astro";
+import { authenticate } from "../../lib/auth/guard.ts";
+import { readShelterFacts } from "../../lib/auth/store.ts";
+import { regenerateForAct } from "../../lib/listing/regenerate.ts";
+import { cancelDeparture, requestDeparture } from "../../lib/shelter/departure.ts";
+import { readShelterProfile } from "../../lib/shelter/store.ts";
+
+/**
+ * Leaving Pawster, and changing your mind (ADR 0015, issue #65).
+ *
+ * One page for both acts, told apart by the `intent` field, because the cancel is a single
+ * button on the panel and needs nothing of its own to render.
+ *
+ * - **Departure** needs the display name typed exactly. Only `displayName` is read from the
+ *   form: there is no farewell field, and any extra field is ignored, because what an adopter
+ *   reads on an archive page is fixed platform text (`lib/animals/words.ts`).
+ * - **Cancel** works only inside the grace period and restores everything, because nothing
+ *   has been destroyed yet.
+ *
+ * Either act is one shelter UPDATE followed by one regeneration of the filter index. A failed
+ * regeneration does not undo the act: the column is the truth, the public animal page reads
+ * it directly, and the next act that regenerates catches the index up.
+ */
+export const prerender = false;
+
+const db = createDb(env.DB);
+const now = new Date();
+
+const session = await authenticate(Astro.request, db, env, now);
+if (!session) return Astro.redirect("/refugios/entrar", 303);
+
+if (session.refreshedCookie) {
+  Astro.response.headers.append("set-cookie", session.refreshedCookie);
+}
+
+const profile = await readShelterProfile(db, session.shelterId);
+if (!profile) return Astro.redirect("/refugios/entrar", 303);
+
+let errors: { reason: string }[] = [];
+
+if (Astro.request.method === "POST") {
+  const form = await Astro.request.formData();
+  const intent = form.get("intent");
+
+  let acted: boolean;
+  if (intent === "cancel") {
+    acted = await cancelDeparture(db, session.shelterId, now);
+    if (!acted) Astro.response.status = 409;
+  } else {
+    const typed = form.get("displayName");
+    acted =
+      (await requestDeparture(
+        db,
+        session.shelterId,
+        typeof typed === "string" ? typed : "",
+        now,
+      )) === "departed";
+    if (!acted) {
+      Astro.response.status = 422;
+      errors = [
+        {
+          reason:
+            "El nombre no coincide. Escríbelo tal como aparece arriba, con mayúsculas y tildes.",
+        },
+      ];
+    }
+  }
+
+  if (acted) {
+    await regenerateForAct({ db, media: env.MEDIA, now });
+    // Built by hand so the sliding refresh survives the redirect; see `perfil.astro`.
+    const headers = new Headers({ location: "/refugios/panel" });
+    if (session.refreshedCookie) headers.set("set-cookie", session.refreshedCookie);
+    return new Response(null, { status: 303, headers });
+  }
+}
+
+const facts = await readShelterFacts(db, session.shelterId);
+const departedAt = facts?.departedAt ?? null;
+const graceDays = DEPARTURE_GRACE_MS / 86_400_000;
+const cancelRefused = Astro.request.method === "POST" && errors.length === 0;
+---
+
+<Refugios title="Dejar Pawster" heading="Dejar Pawster">
+  {
+    departedAt !== null ? (
+      <p data-testid="already-departed">
+        {cancelRefused
+          ? `Ya pasaron los ${graceDays} días, así que no se puede deshacer.`
+          : "Tu refugio ya pidió dejar Pawster. Puedes deshacerlo desde el panel."}
+        {" "}
+        <a href="/refugios/panel">Volver al panel</a>
+      </p>
+    ) : (
+      <>
+        <p>
+          Al dejar Pawster, tus animales dejan de aparecer en el sitio en este momento. Tienes{" "}
+          {graceDays} días para arrepentirte: durante ese tiempo puedes seguir entrando y
+          deshacerlo con un clic desde el panel, y todo vuelve como estaba.
+        </p>
+
+        <section data-testid="destroyed">
+          <h2>Lo que se borra a los {graceDays} días</h2>
+          <ul>
+            <li>Tus formas de contacto.</li>
+            <li>El correo del refugio, con el que entras.</li>
+            <li>Todas las sesiones abiertas, que se cierran.</li>
+          </ul>
+        </section>
+
+        <section data-testid="kept">
+          <h2>Lo que se queda</h2>
+          <ul>
+            <li>El nombre del refugio.</li>
+            <li>Tus animales y sus páginas de archivo.</li>
+            <li>El registro de verificación.</li>
+          </ul>
+        </section>
+        <p>
+          Las páginas de archivo se quedan porque son una promesa a quienes adoptaron. Dicen que
+          el refugio ya no está en Pawster, con un texto fijo del sitio: no se puede dejar un
+          mensaje de despedida.
+        </p>
+
+        <FormErrors errors={errors} />
+
+        <form method="post" action="/refugios/dejar-pawster">
+          <input type="hidden" name="intent" value="depart" />
+          <p>
+            <label for="displayName">
+              Para confirmar, escribe el nombre del refugio: <strong>{profile.displayName}</strong>
+            </label>
+            <br />
+            <input id="displayName" name="displayName" type="text" required autocomplete="off" />
+          </p>
+          <button type="submit">Dejar Pawster</button>
+        </form>
+      </>
+    )
+  }
+</Refugios>
