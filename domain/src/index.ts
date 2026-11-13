@@ -72,9 +72,9 @@ export {
   derivativeSpecFingerprint,
 } from "./derivative.ts";
 export type {
-  ComposedSection,
   DigestAnimal,
   DigestPeriod,
+  DigestSection,
   DigestSubscriptionMatches,
 } from "./digest.ts";
 export {

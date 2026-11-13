@@ -29,7 +29,7 @@ import type {
 } from "@pawster/domain";
 import { isListed } from "@pawster/domain";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
-import type { DigestSection } from "./env.ts";
+import type { DigestSection } from "@pawster/domain";
 
 /** `isListed()` over a row that selected the availability and the shelter facts from `db/src/shelter-facts.ts`. */
 const listedRow = (row: AnimalFacts & ShelterFacts) => isListed(row, row);

@@ -24,8 +24,8 @@ import {
   unsubscribeUrl,
   unsubscribedErasureCutoff,
 } from "@pawster/domain";
-import type { SubscriptionCriteria } from "@pawster/domain";
-import type { DigestMessage, DigestSection, Env } from "./env.ts";
+import type { DigestSubscriptionMatches } from "@pawster/domain";
+import type { DigestMessage, Env } from "./env.ts";
 import { sendConfirmationNudges } from "./confirmation-nudge.ts";
 import { NUDGES_PER_RUN, sendNudgeEmail } from "./nudge.ts";
 import { type ReclamationOutcome, mailAdmin, reclaimAndMeasure, reclamationAlert } from "./reclaim.ts";
@@ -207,10 +207,7 @@ export default {
      * in that Subscription's sent-set. A subscriber with nothing new is not enqueued at all, so the
      * budget below is spent only on mail that says something.
      */
-    const matchesBySubscriber = new Map<
-      string,
-      { subscriptionId: string; criteria: SubscriptionCriteria; units: string[][] }[]
-    >();
+    const matchesBySubscriber = new Map<string, DigestSubscriptionMatches[]>();
     for (const subscription of subscriptions) {
       const criteria = readCriteria(subscription.criteria);
       const units = digestCandidates(
@@ -233,11 +230,7 @@ export default {
     for (const subscriber of due) {
       // Chosen here rather than in the consumer, so a redelivery sends and remembers the same
       // rows. The overflow is not marked sent and comes back next week.
-      const matches = matchesBySubscriber.get(subscriber.id)!;
-      const sections: DigestSection[] = composeDigest(matches).map((section, i) => ({
-        ...section,
-        criteria: matches[i]!.criteria,
-      }));
+      const sections = composeDigest(matchesBySubscriber.get(subscriber.id)!);
       units += sections.reduce((sum, section) => sum + section.units.length, 0);
       await env.DIGEST_QUEUE.send({
         period,

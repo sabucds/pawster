@@ -31,7 +31,7 @@ import {
 import { describeCriteria } from "@pawster/web/src/lib/axis-labels.ts";
 import { escapeHtml } from "@pawster/web/src/lib/listing/card.ts";
 import { derivativeKey } from "@pawster/web/src/lib/photos/keys.ts";
-import type { DigestSection } from "./env.ts";
+import type { DigestSection } from "@pawster/domain";
 import type { DigestRowAnimal } from "./store.ts";
 
 /** The thumbnail is the 144×144 JPEG derivative, drawn at half size for high-density screens. */

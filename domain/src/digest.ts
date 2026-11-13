@@ -77,21 +77,24 @@ export const DIGEST_EMAIL_CAP = 24;
 /** One Subscription's candidates, in the order {@link digestCandidates} returned them. */
 export interface DigestSubscriptionMatches {
   readonly subscriptionId: string;
-  readonly units: readonly string[][];
+  /** The Subscription's criteria, for the chips that head its section. */
+  readonly criteria: SubscriptionCriteria;
+  /** Each unit is its members' animal ids: one id for a single animal, more for a bonded group. */
+  readonly units: string[][];
 }
 
-/** What one Subscription's section of the email carries. */
-export interface ComposedSection {
-  readonly subscriptionId: string;
-  /** The rows shown under this Subscription, each a unit's member ids. */
-  readonly units: string[][];
+/**
+ * What one Subscription's section of the email carries. The producer chooses it and the queue
+ * message carries it, so a redelivered message renders and remembers exactly the same thing.
+ */
+export interface DigestSection extends DigestSubscriptionMatches {
   /**
    * Units this Subscription matched that an earlier section of the same email already shows.
    * Not shown twice, but written to this Subscription's sent-set too, so neither Subscription
    * offers them again.
    */
   readonly repeats: string[][];
-  /** Candidates that did not fit. Not shown and not marked sent, so they arrive next time. */
+  /** Candidates that did not fit: the "and N more" line. Not marked sent, so they arrive next time. */
   readonly more: number;
 }
 
@@ -105,7 +108,7 @@ export interface ComposedSection {
  */
 export function composeDigest(
   subscriptions: readonly DigestSubscriptionMatches[],
-): ComposedSection[] {
+): DigestSection[] {
   const shown = new Set<string>();
   return subscriptions.map((subscription) => {
     const units: string[][] = [];
@@ -119,6 +122,6 @@ export function composeDigest(
         shown.add(key);
       } else more++;
     }
-    return { subscriptionId: subscription.subscriptionId, units, repeats, more };
+    return { ...subscription, units, repeats, more };
   });
 }
