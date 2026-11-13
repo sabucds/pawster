@@ -1,6 +1,7 @@
 /**
- * The digest's reads and its one write that is not a purge. No Drizzle client is built here;
- * every function takes one (`db/src/index.ts`).
+ * The digest's reads and its one write that is not an Erasure. Drizzle reads take a client
+ * (`db/src/index.ts`); the write takes D1 itself, because it is one `batch` of raw guarded
+ * inserts.
  *
  * Every read joins through `subscribers.send_day` rather than passing ids in an `IN` list,
  * because D1 caps a statement at 100 bound parameters and a shard is up to
@@ -27,7 +28,8 @@ import type {
   Species,
 } from "@pawster/domain";
 import { isListed } from "@pawster/domain";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import type { DigestSection } from "./env.ts";
 
 /** `isListed()` over a row that selected the availability and the shelter facts from `db/src/shelter-facts.ts`. */
 const listedRow = (row: AnimalFacts & ShelterFacts) => isListed(row, row);
@@ -97,7 +99,20 @@ const mailable = (sendDay: number) =>
     isNull(subscribers.retiredAt),
   );
 
-/** Every saved search belonging to today's shard, in slot order. */
+/** Today's shard, oldest digest first, so overflow past the budget waits the least. */
+export function readShard(db: Database, sendDay: number) {
+  return db
+    .select({
+      id: subscribers.id,
+      email: subscribers.email,
+      manageTokenVersion: subscribers.manageTokenVersion,
+    })
+    .from(subscribers)
+    .where(mailable(sendDay))
+    .orderBy(asc(subscribers.lastDigestAt), asc(subscribers.optedInAt));
+}
+
+/** Every Subscription belonging to today's shard, in slot order. */
 export function readShardSubscriptions(db: Database, sendDay: number) {
   return db
     .select({
@@ -111,7 +126,7 @@ export function readShardSubscriptions(db: Database, sendDay: number) {
     .orderBy(subscriptions.subscriberId, subscriptions.slot);
 }
 
-/** The sent-set of every search in today's shard, keyed by subscription. */
+/** The sent-set of every Subscription in today's shard, keyed by subscription. */
 export async function readShardSentSets(
   db: Database,
   sendDay: number,
@@ -134,8 +149,6 @@ export async function readShardSentSets(
   }
   return sets;
 }
-
-export { mailable };
 
 /** What one row of the email needs about one animal. */
 export interface DigestRowAnimal {
@@ -191,4 +204,47 @@ export async function readDigestRows(
     )
     .where(sql`${animals.id} in (select value from json_each(${JSON.stringify(ids)}))`);
   return new Map(rows.filter(listedRow).map((row) => [row.id, row]));
+}
+
+/**
+ * Remember a digest that was actually sent. Only after the send succeeded: the sent-set is
+ * what makes tomorrow's candidates exclude these animals, and a dropped message writes
+ * nothing, so the next run simply recomputes it. `lastDigestAt` is ADR 0009's reporting
+ * field; it orders the next shard's overflow and is never asked what is "new".
+ */
+export async function recordDigestSent(
+  d1: D1Database,
+  sent: {
+    readonly period: string;
+    readonly subscriberId: string;
+    readonly sections: readonly DigestSection[];
+  },
+): Promise<void> {
+  const sentAt = Date.now();
+  const remember = d1.prepare(
+    // Guarded by EXISTS rather than trusted: the Subscription can be deleted from the manage
+    // page, or the animal removed, between enqueue and send, and a foreign-key failure
+    // here would retry an email that already went out.
+    `insert or ignore into digest_sent (subscription_id, animal_id, sent_at)
+     select ?1, ?2, ?3
+     where exists (select 1 from subscriptions where id = ?1)
+       and exists (select 1 from animals where id = ?2)`,
+  );
+  await d1.batch([
+    d1.prepare("update subscribers set last_digest_at = ? where id = ?").bind(
+      sentAt,
+      sent.subscriberId,
+    ),
+    // The Digest Delivery (`CONTEXT.md`): the subscriber's id and never the address,
+    // kept 90 days by the preamble. Guarded for the same reason as the sent-set rows.
+    d1.prepare(
+      `insert into digest_deliveries (id, subscriber_id, period, sent_at)
+       select ?1, ?2, ?3, ?4 where exists (select 1 from subscribers where id = ?2)`,
+    ).bind(crypto.randomUUID(), sent.subscriberId, sent.period, sentAt),
+    ...sent.sections.flatMap((section) =>
+      [...section.units, ...section.repeats]
+        .flat()
+        .map((animalId) => remember.bind(section.subscriptionId, animalId, sentAt)),
+    ),
+  ]);
 }

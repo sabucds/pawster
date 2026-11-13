@@ -7,7 +7,6 @@ import {
   eraseDigestDeliveries,
   recordNudge,
   runSubscriberPurges,
-  subscribers,
 } from "@pawster/db";
 import {
   composeDigest,
@@ -25,7 +24,6 @@ import {
   unsubscribeUrl,
   unsubscribedErasureCutoff,
 } from "@pawster/domain";
-import { asc } from "drizzle-orm";
 import type { SubscriptionCriteria } from "@pawster/domain";
 import type { DigestMessage, DigestSection, Env } from "./env.ts";
 import { sendConfirmationNudges } from "./confirmation-nudge.ts";
@@ -35,11 +33,12 @@ import { pingWatchdog } from "./watchdog.ts";
 import { renderDigestHtml } from "./email.ts";
 import { sendMail } from "./resend.ts";
 import {
-  mailable,
   readDigestRows,
   readListedForDigest,
+  readShard,
   readShardSentSets,
   readShardSubscriptions,
+  recordDigestSent,
 } from "./store.ts";
 
 /**
@@ -198,15 +197,7 @@ export default {
     const confirmationNudges = await sendConfirmationNudges(env, now);
 
     const [shard, subscriptions, sentSets] = await Promise.all([
-      db
-        .select({
-          id: subscribers.id,
-          email: subscribers.email,
-          manageTokenVersion: subscribers.manageTokenVersion,
-        })
-        .from(subscribers)
-        .where(mailable(sendDay))
-        .orderBy(asc(subscribers.lastDigestAt), asc(subscribers.optedInAt)),
+      readShard(db, sendDay),
       readShardSubscriptions(db, sendDay),
       readShardSentSets(db, sendDay),
     ]);
@@ -358,43 +349,12 @@ export default {
           // Signed, because the link is the subscriber's whole credential (CONTEXT.md).
           unsubscribeUrl: unsubscribe,
         });
-        // Only after the send actually succeeded: the sent-set is what makes tomorrow's
-        // candidates exclude these animals, and a dropped message writes nothing, so the next
-        // run simply recomputes it. `lastDigestAt` is ADR 0009's reporting field; it orders
-        // the next shard's overflow and is never asked what is "new".
-        const sentAt = new Date();
-        const remember = env.DB.prepare(
-          // Guarded by EXISTS rather than trusted: the Subscription can be deleted from the manage
-          // page, or the animal removed, between enqueue and send, and a foreign-key failure
-          // here would retry an email that already went out.
-          `insert or ignore into digest_sent (subscription_id, animal_id, sent_at)
-           select ?1, ?2, ?3
-           where exists (select 1 from subscriptions where id = ?1)
-             and exists (select 1 from animals where id = ?2)`,
-        );
-        await env.DB.batch([
-          env.DB.prepare(
-            "update subscribers set last_digest_at = ? where id = ?",
-          ).bind(sentAt.getTime(), message.body.subscriberId),
-          // The Digest Delivery (`CONTEXT.md`): the subscriber's id and never the address,
-          // kept 90 days by the preamble. Guarded for the same reason as the sent-set rows.
-          env.DB.prepare(
-            `insert into digest_deliveries (id, subscriber_id, period, sent_at)
-             select ?1, ?2, ?3, ?4 where exists (select 1 from subscribers where id = ?2)`,
-          ).bind(
-            crypto.randomUUID(),
-            message.body.subscriberId,
-            message.body.period,
-            sentAt.getTime(),
-          ),
-          ...sections.flatMap((section) =>
-            [...section.units, ...section.repeats]
-              .flat()
-              .map((animalId) =>
-                remember.bind(section.subscriptionId, animalId, sentAt.getTime()),
-              ),
-          ),
-        ]);
+        // Only after the send succeeded (see recordDigestSent).
+        await recordDigestSent(env.DB, {
+          period: message.body.period,
+          subscriberId: message.body.subscriberId,
+          sections,
+        });
         message.ack();
       } catch {
         // Let Queues retry, then dead-letter. The sent-set — not the message — is the
