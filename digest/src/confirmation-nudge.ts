@@ -7,6 +7,7 @@
 import { createDb, findShelterNudgesOwed, recordShelterNudge } from "@pawster/db";
 import { CONFIRMATION_NUDGE_INTERVAL_MS, confirmationUrl } from "@pawster/domain";
 import type { Env } from "./env.ts";
+import { sendMail } from "./resend.ts";
 
 /**
  * Per cron run. `web/src/lib/subscriber/policy.ts` sets about four sends a day aside for
@@ -33,29 +34,20 @@ export async function sendConfirmationNudges(env: Env, now: Date): Promise<numbe
         version,
         accountEmail: nudge.accountEmail,
       });
-      const response = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${env.RESEND_API_KEY}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          from: env.DIGEST_FROM_ADDRESS,
-          to: [nudge.accountEmail],
-          subject: "¿Siguen disponibles? Confirma tus animales en Pawster",
-          text: [
-            "Hace más de un mes que no confirmas que estos animales siguen disponibles:",
-            "",
-            ...nudge.animalNames.map((name) => `- ${name}`),
-            "",
-            "Desde este enlace puedes confirmarlos todos de una vez, o marcar los que ya fueron adoptados, sin iniciar sesión:",
-            url,
-            "",
-            "Si reenvías este correo, quien lo reciba también podrá confirmar o cambiar el estado de estos animales. El enlace deja de funcionar cuando te enviemos el próximo.",
-          ].join("\n"),
-        }),
+      await sendMail(env, {
+        to: nudge.accountEmail,
+        subject: "¿Siguen disponibles? Confirma tus animales en Pawster",
+        text: [
+          "Hace más de un mes que no confirmas que estos animales siguen disponibles:",
+          "",
+          ...nudge.animalNames.map((name) => `- ${name}`),
+          "",
+          "Desde este enlace puedes confirmarlos todos de una vez, o marcar los que ya fueron adoptados, sin iniciar sesión:",
+          url,
+          "",
+          "Si reenvías este correo, quien lo reciba también podrá confirmar o cambiar el estado de estos animales. El enlace deja de funcionar cuando te enviemos el próximo.",
+        ].join("\n"),
       });
-      if (!response.ok) throw new Error(`Resend rejected the nudge: ${response.status}`);
       // Only after the send succeeded: recording first would retire the link the shelter holds
       // for one it never received.
       await recordShelterNudge(db, { shelterId: nudge.shelterId, sentVersion: version }, now);

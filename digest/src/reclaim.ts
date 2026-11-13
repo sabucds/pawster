@@ -29,6 +29,7 @@ import {
   deriveStorageMode,
 } from "@pawster/domain";
 import { eq, gte, inArray, or } from "drizzle-orm";
+import { sendMail } from "./resend.ts";
 
 const DAY_MS = 24 * 60 * 60_000;
 const REFUSE_FLOOR = 200;
@@ -179,18 +180,5 @@ export async function mailAdmin(
   env: { RESEND_API_KEY: string; DIGEST_FROM_ADDRESS: string; ADMIN_EMAIL: string },
   text: string,
 ): Promise<void> {
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${env.RESEND_API_KEY}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      from: env.DIGEST_FROM_ADDRESS,
-      to: [env.ADMIN_EMAIL],
-      subject: "Pawster: reclamation needs a look",
-      text,
-    }),
-  });
-  if (!response.ok) throw new Error(`Resend rejected the admin mail: ${response.status}`);
+  await sendMail(env, { to: env.ADMIN_EMAIL, subject: "Pawster: reclamation needs a look", text });
 }

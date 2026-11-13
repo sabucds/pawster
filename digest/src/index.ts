@@ -33,7 +33,7 @@ import { NUDGES_PER_RUN, sendNudgeEmail } from "./nudge.ts";
 import { type ReclamationOutcome, mailAdmin, reclaimAndMeasure, reclamationAlert } from "./reclaim.ts";
 import { pingWatchdog } from "./watchdog.ts";
 import { renderDigestHtml } from "./email.ts";
-import { sendDigestEmail } from "./resend.ts";
+import { sendMail } from "./resend.ts";
 import {
   mailable,
   readDigestRows,
@@ -345,8 +345,9 @@ export default {
           }),
           unsubscribeUrl: unsubscribe,
         });
-        await sendDigestEmail(env, {
+        await sendMail(env, {
           to: message.body.email,
+          subject: "Animales que coinciden con tu búsqueda",
           // Deterministic and per-recipient: a redelivered message is a no-op for anyone
           // already sent, and a resumed run neither 409s nor re-sends the whole shard.
           idempotencyKey: digestIdempotencyKey(
