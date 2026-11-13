@@ -1,0 +1,116 @@
+---
+import { createDb } from "@pawster/db";
+import { AVAILABILITIES, isAvailability, verifyConfirmationToken } from "@pawster/domain";
+import { env } from "cloudflare:workers";
+import Refugios from "../../../layouts/Refugios.astro";
+import {
+  confirmAllAvailable,
+  confirmAnimal,
+  readConfirmableShelter,
+} from "../../../lib/animals/confirm.ts";
+import { listShelterAnimals } from "../../../lib/animals/store.ts";
+import { AVAILABILITY_OPTION_LABELS } from "../../../lib/animals/words.ts";
+import { regenerateForAct } from "../../../lib/listing/regenerate.ts";
+
+/**
+ * The page a Confirmation Nudge links to (issue #60, ADR 0008).
+ *
+ * The token is a Capability, not a Session: it never sets a cookie, and it can do two things,
+ * confirm every available animal at once or change one animal's state. Contact points, photos,
+ * descriptions, new animals and the account email are not reachable from here, and the page
+ * links to sign-in for all of that.
+ *
+ * A `GET` only reads. Mail scanners open links, so every write is a `POST`.
+ *
+ * The page lists all the shelter's animals, not only the ones the email named, because the
+ * capability is over the shelter's availability and a shelter answering a nudge may well want
+ * to mark an animal adopted that it confirmed last week.
+ */
+export const prerender = false;
+
+const db = createDb(env.DB);
+const now = new Date();
+const token = Astro.params.token ?? "";
+
+const shelterId = await verifyConfirmationToken(env, token, (id) =>
+  readConfirmableShelter(db, id),
+);
+
+if (shelterId !== null && Astro.request.method === "POST") {
+  const form = await Astro.request.formData();
+  const action = form.get("accion");
+  const animalId = form.get("animal");
+  const availability = String(form.get("estado") ?? "");
+
+  if (action === "confirmar-todos") {
+    await confirmAllAvailable(db, shelterId, "link", now);
+  } else if (action === "estado" && typeof animalId === "string" && isAvailability(availability)) {
+    await confirmAnimal(db, { shelterId, animalId }, { via: "link", now, availability });
+  } else {
+    return new Response("Solicitud no válida", { status: 400 });
+  }
+
+  const regenerated = await regenerateForAct({ db, media: env.MEDIA, now });
+  const back = `/refugios/confirmar/${token}?guardado`;
+  return Astro.redirect(regenerated === null ? `${back}&listado=pendiente` : back, 303);
+}
+
+if (shelterId === null) Astro.response.status = 410;
+
+const list = shelterId === null ? [] : await listShelterAnimals(db, shelterId);
+const saved = Astro.url.searchParams.has("guardado");
+const listingPending = Astro.url.searchParams.get("listado") === "pendiente";
+const asDate = (date: Date) => date.toISOString().slice(0, 10);
+---
+
+{
+  shelterId === null ? (
+    <Refugios title="Enlace vencido" heading="Ese enlace ya no sirve">
+      <p data-testid="link-expired">
+        Cada correo de confirmación reemplaza al anterior, y cambiar el correo del refugio los
+        anula todos. Busca el correo más reciente o <a href="/refugios/entrar">entra a tu cuenta</a>.
+      </p>
+    </Refugios>
+  ) : (
+    <Refugios title="Confirma tus animales" heading="¿Siguen disponibles?">
+      {saved && <p data-testid="saved">Guardado.</p>}
+      {listingPending && (
+        <p data-testid="listing-pending">
+          Quedó guardado, pero el listado público todavía no se actualizó. Se rehace solo esta
+          noche.
+        </p>
+      )}
+
+      <form method="post">
+        <input type="hidden" name="accion" value="confirmar-todos" />
+        <button type="submit" data-testid="confirm-all">Todos los disponibles siguen disponibles</button>
+      </form>
+
+      <ul data-testid="animals">
+        {list.map((animal) => (
+          <li data-testid={`animal-${animal.id}`}>
+            <strong>{animal.name}</strong>: {AVAILABILITY_OPTION_LABELS[animal.availability]}, última
+            confirmación {asDate(animal.lastConfirmedAt)}
+            <form method="post">
+              <input type="hidden" name="accion" value="estado" />
+              <input type="hidden" name="animal" value={animal.id} />
+              <select name="estado">
+                {AVAILABILITIES.map((option) => (
+                  <option value={option} selected={option === animal.availability}>
+                    {AVAILABILITY_OPTION_LABELS[option]}
+                  </option>
+                ))}
+              </select>
+              <button type="submit">Guardar</button>
+            </form>
+          </li>
+        ))}
+      </ul>
+
+      <p>
+        Para cambiar fotos, descripciones, formas de contacto o agregar animales,{" "}
+        <a href="/refugios/entrar" data-testid="sign-in">entra a tu cuenta</a>.
+      </p>
+    </Refugios>
+  )
+}

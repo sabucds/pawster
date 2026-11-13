@@ -93,7 +93,7 @@ export async function arrangePhotos(
     // A group is confirmed together, so a new photo of one member confirms all of them.
     db
       .update(animals)
-      .set({ lastConfirmedAt: now })
+      .set({ lastConfirmedAt: now, lastConfirmedVia: "session" })
       .where(
         or(
           eq(animals.id, animal.id),
