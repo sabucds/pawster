@@ -1,4 +1,9 @@
-import { INDEX_POINTER_KEY, parseIndex } from "@pawster/domain";
+import {
+  INDEX_POINTER_KEY,
+  compareByFreshestConfirmed,
+  deriveStalenessBand,
+  parseIndex,
+} from "@pawster/domain";
 import type { IndexPointer } from "@pawster/domain";
 import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -56,6 +61,7 @@ async function publishedAnimal(photoCount: number, animalId = "animal-1") {
 
 beforeEach(async () => {
   await clearShelterTables();
+  await env.DB.exec("DELETE FROM transformation_spends");
   await clearMedia();
 });
 
@@ -86,5 +92,117 @@ describe("reordering", () => {
     ]);
     expect(await env.MEDIA.head(await derivativeKey(digest(1), "digestThumbnail"))).not.toBeNull();
     expect(await env.MEDIA.head(await derivativeKey(digest(1), "socialPreview"))).not.toBeNull();
+  });
+});
+
+describe("deleting", () => {
+  it("refuses to delete an animal's only photo", async () => {
+    const { cookie, animalId } = await publishedAnimal(1);
+
+    const response = await post(`/api/refugios/animales/${animalId}/fotos`, {}, { cookie });
+
+    expect(response.status).toBe(409);
+    expect(await photoOrder(animalId)).toEqual([photoId(animalId, 0)]);
+  });
+
+  it("promotes the next photo when the primary is deleted", async () => {
+    const { cookie, animalId } = await publishedAnimal(3);
+
+    const response = await post(
+      `/api/refugios/animales/${animalId}/fotos`,
+      { orden: [photoId(animalId, 1), photoId(animalId, 2)] },
+      { cookie },
+    );
+
+    expect(response.status).toBe(303);
+    expect(await photoOrder(animalId)).toEqual([photoId(animalId, 1), photoId(animalId, 2)]);
+    expect(await env.MEDIA.head(await derivativeKey(digest(1), "digestThumbnail"))).not.toBeNull();
+    expect(await env.MEDIA.head(await derivativeKey(digest(1), "socialPreview"))).not.toBeNull();
+    // Promotion spends from the same monthly budget as uploads.
+    const spent = await env.DB.prepare(
+      "SELECT coalesce(sum(transformations), 0) AS n FROM transformation_spends",
+    ).first<{ n: number }>();
+    expect(spent!.n).toBe(2);
+  });
+
+  it("deletes a later photo without spending a transformation", async () => {
+    const { cookie, animalId } = await publishedAnimal(3);
+
+    await post(
+      `/api/refugios/animales/${animalId}/fotos`,
+      { orden: [photoId(animalId, 0), photoId(animalId, 2)] },
+      { cookie },
+    );
+
+    expect(await photoOrder(animalId)).toEqual([photoId(animalId, 0), photoId(animalId, 2)]);
+    expect(outbound.callsTo("cf.image")).toHaveLength(0);
+  });
+});
+
+describe("what the listing sees", () => {
+  it("moves a reordered animal to the freshest end and names the new primary's thumbnail", async () => {
+    const { shelterId, cookie, animalId } = await publishedAnimal(2);
+    const stale = new Date(Date.now() - 120 * 24 * 60 * 60 * 1000);
+    await env.DB.prepare("UPDATE animals SET last_confirmed_at = ? WHERE id = ?")
+      .bind(stale.getTime(), animalId)
+      .run();
+    await seedAnimal({ id: "animal-2", shelterId, lastConfirmedAt: new Date(Date.now() - 24 * 60 * 60 * 1000) });
+
+    await post(
+      `/api/refugios/animales/${animalId}/fotos`,
+      { orden: [photoId(animalId, 1), photoId(animalId, 0)] },
+      { cookie },
+    );
+
+    const listing = [...(await currentIndex()).animals].sort(compareByFreshestConfirmed);
+    expect(listing.map((animal) => animal.id)).toEqual([animalId, "animal-2"]);
+    const moved = listing[0]!;
+    expect(deriveStalenessBand(stale, new Date())).toBe("Stale");
+    expect(deriveStalenessBand(moved.lastConfirmedAt, new Date())).toBe("Fresh");
+    expect(moved.thumbnailKey).toBe(await derivativeKey(digest(1), "cardThumbnail"));
+  });
+});
+
+describe("what is left alone", () => {
+  it("purges no cache and deletes no derivative", async () => {
+    const { cookie, animalId } = await publishedAnimal(2);
+    const oldPrimaryPreview = await derivativeKey(digest(0), "socialPreview");
+    await env.MEDIA.put(oldPrimaryPreview, new Uint8Array([1]));
+
+    const before = outbound.calls.length;
+
+    await post(
+      `/api/refugios/animales/${animalId}/fotos`,
+      { orden: [photoId(animalId, 1)] },
+      { cookie },
+    );
+
+    // A purge would be a fetch to the Cloudflare API, which the interceptor records as a
+    // violation because no vendor is registered for it.
+    expect(outbound.violations).toEqual([]);
+    expect(outbound.calls.slice(before).map((call) => call.vendor)).toEqual([
+      "cf.image",
+      "cf.image",
+    ]);
+    expect(await env.MEDIA.head(oldPrimaryPreview)).not.toBeNull();
+  });
+});
+
+describe("who may", () => {
+  it("answers 404 for another shelter's animal", async () => {
+    const { cookie } = await publishedAnimal(2);
+    await env.DB.prepare(
+      "INSERT INTO shelters (id, slug, display_name, account_email, base_region, country_code, created_at) VALUES ('shelter-other', 'otro', 'Otro', 'otro@refugio.example', 'Miranda', 'VE', 0)",
+    ).run();
+    await seedAnimal({ id: "elsewhere", shelterId: "shelter-other", photoCount: 2 });
+
+    const response = await post(
+      `/api/refugios/animales/elsewhere/fotos`,
+      { orden: [photoId("elsewhere", 1)] },
+      { cookie },
+    );
+
+    expect(response.status).toBe(404);
+    expect(await photoOrder("elsewhere")).toEqual([photoId("elsewhere", 0), photoId("elsewhere", 1)]);
   });
 });
