@@ -71,9 +71,17 @@ export {
   derivativeKeyMaterial,
   derivativeSpecFingerprint,
 } from "./derivative.ts";
-export type { DigestAnimal, DigestPeriod } from "./digest.ts";
+export type {
+  ComposedSection,
+  DigestAnimal,
+  DigestPeriod,
+  DigestSearchMatches,
+} from "./digest.ts";
 export {
+  composeDigest,
   DIGEST_DAILY_BUDGET,
+  DIGEST_EMAIL_CAP,
+  DIGEST_SECTION_CAP,
   digestCandidates,
   digestIdempotencyKey,
 } from "./digest.ts";

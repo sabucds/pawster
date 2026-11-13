@@ -62,3 +62,56 @@ export function digestCandidates(
     .filter((unit) => matches(criteria, adoptionUnitOf(unit), now))
     .map((unit) => unit.map((animal) => animal.id));
 }
+
+/** At most this many rows under one search (issue #10's structure, kept by the #15 prototype). */
+export const DIGEST_SECTION_CAP = 12;
+/** At most this many rows in one email, across all of a subscriber's searches. */
+export const DIGEST_EMAIL_CAP = 24;
+
+/** One search's candidates, in the order {@link digestCandidates} returned them. */
+export interface DigestSearchMatches {
+  readonly subscriptionId: string;
+  readonly units: readonly string[][];
+}
+
+/** What one search's section of the email carries. */
+export interface ComposedSection {
+  readonly subscriptionId: string;
+  /** The rows shown under this search, each a unit's member ids. */
+  readonly units: string[][];
+  /**
+   * Units this search matched that an earlier section of the same email already shows. Not
+   * shown twice, but written to this search's sent-set too, so neither search offers them again.
+   */
+  readonly repeats: string[][];
+  /** Candidates that did not fit. Not shown and not marked sent, so they arrive next time. */
+  readonly more: number;
+}
+
+/**
+ * Chooses what one email shows out of everything a subscriber's searches matched, filling
+ * sections in the order given (slot order) up to {@link DIGEST_SECTION_CAP} each and
+ * {@link DIGEST_EMAIL_CAP} in all.
+ *
+ * What is cut is only *not shown*: the sent-set is written from `units` and `repeats`, so the
+ * overflow stays new and is offered again by the next run.
+ */
+export function composeDigest(
+  searches: readonly DigestSearchMatches[],
+): ComposedSection[] {
+  const shown = new Set<string>();
+  return searches.map((search) => {
+    const units: string[][] = [];
+    const repeats: string[][] = [];
+    let more = 0;
+    for (const unit of search.units) {
+      const key = unit.join(",");
+      if (shown.has(key)) repeats.push(unit);
+      else if (units.length < DIGEST_SECTION_CAP && shown.size < DIGEST_EMAIL_CAP) {
+        units.push(unit);
+        shown.add(key);
+      } else more++;
+    }
+    return { subscriptionId: search.subscriptionId, units, repeats, more };
+  });
+}
