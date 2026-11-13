@@ -236,6 +236,20 @@ export async function listShelterAnimals(
   return rows.map(toStoredAnimal);
 }
 
+/** The animals adopted together with this one, in id order; empty for a lone animal. */
+export async function findBondedWith(
+  db: Database,
+  animal: Pick<StoredAnimal, "id" | "bondedGroupId">,
+): Promise<readonly StoredAnimal[]> {
+  if (animal.bondedGroupId === null) return [];
+  const rows = await db
+    .select(ANIMAL_COLUMNS)
+    .from(animals)
+    .where(and(eq(animals.bondedGroupId, animal.bondedGroupId), ne(animals.id, animal.id)))
+    .orderBy(animals.id);
+  return rows.map(toStoredAnimal);
+}
+
 export interface PublishAnimal {
   readonly shelterId: string;
   /** The session whose photographs this animal is being assembled from. */

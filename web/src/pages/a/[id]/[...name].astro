@@ -6,7 +6,7 @@ import {
   deriveStalenessBand,
 } from "@pawster/domain";
 import { env } from "cloudflare:workers";
-import { animalUrl, messageAddress } from "../../../lib/animals/address.ts";
+import { animalPath, animalUrl, messageAddress } from "../../../lib/animals/address.ts";
 import {
   OFF_PLATFORM_NOTE,
   PREFILL_NOTE,
@@ -14,7 +14,7 @@ import {
   prefillMessage,
 } from "../../../lib/animals/contact.ts";
 import { readAnimalGallery } from "../../../lib/animals/gallery.ts";
-import { findAnimal } from "../../../lib/animals/store.ts";
+import { findAnimal, findBondedWith } from "../../../lib/animals/store.ts";
 import { publicView } from "../../../lib/animals/visibility.ts";
 import {
   ARCHIVE_ELSEWHERE,
@@ -25,6 +25,7 @@ import {
   confirmationSentence,
   goodWithPhrase,
   metaLine,
+  namesList,
   sizeLabel,
   sterilisationLabel,
 } from "../../../lib/animals/words.ts";
@@ -129,8 +130,14 @@ const gallery = await readAnimalGallery(db, animal, env.MEDIA_PUBLIC_ORIGIN);
 const canonical = animalUrl(env.SITE_ORIGIN, animal.id, animal.name);
 
 /** Built once and used twice: it goes into the links, and it is quoted to the adopter. */
+/**
+ * The rest of its group, each kept as its own animal. A group shares its state, so a listed
+ * animal's partners are listed too; on an archive page there is nobody left to write to.
+ */
+const partners = listed ? await findBondedWith(db, animal) : [];
+
 const prefill = prefillMessage(
-  animal.name,
+  [animal.name, ...partners.map((partner) => partner.name)],
   messageAddress(env.SITE_ORIGIN, animal.id),
 );
 
@@ -142,7 +149,7 @@ const prefill = prefillMessage(
 const contacts = listed
   ? contactHandoffs(
       await readStoredContactPoints(db, animal.shelterId),
-      animal.name,
+      namesList([animal.name, ...partners.map((partner) => partner.name)]),
       prefill,
     )
   : [];
@@ -439,6 +446,36 @@ const socialTitle = `${animal.name} — ${meta}`;
               </li>
             ))}
           </ul>
+        </section>
+      )
+    }
+
+    {
+      /*
+        Each partner's facts stay its own: the safety answers of the group are the card's job,
+        and an adopter deciding whether to write needs to know *which* of them is the one who
+        does not get on with cats.
+      */
+      partners.length > 0 && (
+        <section data-testid="bonded-with">
+          <h2>Se adoptan juntos</h2>
+          {partners.map((partner) => (
+            <article>
+              <h3>
+                <a href={animalPath(partner.id, partner.name)}>{partner.name}</a>
+              </h3>
+              <p>
+                {metaLine(partner, deriveAgeBand(partner.species, partner.estimatedBirthDate, now))}
+              </p>
+              <ul>
+                {GOOD_WITH_AXES.map((axis) => (
+                  <li data-axis={axis} data-flag={partner.goodWith[axis]}>
+                    {goodWithPhrase(axis, partner.goodWith[axis])}
+                  </li>
+                ))}
+              </ul>
+            </article>
+          ))}
         </section>
       )
     }

@@ -30,6 +30,7 @@
 
 import type { ContactPointKind } from "@pawster/db";
 import type { StoredContactPoint } from "../shelter/store.ts";
+import { namesList } from "./words.ts";
 
 /**
  * Everything that differs between the four channels, in one record per channel.
@@ -139,9 +140,13 @@ export const OFF_PLATFORM_NOTE =
  * The question at the end is deliberate and it is the adopter's, not ours: the one thing an
  * adopter most needs to know is the one thing an archive page could not have told them, because
  * the animal is still listed.
+ *
+ * Animals adopted together are named together, so the shelter reads the whole group from one
+ * message; `disponibles` is the same word in either gender, so only the number agrees.
  */
-export function prefillMessage(animalName: string, address: string): string {
-  return `Hola, les escribo por ${animalName} (${address}). ¿Sigue disponible?`;
+export function prefillMessage(names: readonly string[], address: string): string {
+  const question = names.length === 1 ? "¿Sigue disponible?" : "¿Siguen disponibles?";
+  return `Hola, les escribo por ${namesList(names)} (${address}). ${question}`;
 }
 
 /** One contact point, ready to render. */
