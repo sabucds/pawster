@@ -372,6 +372,7 @@ export async function editAnimal(
         availability: animal.availability,
         urgentReason: animal.urgentReason,
         lastConfirmedAt: now,
+        lastConfirmedVia: "session",
       })
       .where(eq(animals.id, owner.id)),
     /**
@@ -380,7 +381,7 @@ export async function editAnimal(
      */
     db
       .update(animals)
-      .set({ availability: animal.availability, lastConfirmedAt: now })
+      .set({ availability: animal.availability, lastConfirmedAt: now, lastConfirmedVia: "session" })
       .where(eq(animals.bondedGroupId, itsGroup)),
     /** A group of one is not a group. */
     db

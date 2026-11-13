@@ -80,6 +80,14 @@ export const shelters = sqliteTable("shelters", {
    * rule that an email change invalidates every outstanding link.
    */
   sessionEpoch: integer("session_epoch").notNull().default(0),
+  /**
+   * The generation of the shelter's Confirmation Nudge link (ADR 0008, issue #60). Each
+   * nudge bumps it, and only a link carrying the current value verifies, so a new nudge
+   * supersedes every older one without a revoke list.
+   */
+  nudgeVersion: integer("nudge_version").notNull().default(0),
+  /** When the last Confirmation Nudge was sent; null if never. Spaces nudges apart. */
+  nudgedAt: integer("nudged_at", { mode: "timestamp_ms" }),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   /**
    * **No `verified` column and no legal-name column**, and both absences are decisions
@@ -290,6 +298,13 @@ export const animals = sqliteTable(
     lastConfirmedAt: integer("last_confirmed_at", {
       mode: "timestamp_ms",
     }).notNull(),
+    /**
+     * How the last Confirmation arrived: signed in, or through a nudge link that anyone
+     * holding it may use (ADR 0008 asks the record to say which).
+     */
+    lastConfirmedVia: text("last_confirmed_via", { enum: ["session", "link"] })
+      .notNull()
+      .default("session"),
     /**
      * The upload session whose photos this animal was assembled from.
      *
