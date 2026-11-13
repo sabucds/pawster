@@ -23,11 +23,10 @@ import {
 import {
   DERIVATIVE_PREFIX,
   type StorageMode,
-  derivativeKeyFor,
-  derivativeKeyMaterial,
   derivativesFor,
   deriveStorageMode,
 } from "@pawster/domain";
+import { derivativeKey } from "@pawster/web/src/lib/photos/keys.ts";
 import { eq, gte, inArray, or } from "drizzle-orm";
 import { sendMail } from "./resend.ts";
 
@@ -125,24 +124,15 @@ async function heldDerivativeKeys(db: Database, now: Date): Promise<Set<string>>
         ),
       ),
     );
+  // The upload path's own key function, so Reclamation cannot compute a key it did not write.
   const keys = await Promise.all(
     photos.flatMap((photo) =>
-      derivativesFor(photo.position === 0 ? "primary" : "additional").map(async (name) =>
-        derivativeKeyFor(await sha256Hex(derivativeKeyMaterial(photo.sourceDigest, name)), name),
+      derivativesFor(photo.position === 0 ? "primary" : "additional").map((name) =>
+        derivativeKey(photo.sourceDigest, name),
       ),
     ),
   );
   return new Set(keys);
-}
-
-/**
- * The same hash `web/src/lib/photos/keys.ts` writes keys with. `domain/` holds no
- * `crypto.subtle`, so each Worker hashes for itself; Reclamation's tests place objects with
- * `web/`'s function, so the two cannot drift apart unnoticed.
- */
-async function sha256Hex(input: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(input));
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 async function listAll(bucket: R2Bucket, prefix?: string): Promise<R2Object[]> {

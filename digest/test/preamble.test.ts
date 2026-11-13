@@ -265,9 +265,8 @@ describe("the sent-set", () => {
  * now and run Reclamation at a scheduled time measured from the real clock: 25 hours on makes
  * every object old enough to reclaim, 23 hours on makes none of them old enough.
  *
- * The keys come from `web/`'s `derivativeKey`, the function the upload path writes with. The
- * sweep computes its own, so a drift between the two fails here instead of deleting a live
- * animal's photos.
+ * The keys come from `web/`'s `derivativeKey`, the function the upload path writes with and
+ * the one Reclamation computes held keys with.
  */
 describe("Reclamation", () => {
   const HOUR = 60 * 60_000;
