@@ -191,40 +191,12 @@ export async function storePhoto(
   const token = await mintOriginalToken(platform, key, input.now);
   const originalUrl = `${input.origin}/api/originales/${key}?token=${encodeURIComponent(token)}`;
 
-  const derivatives: Partial<Record<DerivativeName, string>> = {};
-  let transformationsSpent = 0;
-
-  for (const name of derivativesFor(input.role)) {
-    const derivativeObjectKey = await derivativeKey(stored.digest, name);
-    derivatives[name] = derivativeObjectKey;
-
-    // The content-addressed key is what makes this check worth making: an object already
-    // under this key holds bytes produced from these bytes by this exact spec, so there is
-    // nothing a transform could add. ADR 0016's shared-key case, arriving as a saving.
-    if (await platform.MEDIA.head(derivativeObjectKey)) continue;
-
-    const response = await fetchDerivative(originalUrl, name);
-    if (!response.ok) {
-      throw new Error(
-        `The image pipeline refused the ${name} transform: ${response.status} ` +
-          `${response.headers.get("cf-resized") ?? ""}`.trim(),
-      );
-    }
-
-    // Buffered rather than streamed: `R2.put` needs a length, and a transform's response is
-    // the one body here whose length is not known before it arrives. A 1280px WebP is a few
-    // hundred kilobytes, so this costs nothing the 12 MB original did not already cost.
-    await platform.MEDIA.put(derivativeObjectKey, await response.arrayBuffer(), {
-      httpMetadata: {
-        contentType: derivativeContentType(name),
-        // Set on the object rather than on a response, because the object is what `r2.dev`
-        // serves and what any cache in front of it will read (ADR 0014). Safe to the point
-        // of being uninteresting: the key is the content.
-        cacheControl: DERIVATIVE_CACHE_CONTROL,
-      },
-    });
-    transformationsSpent++;
-  }
+  const { derivatives, transformationsSpent } = await mintDerivatives(
+    platform.MEDIA,
+    originalUrl,
+    stored.digest,
+    derivativesFor(input.role),
+  );
 
   return {
     sourceDigest: stored.digest,
@@ -236,6 +208,61 @@ export async function storePhoto(
     derivatives,
     transformationsSpent,
   };
+}
+
+/**
+ * Transform `sourceUrl` into each named derivative that is not already in the media bucket,
+ * and store it under its content-addressed key.
+ *
+ * Shared by the upload path and by photo promotion (issue #58), which mints the two
+ * primary-only derivatives for a photo that becomes primary after publishing. Both callers
+ * write the same keys from the same digest, so a reader never needs to know which one ran.
+ */
+export async function mintDerivatives(
+  media: R2Bucket,
+  sourceUrl: string,
+  sourceDigest: string,
+  names: readonly DerivativeName[],
+): Promise<{
+  derivatives: Partial<Record<DerivativeName, string>>;
+  transformationsSpent: number;
+}> {
+  const derivatives: Partial<Record<DerivativeName, string>> = {};
+  let transformationsSpent = 0;
+
+  for (const name of names) {
+    const derivativeObjectKey = await derivativeKey(sourceDigest, name);
+    derivatives[name] = derivativeObjectKey;
+
+    // The content-addressed key is what makes this check worth making: an object already
+    // under this key holds bytes produced from these bytes by this exact spec, so there is
+    // nothing a transform could add. ADR 0016's shared-key case, arriving as a saving.
+    if (await media.head(derivativeObjectKey)) continue;
+
+    const response = await fetchDerivative(sourceUrl, name);
+    if (!response.ok) {
+      throw new Error(
+        `The image pipeline refused the ${name} transform: ${response.status} ` +
+          `${response.headers.get("cf-resized") ?? ""}`.trim(),
+      );
+    }
+
+    // Buffered rather than streamed: `R2.put` needs a length, and a transform's response is
+    // the one body here whose length is not known before it arrives. A 1280px WebP is a few
+    // hundred kilobytes, so this costs nothing the 12 MB original did not already cost.
+    await media.put(derivativeObjectKey, await response.arrayBuffer(), {
+      httpMetadata: {
+        contentType: derivativeContentType(name),
+        // Set on the object rather than on a response, because the object is what `r2.dev`
+        // serves and what any cache in front of it will read (ADR 0014). Safe to the point
+        // of being uninteresting: the key is the content.
+        cacheControl: DERIVATIVE_CACHE_CONTROL,
+      },
+    });
+    transformationsSpent++;
+  }
+
+  return { derivatives, transformationsSpent };
 }
 
 /**
