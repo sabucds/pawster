@@ -185,6 +185,9 @@ export default {
      * recipient of one is a subscriber the digest is not reaching. Subtracting here is what
      * makes "the run sends at most `DIGEST_DAILY_BUDGET` messages" true whatever the mix.
      *
+     * Confirmation nudges are not subtracted. They already have their own slots inside the 30
+     * that `DIGEST_DAILY_BUDGET` holds back (ADR 0009, `web/src/lib/subscriber/policy.ts`).
+     *
      * An unsubscribed or retired subscriber is excluded. Both are rows the platform keeps and
      * must not mail: `unsubscribed_at` is the subscriber's own decision and `retired_at` is
      * ours, and `CONTEXT.md` separates them so that neither can be read off the other. This
@@ -233,7 +236,7 @@ export default {
 
     const due = shard
       .filter((subscriber) => matchesBySubscriber.has(subscriber.id))
-      .slice(0, Math.max(0, DIGEST_DAILY_BUDGET - nudged - confirmationNudges - adminMails));
+      .slice(0, Math.max(0, DIGEST_DAILY_BUDGET - nudged - adminMails));
 
     let units = 0;
     for (const subscriber of due) {

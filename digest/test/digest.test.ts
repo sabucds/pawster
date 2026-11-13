@@ -9,6 +9,7 @@ import {
 import { exports as workerExports } from "cloudflare:workers";
 import { createDb, subscribers } from "@pawster/db";
 import {
+  DIGEST_DAILY_BUDGET,
   MANAGE_PATH,
   OPT_IN_TTL_MS,
   OPT_IN_WINDOW_MS,
@@ -448,6 +449,32 @@ describe("the shard's ordering", () => {
       "s-earlier",
       "s-later",
     ]);
+  });
+
+  it("spends the whole digest budget even on a day confirmation nudges go out", async () => {
+    // ADR 0009: confirmation nudges come out of the 30 held back from Resend's hundred,
+    // never out of the digest's 70.
+    const ids = Array.from({ length: DIGEST_DAILY_BUDGET }, (_, i) => `s-${i}`);
+    await env.DB.batch(
+      ids.map((id) =>
+        env.DB.prepare(
+          "INSERT INTO subscribers (id, email, send_day, opted_in_at, manage_token_version) VALUES (?, ?, 3, ?, 0)",
+          // Opted in last week, so none is owed the ninety-day nudge, which does spend the 70.
+        ).bind(id, `${id}@example.org`, WEDNESDAY.getTime() - 7 * 24 * 60 * 60_000),
+      ),
+    );
+    await withSomethingToSend(...ids);
+    // The shelter's only animal, unconfirmed for long enough to be owed a nudge.
+    await env.DB.prepare("UPDATE animals SET last_confirmed_at = ?")
+      .bind(new Date("2026-01-01").getTime())
+      .run();
+
+    const enqueued = await enqueuedBy(WEDNESDAY);
+
+    expect(
+      outbound.callsTo("resend").filter((call) => call.body!.includes("shelter-1@example.org")),
+    ).toHaveLength(1);
+    expect(enqueued).toHaveLength(DIGEST_DAILY_BUDGET);
   });
 });
 
