@@ -75,7 +75,7 @@ export type {
   ComposedSection,
   DigestAnimal,
   DigestPeriod,
-  DigestSearchMatches,
+  DigestSubscriptionMatches,
 } from "./digest.ts";
 export {
   composeDigest,
@@ -130,7 +130,7 @@ export {
   DIGEST_DELIVERY_TTL_MS,
   NEVER_MATCHED_NUDGE_MS,
   SENT_SET_UNLISTED_TTL_MS,
-  digestDeliveryPurgeCutoff,
+  digestDeliveryErasureCutoff,
   sentSetExpiryCutoff,
   OPT_IN_TTL_MS,
   OPT_IN_WINDOW_MS,

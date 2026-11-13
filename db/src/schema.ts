@@ -866,7 +866,7 @@ export const digestRuns = sqliteTable("digest_runs", {
   purgedOptInMails: integer("purged_opt_in_mails").notNull(),
   erasedSubscribers: integer("erased_subscribers").notNull(),
   /** Issue #66's preamble. Default 0 so the rows written before it still read. */
-  purgedDeliveries: integer("purged_deliveries").notNull().default(0),
+  erasedDeliveries: integer("erased_deliveries").notNull().default(0),
   expiredSentRows: integer("expired_sent_rows").notNull().default(0),
   erasedDepartures: integer("erased_departures").notNull().default(0),
   /**

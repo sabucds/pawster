@@ -161,7 +161,7 @@ export function departureErasureCutoff(now: Date): Date {
  */
 export const DIGEST_DELIVERY_TTL_MS = 90 * 24 * 60 * 60_000;
 
-export function digestDeliveryPurgeCutoff(now: Date): Date {
+export function digestDeliveryErasureCutoff(now: Date): Date {
   return new Date(now.getTime() - DIGEST_DELIVERY_TTL_MS);
 }
 

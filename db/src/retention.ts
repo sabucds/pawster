@@ -273,7 +273,7 @@ export async function eraseDepartedShelters(
 }
 
 /** Drops Digest Delivery rows older than `cutoff` (ADR 0010's 90 days). */
-export async function purgeDigestDeliveries(
+export async function eraseDigestDeliveries(
   db: Database,
   cutoff: Date,
 ): Promise<number> {

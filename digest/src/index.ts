@@ -4,7 +4,7 @@ import {
   eraseDepartedShelters,
   findNeverMatchedSubscribers,
   expireSentSets,
-  purgeDigestDeliveries,
+  eraseDigestDeliveries,
   recordNudge,
   runSubscriberPurges,
   subscribers,
@@ -14,7 +14,7 @@ import {
   DIGEST_DAILY_BUDGET,
   digestCandidates,
   departureErasureCutoff,
-  digestDeliveryPurgeCutoff,
+  digestDeliveryErasureCutoff,
   digestIdempotencyKey,
   manageUrl,
   neverMatchedNudgeCutoff,
@@ -96,9 +96,9 @@ export default {
       mailLedger: optInMailLedgerCutoff(now),
       unsubscribed: unsubscribedErasureCutoff(now),
     });
-    const purgedDeliveries = await purgeDigestDeliveries(
+    const erasedDeliveries = await eraseDigestDeliveries(
       db,
-      digestDeliveryPurgeCutoff(now),
+      digestDeliveryErasureCutoff(now),
     );
     const erasedDepartures = await eraseDepartedShelters(
       db,
@@ -192,12 +192,12 @@ export default {
      * must not mail: `unsubscribed_at` is the subscriber's own decision and `retired_at` is
      * ours, and `CONTEXT.md` separates them so that neither can be read off the other. This
      * is the clause that makes the ninety-day grace period safe to have at all — without it,
-     * "we keep your searches for ninety days" would mean "we keep mailing you for ninety
+     * "we keep your Subscriptions for ninety days" would mean "we keep mailing you for ninety
      * days".
      */
     const confirmationNudges = await sendConfirmationNudges(env, now);
 
-    const [shard, searches, sentSets] = await Promise.all([
+    const [shard, subscriptions, sentSets] = await Promise.all([
       db
         .select({
           id: subscribers.id,
@@ -212,26 +212,26 @@ export default {
     ]);
 
     /**
-     * ADR 0009's candidate set, per search: matches the criteria AND currently listed AND not
-     * in that search's sent-set. A subscriber with nothing new is not enqueued at all, so the
+     * ADR 0009's candidate set, per Subscription: matches the criteria AND currently listed AND not
+     * in that Subscription's sent-set. A subscriber with nothing new is not enqueued at all, so the
      * budget below is spent only on mail that says something.
      */
     const matchesBySubscriber = new Map<
       string,
       { subscriptionId: string; criteria: SubscriptionCriteria; units: string[][] }[]
     >();
-    for (const search of searches) {
-      const criteria = readCriteria(search.criteria);
+    for (const subscription of subscriptions) {
+      const criteria = readCriteria(subscription.criteria);
       const units = digestCandidates(
         listed,
         criteria,
-        sentSets.get(search.id) ?? new Set(),
+        sentSets.get(subscription.id) ?? new Set(),
         now,
       );
       if (units.length === 0) continue;
-      const matches = matchesBySubscriber.get(search.subscriberId) ?? [];
-      matches.push({ subscriptionId: search.id, criteria, units });
-      matchesBySubscriber.set(search.subscriberId, matches);
+      const matches = matchesBySubscriber.get(subscription.subscriberId) ?? [];
+      matches.push({ subscriptionId: subscription.id, criteria, units });
+      matchesBySubscriber.set(subscription.subscriberId, matches);
     }
 
     const due = shard
@@ -272,7 +272,7 @@ export default {
       purgedOptIns: purged.optIns,
       purgedOptInMails: purged.mailLedger,
       erasedSubscribers: purged.erasedSubscribers,
-      purgedDeliveries,
+      erasedDeliveries,
       erasedDepartures,
       expiredSentRows,
       reclamation: reclamation?.reclamation ?? ("aborted" as const),
@@ -363,7 +363,7 @@ export default {
         // the next shard's overflow and is never asked what is "new".
         const sentAt = new Date();
         const remember = env.DB.prepare(
-          // Guarded by EXISTS rather than trusted: the search can be deleted from the manage
+          // Guarded by EXISTS rather than trusted: the Subscription can be deleted from the manage
           // page, or the animal removed, between enqueue and send, and a foreign-key failure
           // here would retry an email that already went out.
           `insert or ignore into digest_sent (subscription_id, animal_id, sent_at)

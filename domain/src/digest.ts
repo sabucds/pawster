@@ -69,25 +69,26 @@ export function digestCandidates(
     .map((unit) => unit.map((animal) => animal.id));
 }
 
-/** At most this many rows under one search (issue #10's structure, kept by the #15 prototype). */
+/** At most this many rows under one Subscription (issue #10's structure, kept by #15). */
 export const DIGEST_SECTION_CAP = 12;
-/** At most this many rows in one email, across all of a subscriber's searches. */
+/** At most this many rows in one email, across all of a subscriber's Subscriptions. */
 export const DIGEST_EMAIL_CAP = 24;
 
-/** One search's candidates, in the order {@link digestCandidates} returned them. */
-export interface DigestSearchMatches {
+/** One Subscription's candidates, in the order {@link digestCandidates} returned them. */
+export interface DigestSubscriptionMatches {
   readonly subscriptionId: string;
   readonly units: readonly string[][];
 }
 
-/** What one search's section of the email carries. */
+/** What one Subscription's section of the email carries. */
 export interface ComposedSection {
   readonly subscriptionId: string;
-  /** The rows shown under this search, each a unit's member ids. */
+  /** The rows shown under this Subscription, each a unit's member ids. */
   readonly units: string[][];
   /**
-   * Units this search matched that an earlier section of the same email already shows. Not
-   * shown twice, but written to this search's sent-set too, so neither search offers them again.
+   * Units this Subscription matched that an earlier section of the same email already shows.
+   * Not shown twice, but written to this Subscription's sent-set too, so neither Subscription
+   * offers them again.
    */
   readonly repeats: string[][];
   /** Candidates that did not fit. Not shown and not marked sent, so they arrive next time. */
@@ -95,7 +96,7 @@ export interface ComposedSection {
 }
 
 /**
- * Chooses what one email shows out of everything a subscriber's searches matched, filling
+ * Chooses what one email shows out of everything a subscriber's Subscriptions matched, filling
  * sections in the order given (slot order) up to {@link DIGEST_SECTION_CAP} each and
  * {@link DIGEST_EMAIL_CAP} in all.
  *
@@ -103,14 +104,14 @@ export interface ComposedSection {
  * overflow stays new and is offered again by the next run.
  */
 export function composeDigest(
-  searches: readonly DigestSearchMatches[],
+  subscriptions: readonly DigestSubscriptionMatches[],
 ): ComposedSection[] {
   const shown = new Set<string>();
-  return searches.map((search) => {
+  return subscriptions.map((subscription) => {
     const units: string[][] = [];
     const repeats: string[][] = [];
     let more = 0;
-    for (const unit of search.units) {
+    for (const unit of subscription.units) {
       const key = unit.join(",");
       if (shown.has(key)) repeats.push(unit);
       else if (units.length < DIGEST_SECTION_CAP && shown.size < DIGEST_EMAIL_CAP) {
@@ -118,6 +119,6 @@ export function composeDigest(
         shown.add(key);
       } else more++;
     }
-    return { subscriptionId: search.subscriptionId, units, repeats, more };
+    return { subscriptionId: subscription.subscriptionId, units, repeats, more };
   });
 }

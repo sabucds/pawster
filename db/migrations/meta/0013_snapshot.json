@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "9b8bbfec-4ea1-4674-bb97-00e9e8956b4f",
+  "id": "66e98a1f-20cc-4963-b37f-600f84ae63b7",
   "prevId": "cb5840d1-b6b4-4a07-be69-8cf9653b9546",
   "tables": {
     "animals": {
@@ -360,8 +360,8 @@
           "notNull": true,
           "autoincrement": false
         },
-        "purged_deliveries": {
-          "name": "purged_deliveries",
+        "erased_deliveries": {
+          "name": "erased_deliveries",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,

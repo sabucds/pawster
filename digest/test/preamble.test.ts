@@ -163,7 +163,7 @@ describe("Digest Delivery", () => {
 
     const { results } = await env.DB.prepare("SELECT id FROM digest_deliveries").all();
     expect(results).toEqual([{ id: "kept" }]);
-    expect((await lastRun())!.purged_deliveries).toBe(1);
+    expect((await lastRun())!.erased_deliveries).toBe(1);
   });
 });
 
