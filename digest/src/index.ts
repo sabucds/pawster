@@ -272,7 +272,7 @@ export default {
       purgedDeliveries,
       erasedDepartures,
       prunedSentRows,
-      sweep: sweep?.sweep ?? "aborted",
+      sweep: sweep?.sweep ?? ("aborted" as const),
       reclaimedObjects: sweep?.reclaimedObjects ?? 0,
       reclaimedBytes: sweep?.reclaimedBytes ?? 0,
       storedBytes: sweep?.storedBytes ?? null,
