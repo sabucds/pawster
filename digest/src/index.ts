@@ -10,11 +10,13 @@ import {
   subscribers,
 } from "@pawster/db";
 import {
+  composeDigest,
   DIGEST_DAILY_BUDGET,
   digestCandidates,
   departureErasureCutoff,
   digestDeliveryPurgeCutoff,
   digestIdempotencyKey,
+  manageUrl,
   neverMatchedNudgeCutoff,
   optInMailLedgerCutoff,
   optInPurgeCutoff,
@@ -24,14 +26,17 @@ import {
   unsubscribedErasureCutoff,
 } from "@pawster/domain";
 import { asc } from "drizzle-orm";
+import type { SubscriptionCriteria } from "@pawster/domain";
 import type { DigestMessage, DigestSection, Env } from "./env.ts";
 import { sendConfirmationNudges } from "./confirmation-nudge.ts";
 import { NUDGES_PER_RUN, sendNudgeEmail } from "./nudge.ts";
 import { type SweepOutcome, mailAdmin, reclaimAndMeasure, sweepAlert } from "./reclaim.ts";
 import { pingWatchdog } from "./watchdog.ts";
+import { renderDigestHtml } from "./email.ts";
 import { sendDigestEmail } from "./resend.ts";
 import {
   mailable,
+  readDigestRows,
   readListedForDigest,
   readShardSentSets,
   readShardSubscriptions,
@@ -191,7 +196,11 @@ export default {
 
     const [shard, searches, sentSets] = await Promise.all([
       db
-        .select({ id: subscribers.id, email: subscribers.email })
+        .select({
+          id: subscribers.id,
+          email: subscribers.email,
+          manageTokenVersion: subscribers.manageTokenVersion,
+        })
         .from(subscribers)
         .where(mailable(sendDay))
         .orderBy(asc(subscribers.lastDigestAt), asc(subscribers.optedInAt)),
@@ -204,32 +213,43 @@ export default {
      * in that search's sent-set. A subscriber with nothing new is not enqueued at all, so the
      * budget below is spent only on mail that says something.
      */
-    const sectionsBySubscriber = new Map<string, DigestSection[]>();
+    const matchesBySubscriber = new Map<
+      string,
+      { subscriptionId: string; criteria: SubscriptionCriteria; units: string[][] }[]
+    >();
     for (const search of searches) {
+      const criteria = readCriteria(search.criteria);
       const units = digestCandidates(
         listed,
-        readCriteria(search.criteria),
+        criteria,
         sentSets.get(search.id) ?? new Set(),
         now,
       );
       if (units.length === 0) continue;
-      const sections = sectionsBySubscriber.get(search.subscriberId) ?? [];
-      sections.push({ subscriptionId: search.id, units });
-      sectionsBySubscriber.set(search.subscriberId, sections);
+      const matches = matchesBySubscriber.get(search.subscriberId) ?? [];
+      matches.push({ subscriptionId: search.id, criteria, units });
+      matchesBySubscriber.set(search.subscriberId, matches);
     }
 
     const due = shard
-      .filter((subscriber) => sectionsBySubscriber.has(subscriber.id))
+      .filter((subscriber) => matchesBySubscriber.has(subscriber.id))
       .slice(0, Math.max(0, DIGEST_DAILY_BUDGET - nudged - confirmationNudges - adminMails));
 
     let units = 0;
     for (const subscriber of due) {
-      const sections = sectionsBySubscriber.get(subscriber.id)!;
+      // Chosen here rather than in the consumer, so a redelivery sends and remembers the same
+      // rows. The overflow is not marked sent and comes back next week.
+      const matches = matchesBySubscriber.get(subscriber.id)!;
+      const sections: DigestSection[] = composeDigest(matches).map((section, i) => ({
+        ...section,
+        criteria: matches[i]!.criteria,
+      }));
       units += sections.reduce((sum, section) => sum + section.units.length, 0);
       await env.DIGEST_QUEUE.send({
         period,
         subscriberId: subscriber.id,
         email: subscriber.email,
+        manageTokenVersion: subscriber.manageTokenVersion,
         sections,
       });
     }
@@ -284,8 +304,27 @@ export default {
       return;
     }
 
+    const db = createDb(env.DB);
     for (const message of batch.messages) {
       try {
+        const { period, subscriberId, sections } = message.body;
+        const unsubscribe = await unsubscribeUrl(env, subscriberId);
+        const html = await renderDigestHtml({
+          sections,
+          animals: await readDigestRows(
+            db,
+            sections.flatMap((section) => section.units.flat()),
+          ),
+          // The period, not the clock: a redelivery tomorrow must render the same bytes.
+          asOf: new Date(period),
+          siteOrigin: env.SITE_ORIGIN,
+          mediaBase: env.MEDIA_BASE_URL,
+          manageUrl: await manageUrl(env, {
+            subscriberId,
+            version: message.body.manageTokenVersion,
+          }),
+          unsubscribeUrl: unsubscribe,
+        });
         await sendDigestEmail(env, {
           to: message.body.email,
           // Deterministic and per-recipient: a redelivered message is a no-op for anyone
@@ -294,9 +333,9 @@ export default {
             message.body.period,
             message.body.subscriberId,
           ),
-          period: message.body.period,
+          html,
           // Signed, because the link is the subscriber's whole credential (CONTEXT.md).
-          unsubscribeUrl: await unsubscribeUrl(env, message.body.subscriberId),
+          unsubscribeUrl: unsubscribe,
         });
         // Only after the send actually succeeded: the sent-set is what makes tomorrow's
         // candidates exclude these animals, and a dropped message writes nothing, so the next
@@ -328,7 +367,7 @@ export default {
             sentAt.getTime(),
           ),
           ...message.body.sections.flatMap((section) =>
-            section.units
+            [...section.units, ...section.repeats]
               .flat()
               .map((animalId) =>
                 remember.bind(section.subscriptionId, animalId, sentAt.getTime()),

@@ -15,9 +15,16 @@ import {
   shelters,
   subscribers,
   subscriptions,
+  uploadSessionPhotos,
   verifications,
 } from "@pawster/db";
-import type { DigestAnimal, ShelterFacts } from "@pawster/domain";
+import type {
+  DigestAnimal,
+  Sex,
+  ShelterFacts,
+  Size,
+  Species,
+} from "@pawster/domain";
 import { isListed } from "@pawster/domain";
 import { and, eq, isNull, sql } from "drizzle-orm";
 
@@ -145,3 +152,54 @@ export async function readShardSentSets(
 }
 
 export { mailable };
+
+/** What one row of the email needs about one animal. */
+export interface DigestRowAnimal {
+  id: string;
+  name: string;
+  species: Species;
+  sex: Sex;
+  size: Size | null;
+  estimatedBirthDate: Date;
+  region: string;
+  lastConfirmedAt: Date;
+  /** The primary photo's source digest, or null for an animal with no photo row. */
+  sourceDigest: string | null;
+}
+
+/**
+ * The animals one email shows, for the consumer to render. One statement however many rows:
+ * the ids go in as a single JSON array through `json_each`, so D1's 100-parameter cap is never
+ * near. The join keeps every column qualified, which a Drizzle select over one table does not.
+ *
+ * Not filtered by `isListed()`: the producer decided what to send, and an animal adopted in the
+ * minutes since is still the animal the email was composed with. One that was deleted outright
+ * is simply missing from the result, and its row is dropped.
+ */
+export async function readDigestRows(
+  db: Database,
+  ids: readonly string[],
+): Promise<Map<string, DigestRowAnimal>> {
+  const rows = await db
+    .select({
+      id: animals.id,
+      name: animals.name,
+      species: animals.species,
+      sex: animals.sex,
+      size: animals.size,
+      estimatedBirthDate: animals.estimatedBirthDate,
+      region: animals.region,
+      lastConfirmedAt: animals.lastConfirmedAt,
+      sourceDigest: uploadSessionPhotos.sourceDigest,
+    })
+    .from(animals)
+    .leftJoin(
+      uploadSessionPhotos,
+      and(
+        eq(uploadSessionPhotos.sessionId, animals.uploadSessionId),
+        eq(uploadSessionPhotos.position, 0),
+      ),
+    )
+    .where(sql`${animals.id} in (select value from json_each(${JSON.stringify(ids)}))`);
+  return new Map(rows.map((row) => [row.id, row]));
+}

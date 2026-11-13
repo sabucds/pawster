@@ -14,7 +14,8 @@ export interface DigestSend {
   /** `digest/<period>/<subscriberId>`. Resend's idempotency window is 24 hours, which the
    * one-shard-per-day design keeps us inside. */
   idempotencyKey: string;
-  period: string;
+  /** Rendered by `email.ts`. Must be byte-identical on redelivery, or Resend 409s the reused key. */
+  html: string;
   /** Built and signed by `unsubscribe.ts`; this module only posts what it is handed. */
   unsubscribeUrl: string;
 }
@@ -34,7 +35,7 @@ export async function sendDigestEmail(
       from: env.DIGEST_FROM_ADDRESS,
       to: [send.to],
       subject: "Animales que coinciden con tu búsqueda",
-      html: `<p>Digest for ${send.period}.</p>`,
+      html: send.html,
       headers: {
         // We host the entire unsubscribe flow: these are automatic for Broadcasts only,
         // and Broadcasts cannot carry a Pawster digest at all (ADR 0009).
