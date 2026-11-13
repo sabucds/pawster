@@ -152,7 +152,7 @@ describe("what the page says about staleness", () => {
   it("escalates the emphasis rather than the sentence", async () => {
     // The sentence is unconditional — see `confirmationSentence()` — and only the band moves,
     // which is what the page styles amber.
-    await seedListedAnimal({ lastConfirmedAt: new Date("2026-09-07") });
+    await seedListedAnimal({ lastConfirmedAt: new Date(Date.now() - 24 * 60 * 60 * 1000) });
     const fresh = await (await get("/a/animal-1/canela")).text();
     expect(fresh).toContain('data-staleness="Fresh"');
     expect(fresh).toContain(MAYBE_GONE);
