@@ -740,6 +740,8 @@ describe("the shelter record", () => {
       "created_at",
       "display_name",
       "id",
+      "nudge_version",
+      "nudged_at",
       "session_epoch",
       "slug",
     ]);

@@ -5,6 +5,7 @@ import { env } from "cloudflare:workers";
 import AnimalFields from "../../../components/AnimalFields.astro";
 import FormErrors from "../../../components/FormErrors.astro";
 import Refugios from "../../../layouts/Refugios.astro";
+import { confirmAnimal } from "../../../lib/animals/confirm.ts";
 import { readSubmittedValues } from "../../../lib/animals/fields.ts";
 import type { AnimalError } from "../../../lib/animals/publish.ts";
 import { parseEdit } from "../../../lib/animals/publish.ts";
@@ -83,6 +84,25 @@ const animal = found;
 
 if (Astro.request.method === "POST") {
   submitted = await Astro.request.formData();
+
+  /**
+   * The explicit "sigue disponible" click (issue #60): a Confirmation that changes no fact, so
+   * it skips the edit form's parsing entirely and only moves `lastConfirmedAt`.
+   */
+  if (submitted.get("accion") === "confirmar") {
+    await confirmAnimal(db, { shelterId: session.shelterId, animalId: animal.id }, { via: "session", now });
+    const regenerated = await regenerateForAct({ db, media: env.MEDIA, now });
+    const headers = new Headers({
+      location:
+        regenerated === null
+          ? `/refugios/animales/${animal.id}?confirmado&listado=pendiente`
+          : `/refugios/animales/${animal.id}?confirmado`,
+    });
+    if (session.refreshedCookie) {
+      headers.set("set-cookie", session.refreshedCookie);
+    }
+    return new Response(null, { status: 303, headers });
+  }
 
   const parsed = parseEdit(submitted, {
     now,
@@ -201,6 +221,7 @@ const bonded = new Set(
 );
 
 const saved = Astro.url.searchParams.has("guardado") && submitted === null;
+const confirmed = Astro.url.searchParams.has("confirmado") && submitted === null;
 const published = Astro.url.searchParams.has("publicado") && submitted === null;
 
 /**
@@ -245,6 +266,7 @@ const listingPending =
 <Refugios title={animal.name} heading={animal.name}>
   {published && <p data-testid="published">Publicado. Ya quedó guardado.</p>}
   {saved && <p data-testid="saved">Guardado.</p>}
+  {confirmed && <p data-testid="confirmed">Confirmado: sigue disponible.</p>}
   {photosSaved && <p data-testid="photos-saved">Fotos guardadas.</p>}
   {
     listingPending && (
@@ -320,6 +342,15 @@ const listingPending =
             " Además está marcado como no disponible."
         }
       </p>
+    )
+  }
+
+  {
+    animal.availability === "Available" && (
+      <form method="post" data-testid="confirm-form">
+        <input type="hidden" name="accion" value="confirmar" />
+        <button type="submit">Sigue disponible</button>
+      </form>
     )
   }
 

@@ -19,6 +19,7 @@ import {
 } from "@pawster/domain";
 import { asc } from "drizzle-orm";
 import type { DigestMessage, DigestSection, Env } from "./env.ts";
+import { sendConfirmationNudges } from "./confirmation-nudge.ts";
 import { NUDGES_PER_RUN, sendNudgeEmail } from "./nudge.ts";
 import { pingWatchdog } from "./watchdog.ts";
 import { sendDigestEmail } from "./resend.ts";
@@ -141,6 +142,8 @@ export default {
      * "we keep your searches for ninety days" would mean "we keep mailing you for ninety
      * days".
      */
+    const confirmationNudges = await sendConfirmationNudges(env, now);
+
     const [shard, searches, sentSets, listed] = await Promise.all([
       db
         .select({ id: subscribers.id, email: subscribers.email })
@@ -173,7 +176,7 @@ export default {
 
     const due = shard
       .filter((subscriber) => sectionsBySubscriber.has(subscriber.id))
-      .slice(0, Math.max(0, DIGEST_DAILY_BUDGET - nudged));
+      .slice(0, Math.max(0, DIGEST_DAILY_BUDGET - nudged - confirmationNudges));
 
     let units = 0;
     for (const subscriber of due) {
@@ -212,7 +215,7 @@ export default {
      * which is the alarm. `waitUntil` keeps the ping off the critical path without
      * changing that, because a ping registered here was already earned.
      */
-    ctx.waitUntil(pingWatchdog(env.HEALTHCHECK_URL, "success", run));
+    ctx.waitUntil(pingWatchdog(env.HEALTHCHECK_URL, "success", { ...run, confirmationNudges }));
   },
 
   async queue(
