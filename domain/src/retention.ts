@@ -153,3 +153,27 @@ export const DEPARTURE_GRACE_MS = 30 * 24 * 60 * 60_000;
 export function departureErasureCutoff(now: Date): Date {
   return new Date(now.getTime() - DEPARTURE_GRACE_MS);
 }
+
+/**
+ * How long a Digest Delivery row is kept (ADR 0010, issue #66). It answers "did we send this
+ * subscriber a digest that day" for as long as a complaint about it can still arrive, and
+ * the row holds a subscriber id and never an address.
+ */
+export const DIGEST_DELIVERY_TTL_MS = 90 * 24 * 60 * 60_000;
+
+export function digestDeliveryPurgeCutoff(now: Date): Date {
+  return new Date(now.getTime() - DIGEST_DELIVERY_TTL_MS);
+}
+
+/**
+ * How long a sent-set row outlives its animal's listing (issue #66).
+ *
+ * Measured from the unlisting and not from the send, so an adopted animal's rows go 90 days
+ * after it leaves, and a long-listed animal's rows are kept as long as it stays listed. A
+ * fixed window from the send would forget a still-listed animal and send it again as new.
+ */
+export const SENT_SET_UNLISTED_TTL_MS = 90 * 24 * 60 * 60_000;
+
+export function sentSetPruneCutoff(now: Date): Date {
+  return new Date(now.getTime() - SENT_SET_UNLISTED_TTL_MS);
+}

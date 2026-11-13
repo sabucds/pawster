@@ -802,8 +802,37 @@ export const digestSent = sqliteTable(
       .notNull()
       .references(() => animals.id, { onDelete: "cascade" }),
     sentAt: integer("sent_at", { mode: "timestamp_ms" }).notNull(),
+    /**
+     * When the daily run first saw this row's animal not listed; null while it is listed.
+     *
+     * Issue #66 prunes a sent-set row 90 days after its animal unlists, and no other record
+     * says when that happened: an animal can stop being listed through its availability, its
+     * shelter's verification, its last contact point or its shelter's departure. So the run
+     * reconciles this column against the listed set every day, and clears it if the animal
+     * comes back, which means a still-listed animal's row is never pruned and never re-sent.
+     */
+    unlistedSince: integer("unlisted_since", { mode: "timestamp_ms" }),
   },
   (table) => [primaryKey({ columns: [table.subscriptionId, table.animalId] })],
+);
+
+/**
+ * One row per digest actually sent (`CONTEXT.md`'s Digest Delivery), kept 90 days (ADR 0010).
+ *
+ * Keyed on the subscriber and never on an address, so erasing the subscriber erases these
+ * through the cascade and nothing here outlives consent.
+ */
+export const digestDeliveries = sqliteTable(
+  "digest_deliveries",
+  {
+    id: text("id").primaryKey(),
+    subscriberId: text("subscriber_id")
+      .notNull()
+      .references(() => subscribers.id, { onDelete: "cascade" }),
+    period: text("period").notNull(),
+    sentAt: integer("sent_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [index("digest_deliveries_sent_at_idx").on(table.sentAt)],
 );
 
 /**
@@ -830,6 +859,20 @@ export const digestRuns = sqliteTable("digest_runs", {
   purgedOptIns: integer("purged_opt_ins").notNull(),
   purgedOptInMails: integer("purged_opt_in_mails").notNull(),
   erasedSubscribers: integer("erased_subscribers").notNull(),
+  /** Issue #66's preamble. Default 0 so the rows written before it still read. */
+  purgedDeliveries: integer("purged_deliveries").notNull().default(0),
+  prunedSentRows: integer("pruned_sent_rows").notNull().default(0),
+  erasedDepartures: integer("erased_departures").notNull().default(0),
+  /**
+   * How the reclamation sweep ended: `swept`, `refused` (the delete set was too large, so
+   * nothing was deleted and the admin was mailed) or `aborted` (a read failed, so nothing was
+   * deleted). Null on rows written before #66.
+   */
+  sweep: text("sweep", { enum: ["swept", "refused", "aborted"] }),
+  reclaimedObjects: integer("reclaimed_objects").notNull().default(0),
+  reclaimedBytes: integer("reclaimed_bytes").notNull().default(0),
+  /** Bytes across both buckets after the sweep; null when the listing itself failed. */
+  storedBytes: integer("stored_bytes"),
 });
 
 /**

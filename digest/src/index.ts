@@ -1,7 +1,10 @@
 import {
   createDb,
   digestRuns,
+  eraseDepartedShelters,
   findNeverMatchedSubscribers,
+  pruneSentSets,
+  purgeDigestDeliveries,
   recordNudge,
   runSubscriberPurges,
   subscribers,
@@ -9,11 +12,14 @@ import {
 import {
   DIGEST_DAILY_BUDGET,
   digestCandidates,
+  departureErasureCutoff,
+  digestDeliveryPurgeCutoff,
   digestIdempotencyKey,
   neverMatchedNudgeCutoff,
   optInMailLedgerCutoff,
   optInPurgeCutoff,
   readCriteria,
+  sentSetPruneCutoff,
   unsubscribeUrl,
   unsubscribedErasureCutoff,
 } from "@pawster/domain";
@@ -84,6 +90,22 @@ export default {
       mailLedger: optInMailLedgerCutoff(now),
       unsubscribed: unsubscribedErasureCutoff(now),
     });
+    const purgedDeliveries = await purgeDigestDeliveries(
+      db,
+      digestDeliveryPurgeCutoff(now),
+    );
+    const erasedDepartures = await eraseDepartedShelters(
+      db,
+      departureErasureCutoff(now),
+    );
+    // After the erasure, so a shelter departed today already counts as unlisted.
+    const listed = await readListedForDigest(db);
+    const prunedSentRows = await pruneSentSets(
+      db,
+      listed.map((animal) => animal.id),
+      now,
+      sentSetPruneCutoff(now),
+    );
 
     /**
      * The ninety-day "still nothing" nudge, and it runs **before** the shard for the same
@@ -144,7 +166,7 @@ export default {
      */
     const confirmationNudges = await sendConfirmationNudges(env, now);
 
-    const [shard, searches, sentSets, listed] = await Promise.all([
+    const [shard, searches, sentSets] = await Promise.all([
       db
         .select({ id: subscribers.id, email: subscribers.email })
         .from(subscribers)
@@ -152,7 +174,6 @@ export default {
         .orderBy(asc(subscribers.lastDigestAt), asc(subscribers.optedInAt)),
       readShardSubscriptions(db, sendDay),
       readShardSentSets(db, sendDay),
-      readListedForDigest(db),
     ]);
 
     /**
@@ -205,6 +226,9 @@ export default {
       purgedOptIns: purged.optIns,
       purgedOptInMails: purged.mailLedger,
       erasedSubscribers: purged.erasedSubscribers,
+      purgedDeliveries,
+      erasedDepartures,
+      prunedSentRows,
     };
     await db.insert(digestRuns).values({ ...run, ranAt: now });
 
@@ -265,6 +289,17 @@ export default {
           env.DB.prepare(
             "update subscribers set last_digest_at = ? where id = ?",
           ).bind(sentAt.getTime(), message.body.subscriberId),
+          // The Digest Delivery (`CONTEXT.md`): the subscriber's id and never the address,
+          // kept 90 days by the preamble. Guarded for the same reason as the sent-set rows.
+          env.DB.prepare(
+            `insert into digest_deliveries (id, subscriber_id, period, sent_at)
+             select ?1, ?2, ?3, ?4 where exists (select 1 from subscribers where id = ?2)`,
+          ).bind(
+            crypto.randomUUID(),
+            message.body.subscriberId,
+            message.body.period,
+            sentAt.getTime(),
+          ),
           ...message.body.sections.flatMap((section) =>
             section.units
               .flat()
