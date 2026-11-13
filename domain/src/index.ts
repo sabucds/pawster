@@ -123,6 +123,12 @@ export {
   optInPurgeCutoff,
   unsubscribedErasureCutoff,
 } from "./retention.ts";
+export type { ConfirmableShelter, ConfirmationClaim } from "./confirmation-links.ts";
+export {
+  CONFIRM_PATH,
+  confirmationUrl,
+  verifyConfirmationToken,
+} from "./confirmation-links.ts";
 export type { StalenessBand } from "./staleness.ts";
 export { daysBetween, deriveStalenessBand } from "./staleness.ts";
 export type {
