@@ -163,6 +163,27 @@ describe("what the listing sees", () => {
   });
 });
 
+describe("a bonded group", () => {
+  it("confirms every member when one member's photos change", async () => {
+    const { shelterId, cookie, animalId } = await publishedAnimal(2);
+    const stale = new Date(Date.now() - 120 * 24 * 60 * 60 * 1000);
+    await seedAnimal({ id: "animal-2", shelterId, lastConfirmedAt: stale, bondedGroupId: "g1" });
+    await env.DB.prepare("UPDATE animals SET last_confirmed_at = ?, bonded_group_id = 'g1' WHERE id = ?")
+      .bind(stale.getTime(), animalId)
+      .run();
+
+    await post(
+      `/api/refugios/animales/${animalId}/fotos`,
+      { orden: [photoId(animalId, 1), photoId(animalId, 0)] },
+      { cookie },
+    );
+
+    const partner = await env.DB.prepare("SELECT last_confirmed_at FROM animals WHERE id = 'animal-2'")
+      .first<{ last_confirmed_at: number }>();
+    expect(deriveStalenessBand(new Date(partner!.last_confirmed_at), new Date())).toBe("Fresh");
+  });
+});
+
 describe("what is left alone", () => {
   it("purges no cache and deletes no derivative", async () => {
     const { cookie, animalId } = await publishedAnimal(2);

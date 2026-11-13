@@ -25,7 +25,7 @@
 import type { Database } from "@pawster/db";
 import { animals, transformationSpends, uploadSessionPhotos } from "@pawster/db";
 import { MIN_PHOTOS_PER_ANIMAL, derivativesFor } from "@pawster/domain";
-import { eq, sql } from "drizzle-orm";
+import { eq, or, sql } from "drizzle-orm";
 import { derivativeKey } from "./keys.ts";
 import { mintDerivatives } from "./pipeline.ts";
 import { listSessionPhotos } from "./store.ts";
@@ -90,7 +90,19 @@ export async function arrangePhotos(
    * every kept photo at a negative position first leaves no collision for the second pass.
    */
   await db.batch([
-    db.update(animals).set({ lastConfirmedAt: now }).where(eq(animals.id, animal.id)),
+    // A group is confirmed together, so a new photo of one member confirms all of them.
+    db
+      .update(animals)
+      .set({ lastConfirmedAt: now })
+      .where(
+        or(
+          eq(animals.id, animal.id),
+          eq(
+            animals.bondedGroupId,
+            sql`(select ${animals.bondedGroupId} from ${animals} where ${animals.id} = ${animal.id})`,
+          ),
+        ),
+      ),
     ...removed.map((row) =>
       db.delete(uploadSessionPhotos).where(eq(uploadSessionPhotos.id, row.id)),
     ),
