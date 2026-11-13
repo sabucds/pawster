@@ -10,7 +10,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { outbound } from "../../test/outbound.ts";
 import { derivativeKey } from "../src/lib/photos/keys.ts";
 import { seedAnimal } from "./support/animal.ts";
-import { post } from "./support/http.ts";
+import { get, post } from "./support/http.ts";
 import { clearShelterTables, signIn, verifyShelter } from "./support/shelter.ts";
 
 /**
@@ -204,5 +204,29 @@ describe("who may", () => {
 
     expect(response.status).toBe(404);
     expect(await photoOrder("elsewhere")).toEqual([photoId("elsewhere", 0), photoId("elsewhere", 1)]);
+  });
+});
+
+describe("the shelter's animal page", () => {
+  it("offers a button that makes the second photo primary, and no delete on a lone photo", async () => {
+    const { cookie, animalId } = await publishedAnimal(2);
+
+    const html = await (await get(`/refugios/animales/${animalId}`, cookie)).text();
+    const forms = [...html.matchAll(/<form method="post" action="[^"]*\/fotos">([\s\S]*?)<\/form>/g)]
+      .map((match) => ({
+        order: [...match[1]!.matchAll(/name="orden" value="([^"]+)"/g)].map((m) => m[1]),
+        label: match[1]!.match(/<button[^>]*>([^<]+)</)![1],
+      }));
+
+    expect(forms).toContainEqual({
+      label: "Hacer principal",
+      order: [photoId(animalId, 1), photoId(animalId, 0)],
+    });
+    expect(forms).toContainEqual({ label: "Borrar", order: [photoId(animalId, 1)] });
+
+    await post(`/api/refugios/animales/${animalId}/fotos`, { orden: [photoId(animalId, 1)] }, { cookie });
+    const after = await (await get(`/refugios/animales/${animalId}?fotos`, cookie)).text();
+    expect(after).toContain("Fotos guardadas.");
+    expect(after).not.toContain(">Borrar<");
   });
 });
