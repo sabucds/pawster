@@ -57,7 +57,7 @@
   "vars": {
     "HEALTHCHECK_URL": "https://hc-ping.com/00000000-0000-0000-0000-000000000000",
     "DIGEST_FROM_ADDRESS": "digest@pawster.dpdns.org",
-    "SITE_ORIGIN": "https://pawster.dpdns.org",
+    "SITE_ORIGIN": "https://pawster-web.pawster-app.workers.dev",
     // Where the digest's thumbnails load from: the media bucket's public URL, the same value
     // as `web/src/lib/listing/media.ts`. Public by design, so a var and not a secret.
     "MEDIA_BASE_URL": "https://pub-ca6f4461598148fa980041a7fd05262e.r2.dev",

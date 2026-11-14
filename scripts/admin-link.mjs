@@ -68,7 +68,7 @@ const USAGE = `usage:
 environment:
   ADMIN_LINK_SECRET     signs the link (a Worker secret; keep it out of shell history)
   PAWSTER_ADMIN_EMAIL   the address decisions are attributed to
-  SITE_ORIGIN           e.g. https://pawster.dpdns.org
+  SITE_ORIGIN           e.g. https://pawster-web.pawster-app.workers.dev
 `;
 
 /** Mirrors `TTL_MS` in web/src/lib/verification/link.ts. */

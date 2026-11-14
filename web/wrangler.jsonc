@@ -74,7 +74,7 @@
     // address every later resumen arrives from. A subscriber allow-lists it once, and a
     // complaint about it lands on the reputation it actually belongs to.
     "DIGEST_FROM_ADDRESS": "digest@pawster.dpdns.org",
-    "SITE_ORIGIN": "https://pawster.dpdns.org",
+    "SITE_ORIGIN": "https://pawster-web.pawster-app.workers.dev",
     // Where `pawster-media` is readable from, and the only place an adopter's browser fetches
     // a photograph. The `r2.dev` managed hostname recorded in `docs/provisioning-record.md`:
     // ADR 0014 settles that there is no R2 custom domain now or later, and that the cached

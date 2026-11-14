@@ -10,7 +10,7 @@
  *
  * The trailing segment is the animal's name as a slug and **nothing reads it**
  * ([ADR 0020](../../../../docs/adr/0020-an-animals-address-is-a-short-id-and-never-404s.md)).
- * It is there for the human who receives the link — `pawster.dpdns.org/a/7f3k9mqp` alone tells
+ * It is there for the human who receives the link — `pawster-web.pawster-app.workers.dev/a/7f3k9mqp` alone tells
  * a person nothing about what they are being sent — and it is decorative in the strong sense
  * that `/a/7f3k9mqp/cualquier-cosa` and `/a/7f3k9mqp` are the same page. Shelters rename
  * animals constantly, so any address that depended on the name would break weekly, and an
@@ -43,7 +43,7 @@ export function animalUrl(siteOrigin: string, shortId: string, name: string): st
 }
 
 /**
- * The address as it reads inside a message a shelter receives — `pawster.dpdns.org/a/7f3k9mqp`.
+ * The address as it reads inside a message a shelter receives — `pawster-web.pawster-app.workers.dev/a/7f3k9mqp`.
  *
  * No scheme, because a bare host reads as something a person typed and `https://` reads as
  * something a machine pasted; every mail client and WhatsApp itself will linkify it anyway.
