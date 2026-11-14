@@ -26,7 +26,7 @@ import {
 import { readVerificationLog } from "../../lib/verification/store.ts";
 
 /**
- * The whole admin surface: one unstyled page behind a signed link
+ * The whole admin surface: one page behind a signed link
  * ([ADR 0002](../../../../docs/adr/0002-no-admin-accounts.md)).
  *
  * Four properties of this page are the ticket's acceptance criteria rather than page
@@ -313,11 +313,17 @@ const dateTime = (at: Date): string => at.toISOString().slice(0, 16).replace("T"
       typed, which is what keeps `Revoked` off this page: adding an outcome to the union does
       not put a button here, and removing one from the decidable set removes the button.
     -->
-    <p>
+    <p class="actions">
       {
         DECIDABLE_OUTCOMES.map((outcome) => (
           <>
-            <button type="submit" name="outcome" value={outcome} data-testid={`submit-${outcome}`}>
+            <button
+              type="submit"
+              name="outcome"
+              value={outcome}
+              class={outcome === "Verified" ? "verify" : "refuse"}
+              data-testid={`submit-${outcome}`}
+            >
               {outcome === "Verified" ? "Verify this shelter" : "Refuse — and email them"}
             </button>{" "}
           </>
@@ -378,3 +384,77 @@ const dateTime = (at: Date): string => at.toISOString().slice(0, 16).replace("T"
     )
   }
 </Admin>
+
+<style>
+  small,
+  dt {
+    color: var(--ink-soft);
+  }
+
+  dl {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 0.25rem 0.75rem;
+  }
+
+  dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+
+  [role="alert"] {
+    border-left: 4px solid var(--urgent-ink);
+    background: var(--urgent-bg);
+    padding: 0.25rem 0.75rem;
+  }
+
+  fieldset {
+    border: 1px solid var(--line);
+    border-radius: 6px;
+  }
+
+  textarea {
+    box-sizing: border-box;
+    width: 100%;
+    font: inherit;
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+
+  button {
+    flex: 1 1 12rem;
+    padding: 0.75rem 1rem;
+    border-radius: 6px;
+    font: inherit;
+    font-weight: 600;
+  }
+
+  /* Refuse emails the shelter, so it must not read as the same button as verify. */
+  .verify {
+    border: 2px solid var(--ink);
+    background: var(--ink);
+    color: var(--page);
+  }
+
+  .refuse {
+    border: 2px solid var(--urgent-ink);
+    background: var(--page);
+    color: var(--urgent-ink);
+  }
+
+  [data-testid="entry"] {
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  blockquote {
+    margin: 0.5rem 0;
+    padding-left: 0.75rem;
+    border-left: 3px solid var(--line);
+    white-space: pre-wrap;
+  }
+</style>

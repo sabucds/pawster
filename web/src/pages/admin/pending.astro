@@ -116,3 +116,26 @@ const linkHours = Math.round(PENDING_LIST_LINK_TTL_MS / (60 * 60_000));
     </small>
   </p>
 </Admin>
+
+<style>
+  small {
+    color: var(--ink-soft);
+  }
+
+  ol {
+    padding-left: 1.5rem;
+  }
+
+  li {
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  li a {
+    font-weight: 600;
+  }
+
+  [data-testid="unreachable"] {
+    color: var(--urgent-ink);
+  }
+</style>

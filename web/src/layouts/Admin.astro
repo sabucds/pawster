@@ -2,11 +2,11 @@
 /**
  * The frame the two admin pages share, and the whole of the admin surface's furniture.
  *
- * [ADR 0002](../../../docs/adr/0002-no-admin-accounts.md) rules out an admin area — "one
- * unstyled page behind a signed link is the admin surface, entire" (issue #45's out-of-scope
- * list). So this is deliberately less than `Refugios.astro`: no navigation, because there is
- * nowhere to navigate to that is not another signed link; no stylesheet and no script, for
- * the reason that layout gives — every page in this group has to work before either arrives.
+ * [ADR 0002](../../../docs/adr/0002-no-admin-accounts.md) rules out an admin area: no
+ * account, no login, no navigation, because there is nowhere to navigate to that is not
+ * another signed link. The pages share the site's base styles (`styles/base.css`, inlined
+ * like everywhere else), which is a look and not an admin UI. No script, and both forms still
+ * submit with no CSS loaded.
  *
  * `lang="en"` and not `es`, unlike every other page on the platform. The Platform Admin is
  * "a role in the domain, not in the auth system" (`CONTEXT.md`) and is the maintainer who
@@ -16,6 +16,8 @@
  * surface causes to be sent to a *shelter* is es-VE, in `lib/verification/mail.ts`, which is
  * where the boundary between the two audiences actually falls.
  */
+import "../styles/base.css";
+
 interface Props {
   title: string;
   heading: string;
@@ -43,7 +45,7 @@ const { title, heading } = Astro.props;
     -->
     <meta name="referrer" content="no-referrer" />
   </head>
-  <body>
+  <body class="wrap">
     <h1>{heading}</h1>
     <slot />
   </body>
