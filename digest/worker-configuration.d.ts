@@ -5,7 +5,7 @@ interface __BaseEnv_Env {
 	ORIGINALS: R2Bucket;
 	DB: D1Database;
 	DIGEST_QUEUE: Queue;
-	HEALTHCHECK_URL: "https://hc-ping.com/00000000-0000-0000-0000-000000000000";
+	HEALTHCHECK_URL: "https://hc-ping.com/4413f249-e318-4874-b2e4-4a784759b41a";
 	DIGEST_FROM_ADDRESS: "digest@pawster.dpdns.org";
 	SITE_ORIGIN: "https://pawster-web.pawster-app.workers.dev";
 	MEDIA_BASE_URL: "https://pub-ca6f4461598148fa980041a7fd05262e.r2.dev";
