@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PROTOTIPO: entrar, registrarse y cambiar el correo (es-VE, teléfono)</title>
+<!--
+  THROWAWAY PROTOTYPE. Not production code.
+
+  Question (issue #97): what do the shelter sign-in, registration and email-change pages look
+  like on a phone, in Spanish?
+
+  Five screens, three variants each, on the same harness as #95 so both are judged on one base:
+    entrar     ask for a code
+    codigo     type the code (one field, six boxes, or one field plus "inbox on another phone")
+    avisos     the holding pages: invalid code, too many requests, mail ceiling
+    registro   the registration form and its "done" page
+    correo     change the account email, and its "done" page
+
+  The copy starts from the real pages in web/src/pages/refugios/ and changes only where a
+  variant tests a different idea. Every page is rendered from a string, so its gzipped size is
+  measured. The "sin CSS" toggle drops the stylesheet so the ADR 0007 rule (forms work without
+  CSS or JS) can be checked on every variant. There is no JS inside any page.
+
+  Open it by double-clicking. Nothing to install, no build step, no network.
+-->
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #16181d; color: #e7e9ee; font: 13px/1.5 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+  header.bar { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; padding: 10px 16px; border-bottom: 1px solid #2b2f38; background: #1c1f26; flex: none; }
+  header.bar h1 { font-size: 13px; margin: 0; font-weight: 700; }
+  header.bar .tag { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; background: #f0b429; color: #16181d; padding: 2px 6px; border-radius: 3px; }
+  header.bar .q { color: #98a0b0; }
+  main { flex: 1; display: flex; min-height: 0; }
+  .stagewrap { flex: 1; display: flex; justify-content: center; align-items: flex-start; padding: 20px 16px 96px; overflow: auto; background: #16181d; }
+  .device { background: #fff; border-radius: 16px; overflow: hidden; flex: none; box-shadow: 0 10px 40px rgba(0,0,0,.5); border: 1px solid #2b2f38; position: relative; }
+  .fold { position: absolute; left: 0; right: 0; top: 760px; border-top: 2px dashed #e0574a; pointer-events: none; }
+  #stage { display: block; border: 0; width: 100%; }
+  aside.panel { width: 300px; flex: none; border-left: 1px solid #2b2f38; background: #1c1f26; padding: 14px 14px 96px; overflow: auto; }
+  aside.panel h2 { font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: #7b8496; margin: 15px 0 6px; font-weight: 700; }
+  aside.panel h2:first-child { margin-top: 0; }
+  .seg { display: flex; flex-wrap: wrap; gap: 4px; }
+  .seg button { font: inherit; font-size: 11px; padding: 5px 9px; border-radius: 5px; cursor: pointer; border: 1px solid #363b46; background: #23262e; color: #c3c9d6; }
+  .seg button[aria-pressed="true"] { background: #3a5bd9; border-color: #3a5bd9; color: #fff; }
+  .seg.q4 button[aria-pressed="true"] { background: #9a7318; border-color: #9a7318; }
+  .metric { border-top: 1px solid #2b2f38; padding: 8px 0 0; margin-top: 8px; }
+  .metric .lbl { color: #7b8496; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; }
+  .metric .val { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .metric .sub { color: #98a0b0; font-size: 11px; }
+  .good { color: #6fcf8f; } .bad { color: #ff8a7a; }
+  nav.switcher { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); display: flex; z-index: 50; background: #f4f6fa; color: #16181d; border-radius: 999px; box-shadow: 0 6px 28px rgba(0,0,0,.55); overflow: hidden; font-size: 12px; font-weight: 600; }
+  nav.switcher button { font: inherit; border: 0; background: transparent; cursor: pointer; padding: 9px 14px; }
+  nav.switcher button:hover { background: #dfe4ee; }
+  nav.switcher .cur { padding: 9px 6px; display: flex; align-items: center; gap: 8px; min-width: 260px; justify-content: center; }
+  nav.switcher .cur .scr { font-size: 10px; text-transform: uppercase; letter-spacing: .07em; background: #16181d; color: #f4f6fa; border-radius: 3px; padding: 2px 5px; }
+  .note { font-size: 11px; color: #98a0b0; margin: 6px 0 0; }
+  .note b { color: #c3c9d6; }
+  .toast { position: fixed; top: 60px; left: 50%; transform: translateX(-50%); background: #f0b429; color: #16181d; padding: 6px 12px; border-radius: 6px; font-weight: 700; display: none; z-index: 60; }
+</style>
+</head>
+<body>
+<header class="bar">
+  <span class="tag">prototipo</span>
+  <h1>Pawster: entrar, registrarse y cambiar el correo</h1>
+  <span class="q">#97: cómo se ven en un teléfono, en español, las páginas para entrar al refugio</span>
+</header>
+<main>
+  <div class="stagewrap"><div class="device" id="device"><iframe id="stage" title="prototipo"></iframe><div class="fold" id="fold"></div></div></div>
+  <aside class="panel">
+    <h2>Pantalla</h2><div class="seg" id="c-screen"></div>
+    <h2>Variante</h2><div class="seg" id="c-variant"></div>
+    <p class="note" id="variant-note"></p>
+    <h2>Caso</h2><div class="seg q4" id="c-caso"></div>
+    <h2>Estilos</h2><div class="seg" id="c-css"></div>
+    <h2>Ancho</h2><div class="seg" id="c-vw"></div>
+    <h2>Medido</h2><div id="metrics"></div>
+    <p class="note">La línea roja punteada es el borde de la primera pantalla (760 px). &larr; &rarr; variante, &uarr; &darr; pantalla. Todo va en la URL.</p>
+  </aside>
+</main>
+<nav class="switcher">
+  <button id="prev" title="Variante anterior">&larr;</button>
+  <div class="cur"><span class="scr" id="cur-screen"></span><b id="cur-variant"></b></div>
+  <button id="next" title="Variante siguiente">&rarr;</button>
+</nav>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ================================================================ *
+ * SEED DATA. Numbers come from web/src/lib/auth/policy.ts.
+ * ================================================================ */
+const SHELTER = { name: "Patitas de Lara", email: "patitasdelara@gmail.com", newEmail: "refugio.patitas@gmail.com" };
+const DIGITS = 6, TTL_MIN = 10;
+
+/* ================================================================ *
+ * CSS. SHARED is web/src/styles/base.css as it ships (#96).
+ * BASE is the shelter layer, copied from the #95 prototype so both are judged on one base.
+ * ================================================================ */
+const SHARED = `:root{--ink:#1a1d22;--ink-soft:#5b6472;--line:#e2e5ea;--warn:#8a4b00;--aged:#8a5a00;--urgent-bg:#fdeaea;--urgent-ink:#9b1c1c;--page:#ffffff}
+body{margin:0;font:16px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--ink);background:var(--page)}
+.wrap{max-width:46rem;margin:0 auto;padding:1rem .75rem 3rem}
+h1{font-size:1.35rem;margin:0 0 .25rem}`;
+const BASE = `
+:root{--soft:#f4f5f7;--accent:#1f5fbf;--ok:#1d6b3a}
+*{box-sizing:border-box}
+.top{display:flex;justify-content:space-between;align-items:center;font-size:.875rem;color:var(--ink-soft);border-bottom:1px solid var(--line);padding:.5rem .75rem}
+.top b{color:var(--ink)}
+.top form{margin:0}
+h1{margin-top:.25rem}
+h2{font-size:1.1rem;margin:1.5rem 0 .5rem}
+a{color:var(--accent)}
+p{margin:.5rem 0}
+button,.btn{font:inherit;display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:.5rem 1rem;border-radius:8px;border:1px solid var(--ink);background:#fff;color:var(--ink);text-decoration:none;cursor:pointer}
+.primary{background:var(--ink);color:#fff}
+.block{display:flex;width:100%}
+.danger{border-color:var(--urgent-ink);color:var(--urgent-ink)}
+.danger.primary{background:var(--urgent-ink);color:#fff}
+.small,.hint{font-size:.875rem;color:var(--ink-soft)}
+.hint{display:block;margin:.2rem 0 0;font-weight:400}
+.notice{background:var(--soft);border-radius:8px;padding:.6rem .75rem;margin:.75rem 0}
+.notice.ok{border-left:4px solid var(--ok)}
+.notice.wait{border-left:4px solid var(--aged)}
+.notice.bad{border-left:4px solid var(--urgent-ink);background:var(--urgent-bg)}
+ul.plain{list-style:none;margin:0;padding:0}
+label,legend{display:block;font-weight:600}
+.f{margin-top:1.1rem}
+input:not([type=radio]):not([type=checkbox]),select,textarea{font:inherit;width:100%;min-height:44px;padding:.5rem;border:1px solid #9aa1ad;border-radius:6px;background:#fff;margin-top:.25rem}
+fieldset{border:0;padding:0;margin:1.1rem 0 0;min-width:0}
+legend{padding:0}
+.opt{display:flex;gap:.6rem;align-items:flex-start;font-weight:400;min-height:40px}
+.opt input{width:20px;height:20px;margin:.15rem 0 0;flex:none}
+.err{color:var(--urgent-ink);font-size:.9rem;font-weight:600;display:block;margin-top:.2rem}
+.has-err input{border-color:var(--urgent-ink);border-width:2px}
+.errors{border:2px solid var(--urgent-ink);border-radius:8px;padding:.6rem .75rem;margin:.75rem 0}
+.errors p{margin:0;font-weight:700}
+.errors ul{margin:.3rem 0 0;padding-left:1.2rem}
+.foot{margin-top:2rem;padding-top:1rem;border-top:1px solid var(--line)}
+.linkbtn{border:0;background:none;padding:0;min-height:44px;color:var(--accent);text-decoration:underline}
+details{margin:.75rem 0}
+summary{min-height:44px;display:flex;align-items:center;cursor:pointer;color:var(--accent)}
+`;
+
+/* ================================================================ *
+ * SHARED PIECES
+ * ================================================================ */
+const outTop = () => `<div class="top"><span><b>Pawster</b> · refugios</span></div>`;
+const inTop = () => `<div class="top"><span><b>Pawster</b> · ${SHELTER.name}</span><form method="post" action="#"><button class="linkbtn">Salir</button></form></div>`;
+const page = (top, h1, inner) => `${top()}<div class="wrap"><h1>${h1}</h1>${inner}</div>`;
+const field = (id, label, type, extra = "", hint = "", err = "") =>
+  `<div class="f${err ? " has-err" : ""}"><label for="${id}">${label}</label><input id="${id}" name="${id}" type="${type}" required ${extra}${hint ? ` aria-describedby="${id}-hint"` : ""}>${hint ? `<small class="hint" id="${id}-hint">${hint}</small>` : ""}${err ? `<strong class="err">${err}</strong>` : ""}</div>`;
+const errorsBox = (list) => list.length === 1
+  ? `<div class="errors" role="alert"><p>${list[0]}</p></div>`
+  : `<div class="errors" role="alert"><p>Revisa lo siguiente:</p><ul>${list.map((e) => `<li>${e}</li>`).join("")}</ul></div>`;
+
+/* ================================================================ *
+ * SCREEN: entrar (ask for a code)
+ * ================================================================ */
+const emailInput = (hint = "") => field("accountEmail", "Correo del refugio", "email", `maxlength="200" autocomplete="email"`, hint);
+const entrar = {
+  name: "entrar", casos: { normal: "normal" },
+  v: {
+    A: { name: "Como está hoy", note: "La página real: frase, formulario, el aviso de que la página responde igual, y el enlace para registrarse.", css: "",
+      body: () => page(outTop, "Entra a tu refugio", `
+<p>Escribe el correo del refugio y te mandamos un código de seis dígitos. No hay contraseña.</p>
+<form method="post" action="#">${emailInput()}<p><button class="primary block" data-key>Mándame el código</button></p></form>
+<p class="small">Esta página responde igual si el correo está registrado y si no lo está, para que nadie pueda averiguar cuáles refugios están en Pawster. Si no te llega nada en unos minutos, revisa que el correo esté bien escrito.</p>
+<p>¿Todavía no tienes refugio aquí? <a href="#">Regístralo</a>.</p>`) },
+    B: { name: "Aviso plegado", note: "Formulario arriba y casi nada más. El aviso de la respuesta igual se esconde en «¿No te llega?», que es cuando hace falta.", css: "",
+      body: () => page(outTop, "Entra a tu refugio", `
+<p>Te mandamos un código de seis dígitos al correo. No hay contraseña.</p>
+<form method="post" action="#">${emailInput()}<p><button class="primary block" data-key>Mándame el código</button></p></form>
+<details><summary>¿No te llega el código?</summary><p>Revisa que el correo esté bien escrito y busca en spam. Esta página responde igual si el correo está registrado y si no, para que nadie pueda averiguar qué refugios están en Pawster. Así que si te equivocaste en una letra, no te vamos a avisar.</p></details>
+<div class="foot"><p>¿Todavía no tienes refugio aquí?</p><a class="btn block" href="#">Registrar mi refugio</a></div>`) },
+    C: { name: "Dos puertas", note: "Pensada para quien llega por primera vez: «ya tengo refugio» y «es mi primera vez» con el mismo peso. El aviso va como pista bajo el correo.", css: ".door{border:1px solid var(--line);border-radius:10px;padding:.75rem;margin:1rem 0}.door h2{margin:0 0 .25rem}",
+      body: () => page(outTop, "Refugios en Pawster", `
+<div class="door"><h2>Ya tengo refugio aquí</h2>
+<form method="post" action="#">${emailInput("Te mandamos un código de 6 dígitos. Si el correo no está registrado no te llega nada y no te avisamos: así nadie puede averiguar qué refugios están aquí.")}<p><button class="primary block" data-key>Mándame el código</button></p></form></div>
+<div class="door"><h2>Es mi primera vez</h2><p>Registrarlo toma dos minutos y puedes publicar animales de una vez.</p><a class="btn block" href="#">Registrar mi refugio</a></div>`) }
+  }
+};
+
+/* ================================================================ *
+ * SCREEN: codigo (type the code). This is also the "check your email" page.
+ * ================================================================ */
+const codeErr = "Son 6 números. Revisa que no falte ninguno.";
+const oneField = (caso) => field("code", "Código", "text", `inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]*" maxlength="12" class="code"`, `Los ${DIGITS} dígitos, con o sin espacios.`, caso === "error" ? codeErr : "");
+const CODE_CSS = ".code{font-size:1.5rem!important;letter-spacing:.3em;text-align:center}";
+const codigo = {
+  name: "código", casos: { nuevo: "recién pedido", error: "le faltó un número" },
+  v: {
+    A: { name: "Un campo (hoy)", note: "Un solo campo con inputmode=numeric y autocomplete=one-time-code. El teléfono ofrece el código desde la notificación; pegar funciona; espacios se aceptan.", css: CODE_CSS,
+      body: (caso) => page(outTop, "Escribe el código", `
+<p>Te mandamos un código de ${DIGITS} dígitos al correo del refugio. Vence en ${TTL_MIN} minutos y sirve una sola vez.</p>
+<form method="post" action="#">${oneField(caso)}<p><button class="primary block" data-key>Entrar</button></p></form>
+<p>¿No te llegó? <a href="#">Pide otro</a>. Ojo: al pedir uno nuevo, el anterior deja de servir.</p>`) },
+    B: { name: "Seis cajitas", note: "Seis campos de un dígito. Sin JS: no salta solo a la siguiente cajita, pegar el código mete solo el primer número, y el autocompletado del teléfono llena solo la primera. El servidor tiene que unir seis campos.", css: ".boxes{display:flex;gap:.35rem;margin-top:.35rem}.boxes input{width:auto!important;flex:1;min-width:0;text-align:center;font-size:1.4rem!important;padding:.4rem 0!important}",
+      body: (caso) => page(outTop, "Escribe el código", `
+<p>Te mandamos un código de ${DIGITS} dígitos al correo del refugio. Vence en ${TTL_MIN} minutos y sirve una sola vez.</p>
+${caso === "error" ? errorsBox([codeErr]) : ""}
+<form method="post" action="#"><fieldset><legend>Código</legend><div class="boxes${caso === "error" ? " has-err" : ""}">${Array.from({ length: DIGITS }, (_, i) => `<input name="d${i + 1}" type="text" inputmode="numeric" pattern="[0-9]" maxlength="1" required aria-label="Dígito ${i + 1}"${i === 0 ? ` autocomplete="one-time-code"` : ` autocomplete="off"`}${caso === "error" && i < 5 ? ` value="${"48207"[i]}"` : ""}>`).join("")}</div></fieldset>
+<p><button class="primary block" data-key>Entrar</button></p></form>
+<p>¿No te llegó? <a href="#">Pide otro</a>. Ojo: al pedir uno nuevo, el anterior deja de servir.</p>`) },
+    C: { name: "Un campo + otro teléfono", note: "El campo de A, más una caja para el teléfono compartido: el código viene en el asunto del correo, así que se ve en la notificación sin abrir nada. Dice qué buscar y que esta página espera.", css: CODE_CSS,
+      body: (caso) => page(outTop, "Escribe el código", `
+<p>Te mandamos un código de ${DIGITS} dígitos al correo del refugio. Vence en ${TTL_MIN} minutos y sirve una sola vez.</p>
+<form method="post" action="#">${oneField(caso)}<p><button class="primary block" data-key>Entrar</button></p></form>
+<div class="notice"><p><strong>¿El correo del refugio está en otro teléfono?</strong></p><p>No cierres esta página. Busca allá un correo de Pawster que dice <strong>«Tu código para entrar»</strong>. El código viene en el asunto, así que lo puedes leer en la notificación sin abrir el correo. Escríbelo aquí.</p></div>
+<p>¿No te llegó en unos minutos? Busca en spam, o <a href="#">pide otro</a>. Al pedir uno nuevo, el anterior deja de servir.</p>`) }
+  }
+};
+
+/* ================================================================ *
+ * SCREEN: avisos (holding pages)
+ * ================================================================ */
+const AV = {
+  invalido: {
+    h1: "Ese código no sirvió",
+    what: "Puede que lo hayas escrito distinto, que se haya vencido, o que hayas pedido otro después. Al pedir uno nuevo, el anterior deja de servir.",
+    calm: "Eso no bloquea tu refugio: pides otro y sigues.",
+    wait: "",
+    steps: [["Vuelve a escribirlo", "si crees que te equivocaste en un número."], ["Pide un código nuevo", "si pasaron más de 10 minutos o ya lo intentaste varias veces."]],
+    primary: "Volver a escribir el código", secondary: "Pedir un código nuevo"
+  },
+  demasiados: {
+    h1: "Demasiados intentos desde aquí",
+    what: "Se pidieron muchos códigos desde esta conexión en poco tiempo. Si no fuiste tú, puede ser que estén compartiendo la conexión, como en un cibercafé o con el internet de un edificio.",
+    calm: "Esto no bloquea tu refugio ni anula un código que ya te haya llegado.",
+    wait: "en una hora",
+    steps: [["Si ya te llegó un código, escríbelo", "todavía sirve."], ["Si no, vuelve en una hora", "y pide uno nuevo."]],
+    primary: "Ya tengo un código", secondary: "Volver al inicio"
+  },
+  espera: {
+    h1: "Ahora mismo no podemos mandar el código",
+    what: "Pawster manda una cantidad limitada de correos al día y hoy ya se llegó al tope. Una parte está reservada para los resúmenes que reciben los adoptantes.",
+    calm: "No es nada que hayas hecho tú y tu refugio está bien.",
+    wait: "en unas horas",
+    steps: [["Si ya te llegó un código antes, escríbelo", "todavía sirve si no han pasado 10 minutos."], ["Si no, vuelve en unas horas", "y te va a llegar sin problema."]],
+    primary: "Ya tengo un código", secondary: "Volver al inicio"
+  }
+};
+const avisos = {
+  name: "avisos", casos: { invalido: "código inválido", demasiados: "demasiados intentos", espera: "tope de correos" },
+  v: {
+    A: { name: "Texto como hoy", note: "Las páginas reales: tres párrafos y enlaces dentro del texto. Ningún botón.", css: "",
+      body: (caso) => { const a = AV[caso]; return page(outTop, a.h1, `
+<p>${a.what}</p>
+${a.wait ? `<p>Vuelve a intentarlo <strong>${a.wait}</strong>.</p>` : `<p><a href="#" data-key>Vuelve a escribirlo</a> si crees que fue un dedazo, o <a href="#">pide un código nuevo</a>.</p>`}
+<p>${a.calm}</p>
+<p><a href="#">Volver</a></p>`); } },
+    B: { name: "Aviso tranquilo + un botón", note: "Arriba, en un recuadro sin rojo, lo que más asusta: que el refugio está bien. Debajo, un solo botón grande con lo que sí se puede hacer ya.", css: "",
+      body: (caso) => { const a = AV[caso]; return page(outTop, a.h1, `
+<div class="notice wait"><p><strong>${a.calm}</strong></p></div>
+<p>${a.what}</p>
+${a.wait ? `<p>Para pedir otro código, vuelve <strong>${a.wait}</strong>.</p>` : ""}
+<p><a class="btn primary block" href="#" data-key>${a.primary}</a></p>
+<p><a class="btn block" href="#">${a.secondary}</a></p>`); } },
+    C: { name: "Qué pasó / qué hago", note: "Dos partes con título: qué pasó y qué puedes hacer ahora, como pasos numerados. Más largo, pero cada opción está escrita.", css: "ol.steps{padding-left:1.25rem;margin:.25rem 0}ol.steps li{margin:.5rem 0}",
+      body: (caso) => { const a = AV[caso]; return page(outTop, a.h1, `
+<div class="notice ok"><p>${a.calm}</p></div>
+<h2>Qué pasó</h2><p>${a.what}</p>
+<h2>Qué puedes hacer ahora</h2>
+<ol class="steps">${a.steps.map(([s, rest], i) => `<li><a href="#"${i === 0 ? " data-key" : ""}>${s}</a>, ${rest}</li>`).join("")}</ol>`); } }
+  }
+};
+
+/* ================================================================ *
+ * SCREEN: registro (form, errors, done)
+ * ================================================================ */
+const REG_ERR = { displayName: "Falta el nombre del refugio.", contact: "Hace falta al menos una forma de contacto." };
+const KINDS = ["WhatsApp", "Instagram", "Correo", "Teléfono"];
+function regForm(caso, button = "Registrar el refugio") {
+  const e = caso === "errores";
+  const row = (i) => `<p><label for="cv${i}">Forma de contacto</label><select name="contactKind" aria-label="Tipo">${KINDS.map((k) => `<option>${k}</option>`).join("")}</select><input id="cv${i}" name="contactValue" type="text" maxlength="200"${i === 0 ? " required" : ""}></p>`;
+  return `${e ? errorsBox(Object.values(REG_ERR)) : ""}<form method="post" action="#">
+${field("displayName", "Nombre del refugio", "text", `maxlength="120"`, "Así te van a ver los adoptantes. Puedes cambiarlo después.", e ? REG_ERR.displayName : "")}
+${field("accountEmail", "Correo del refugio", "email", `maxlength="200" autocomplete="email"${e ? ` value="${SHELTER.email}"` : ""}`, "Que sea un correo del refugio y no de una persona: con este correo se entra, así que tiene que seguir sirviendo cuando cambien los voluntarios. No se publica en ningún lado.")}
+${field("baseRegion", "¿Dónde está el refugio?", "text", `maxlength="200"${e ? ` value="Lara"` : ""}`, "El estado donde está el refugio. Cada animal lleva el suyo, así que puedes publicar uno que esté en otro lado.")}
+<div class="f"><label for="countryCode">País</label><select id="countryCode" name="countryCode"><option>Venezuela</option></select></div>
+<fieldset${e ? ` class="has-err"` : ""}><legend>¿Cómo te contactan los adoptantes?</legend><p class="hint">Hace falta al menos una. Sin ninguna, tus animales no le aparecerían a nadie, porque no habría manera de escribirte por ellos. Esto sí se publica.</p>${[0, 1, 2].map(row).join("")}${e ? `<strong class="err">${REG_ERR.contact}</strong>` : ""}</fieldset>
+<p><button class="primary block" data-key>${button}</button></p></form>`;
+}
+const STEPS_CSS = "ol.next{list-style:none;counter-reset:s;padding:0;margin:.75rem 0}ol.next li{counter-increment:s;display:flex;gap:.6rem;margin:.6rem 0}ol.next li::before{content:counter(s);flex:none;width:1.6rem;height:1.6rem;border-radius:50%;background:var(--soft);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.875rem}ol.next li.done::before{content:'✓';background:var(--ok);color:#fff}";
+const nextSteps = (done) => `<ol class="next">
+<li${done ? ` class="done"` : ""}><span><strong>Registras el refugio.</strong> Dos minutos, este formulario.</span></li>
+<li><span><strong>Entras y publicas de una vez.</strong> No tienes que esperar nada.</span></li>
+<li><span><strong>Verificamos el refugio en tres días o menos.</strong> Desde ese día los adoptantes ven todo lo que publicaste.</span></li></ol>`;
+const listoA = () => page(outTop, "Listo, tu refugio está registrado", `
+<p>Ya puedes entrar y publicar animales. No tienes que esperar nada para eso.</p>
+<p><strong>Todavía no se ve nada de lo tuyo en el sitio.</strong> Antes de que tus animales le aparezcan a los adoptantes, tenemos que verificar el refugio. Lo que publiques mientras tanto no se pierde: aparece completo el día que quede verificado.</p>
+<p>Te respondemos en <strong>tres días</strong> o menos. Si pasan tres días y no has oído nada, escríbenos y lo revisamos. No estás molestando, es lo que toca hacer.</p>
+<p><a href="#" data-key>Entra con tu correo</a> para empezar a publicar. Te mandamos un código de seis dígitos; no hace falta contraseña.</p>`);
+const registro = {
+  name: "registro", casos: { vacio: "vacío", errores: "con errores", listo: "registrado" },
+  v: {
+    A: { name: "Solo el formulario (hoy)", note: "La página real: el formulario sin nada antes. Lo que pasa después (verificación, tres días) solo aparece en la página de «listo».", css: "",
+      body: (caso) => caso === "listo" ? listoA() : page(outTop, "Registra tu refugio", regForm(caso)) },
+    B: { name: "Qué pasa después, arriba", note: "Tres pasos numerados antes del formulario: registras, publicas de una vez, verificamos en tres días. La página de «listo» repite los pasos con el primero marcado.", css: STEPS_CSS,
+      body: (caso) => caso === "listo"
+        ? page(outTop, "Listo, tu refugio está registrado", `${nextSteps(true)}
+<p><a class="btn primary block" href="#" data-key>Entrar y publicar</a></p>
+<p class="small">Mientras no lo verifiquemos, nada tuyo se ve en el sitio, pero lo que publiques no se pierde. Si pasan tres días y no has oído nada, escríbenos. No estás molestando, es lo que toca hacer.</p>`)
+        : page(outTop, "Registra tu refugio", `${caso === "vacio" ? nextSteps(false) : ""}${regForm(caso)}`) },
+    C: { name: "Una línea + detalles plegados", note: "Una sola frase con la promesa arriba, el formulario, y «¿Qué pasa después?» plegado al final. El formulario empieza más arriba.", css: "",
+      body: (caso) => caso === "listo"
+        ? page(outTop, "Listo, tu refugio está registrado", `
+<div class="notice ok"><p><strong>Ya puedes publicar animales.</strong> No tienes que esperar nada.</p></div>
+<p><a class="btn primary block" href="#" data-key>Entrar y publicar</a></p>
+<h2>Lo que falta</h2>
+<p>Antes de que tus animales le aparezcan a los adoptantes, verificamos el refugio. Te respondemos en <strong>tres días</strong> o menos. Lo que publiques mientras tanto aparece completo ese día.</p>
+<p>Si pasan tres días y no has oído nada, escríbenos. No estás molestando, es lo que toca hacer.</p>`)
+        : page(outTop, "Registra tu refugio", `<p>Publicas de una vez. Tus animales se ven en el sitio cuando verifiquemos el refugio, en tres días o menos.</p>${regForm(caso)}
+<details><summary>¿Qué pasa después de registrarme?</summary><p>Entras con un código que te llega al correo y publicas tus animales. Mientras tanto revisamos el refugio. Cuando lo verifiquemos, todo lo que publicaste aparece de una vez. Si pasan tres días y no has oído nada, escríbenos.</p></details>`) }
+  }
+};
+
+/* ================================================================ *
+ * SCREEN: correo (change account email)
+ * ================================================================ */
+const MISMATCH = "Los dos correos no son iguales. Escríbelos otra vez.";
+const consequences = () => `<ul>
+<li>Hay que volver a entrar en todos los teléfonos y computadoras, incluido este.</li>
+<li>El código que hayas pedido y no hayas usado deja de servir.</li>
+<li>Los correos del refugio empiezan a llegar al correo nuevo, y para volver a entrar hace falta un código que llega ahí.</li></ul>`;
+const emailFields = (caso) => {
+  const e = caso === "error";
+  return `${field("accountEmail", "Correo nuevo del refugio", "email", `maxlength="200"${e ? ` value="${SHELTER.newEmail}"` : ""}`, "Que sea un correo del refugio y no de una persona, para que siga sirviendo cuando cambien los voluntarios.")}
+${field("accountEmailAgain", "Escríbelo otra vez", "email", `maxlength="200"${e ? ` value="refugio.patitas@gmail.co"` : ""}`, "", e ? MISMATCH : "")}`;
+};
+const nowLine = () => `<p>Ahora mismo el correo del refugio es <strong>${SHELTER.email}</strong>. Con ese correo es que se entra, y no se publica en ningún lado.</p>`;
+const back = () => `<p><a href="#">Volver sin cambiar nada</a></p>`;
+const listoCorreo = (fancy) => page(outTop, "Cambiaste el correo del refugio", fancy ? `
+<div class="notice ok"><p>Ya está. Saliste de todos los teléfonos y computadoras, este incluido.</p></div>
+<p>Para entrar otra vez, pide un código con <strong>${SHELTER.newEmail}</strong>.</p>
+<p><a class="btn primary block" href="#" data-key>Entrar con el correo nuevo</a></p>
+<p class="small">Si el correo nuevo quedó mal escrito y no te llega nada, escríbenos: desde aquí no se puede arreglar.</p>` : `
+<p>Ya está. Saliste de todos los teléfonos y computadoras, este incluido.</p>
+<p>Para entrar otra vez, pide un código con el correo nuevo. Si habías pedido un código antes de cambiarlo, ese ya no sirve.</p>
+<p><a href="#" data-key>Entrar con el correo nuevo</a></p>
+<p>Si el correo nuevo quedó mal escrito y no te llega nada, escríbenos: desde aquí no se puede arreglar.</p>`);
+const noStep = () => page(inTop, "(Esta variante no tiene este paso)", `<p class="small">Solo la variante C tiene una página para confirmar. Aquí el formulario va directo a «listo».</p>`);
+const correo = {
+  name: "correo", casos: { form: "formulario", error: "no coinciden", confirmar: "confirmar (solo C)", listo: "cambiado" },
+  v: {
+    A: { name: "Lista antes (hoy)", note: "La página real: el correo de ahora, la lista de lo que pasa, y el formulario con un botón que lo dice: «Cambiar el correo y salir de todos lados».", css: "",
+      body: (caso) => caso === "listo" ? listoCorreo(false) : caso === "confirmar" ? noStep() : page(inTop, "Cambiar el correo del refugio", `${nowLine()}
+<p><strong>Al cambiarlo pasa todo esto, de una vez:</strong></p>${consequences()}
+<p>Solo cambia el correo si de verdad puedes recibir mensajes en el nuevo. Si te equivocas, no lo podemos arreglar desde aquí: escríbenos.</p>
+${caso === "error" ? errorsBox([MISMATCH]) : ""}<form method="post" action="#">${emailFields(caso)}<p><button class="primary block danger" data-key>Cambiar el correo y salir de todos lados</button></p></form>${back()}`) },
+    B: { name: "Lista + casilla", note: "La lista va en un recuadro de aviso, y una casilla obligatoria («Entiendo…») justo encima del botón. Sin JS la casilla sigue frenando el envío (required).", css: "",
+      body: (caso) => caso === "listo" ? listoCorreo(true) : caso === "confirmar" ? noStep() : page(inTop, "Cambiar el correo del refugio", `${nowLine()}
+${caso === "error" ? errorsBox([MISMATCH]) : ""}<form method="post" action="#">${emailFields(caso)}
+<div class="notice wait"><p><strong>Al cambiarlo pasa todo esto, de una vez:</strong></p>${consequences()}</div>
+<label class="opt"><input type="checkbox" name="understood" required> <span>Entiendo que salgo de todos lados y que solo voy a poder entrar con el correo nuevo.</span></label>
+<p><button class="primary block danger" data-key>Cambiar el correo y salir de todos lados</button></p></form>${back()}`) },
+    C: { name: "Dos pasos", note: "Paso 1: escribes el correo nuevo y «Seguir», que no cambia nada. Paso 2 (lo devuelve el servidor, funciona sin JS): el correo nuevo en grande, la lista, y ahí sí el botón rojo.", css: ".big{font-size:1.2rem;font-weight:700;word-break:break-all;background:var(--soft);border-radius:8px;padding:.6rem .75rem;margin:.5rem 0}",
+      body: (caso) => caso === "listo" ? listoCorreo(true)
+        : caso === "confirmar" ? page(inTop, "¿Cambiar a este correo?", `
+<p class="big">${SHELTER.newEmail}</p>
+<p>Revisa que esté bien escrito. Si tiene un error, nadie va a poder entrar al refugio.</p>
+<p><strong>Al cambiarlo pasa todo esto, de una vez:</strong></p>${consequences()}
+<form method="post" action="#"><input type="hidden" name="accountEmail" value="${SHELTER.newEmail}"><input type="hidden" name="confirm" value="1"><p><button class="primary block danger" data-key>Sí, cambiar y salir de todos lados</button></p></form>
+<p><a class="btn block" href="#">No, corregir el correo</a></p>`)
+        : page(inTop, "Cambiar el correo del refugio", `${nowLine()}
+<p>Antes de cambiar nada te mostramos lo que va a pasar.</p>
+${caso === "error" ? errorsBox([MISMATCH]) : ""}<form method="post" action="#">${emailFields(caso)}<p><button class="primary block" data-key>Seguir</button></p></form>${back()}`) }
+  }
+};
+
+const SCREENS = { entrar, codigo, avisos, registro, correo };
+
+/* ================================================================ *
+ * HARNESS (same as #95, minus photos)
+ * ================================================================ */
+const OPTS = {
+  screen: { list: Object.keys(SCREENS), def: "entrar" },
+  variant: { list: ["A", "B", "C"], def: "A" },
+  css: { list: ["con", "sin"], def: "con" },
+  vw: { list: ["320", "360", "390"], def: "360" }
+};
+const LABELS = { css: { con: "con CSS", sin: "sin CSS" } };
+const state = {};
+const casos = () => Object.keys(SCREENS[state.screen].casos);
+function readURL() {
+  const q = new URLSearchParams(location.search);
+  for (const [k, o] of Object.entries(OPTS)) state[k] = o.list.includes(q.get(k)) ? q.get(k) : o.def;
+  state.caso = casos().includes(q.get("caso")) ? q.get("caso") : casos()[0];
+}
+function writeURL() {
+  const q = new URLSearchParams();
+  for (const [k, o] of Object.entries(OPTS)) if (state[k] !== o.def) q.set(k, state[k]);
+  if (state.caso !== casos()[0]) q.set("caso", state.caso);
+  history.replaceState(null, "", location.pathname + (q.toString() ? "?" + q : ""));
+}
+const cur = () => SCREENS[state.screen].v[state.variant];
+function pageHTML() {
+  const v = cur();
+  const css = state.css === "con" ? `<style>${SHARED}${BASE}${v.css}</style>` : "";
+  return `<!doctype html><html lang="es-VE"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Pawster</title>${css}</head><body>${v.body(state.caso)}</body></html>`;
+}
+const stage = document.getElementById("stage"), device = document.getElementById("device");
+let lastHTML = "";
+function mount() {
+  device.style.width = state.vw + "px";
+  stage.style.width = state.vw + "px";
+  stage.style.height = "760px";
+  lastHTML = pageHTML();
+  stage.srcdoc = lastHTML;
+}
+function wireStage() {
+  const d = stage.contentDocument;
+  d.addEventListener("submit", (e) => { e.preventDefault(); toast("Se enviaría el formulario (" + ((e.submitter && e.submitter.textContent) || "").trim() + ")"); });
+  d.addEventListener("click", (e) => { const a = e.target.closest("a[href='#']"); if (a) { e.preventDefault(); toast("Enlace: " + a.textContent.trim()); } });
+}
+function toast(msg) { const t = document.getElementById("toast"); t.textContent = msg; t.style.display = "block"; clearTimeout(toast.h); toast.h = setTimeout(() => (t.style.display = "none"), 1600); }
+
+async function gzip(str) {
+  if (typeof CompressionStream === "undefined") return null;
+  const cs = new CompressionStream("gzip"), w = cs.writable.getWriter();
+  w.write(new TextEncoder().encode(str)); w.close();
+  return (await new Response(cs.readable).arrayBuffer()).byteLength;
+}
+const kb = (b) => (b / 1024).toFixed(1) + " KB";
+async function paintMetrics() {
+  const d = stage.contentDocument, el = document.getElementById("metrics");
+  const gz = await gzip(lastHTML);
+  const [gzShared, gzShelter, gzVariant] = await Promise.all([gzip(SHARED), gzip(BASE), gzip(cur().css || " ")]);
+  const scroll = d.documentElement.scrollHeight;
+  const key = d.querySelector("[data-key]");
+  let keyLine = "no hay";
+  if (key) {
+    const y = Math.round(key.getBoundingClientRect().top + d.defaultView.scrollY);
+    keyLine = `a ${y} px · <span class="${y + 44 <= 760 ? "good" : "bad"}">${y + 44 <= 760 ? "en la primera pantalla" : "hay que bajar " + (y + 44 - 760) + " px"}</span>`;
+  }
+  const small = [...d.querySelectorAll("a, button, select, summary, label.opt, input")].filter((n) => { const r = n.getBoundingClientRect(); return r.height > 0 && r.height < 40 && !(n.type === "checkbox" || n.type === "hidden"); });
+  el.innerHTML = `
+  <div class="metric"><div class="lbl">Página (HTML + CSS, gzip)</div><div class="val">${gz ? kb(gz) : "?"}</div><div class="sub">${kb(lastHTML.length)} sin comprimir · sin JS · sin fotos</div></div>
+  <div class="metric"><div class="lbl">CSS por capa (gzip, cada una sola)</div><div class="sub">base.css compartida ${gzShared} B · refugio ${gzShelter} B · variante ${cur().css ? gzVariant + " B" : "0 B"}</div></div>
+  <div class="metric"><div class="lbl">Alto</div><div class="val">${scroll.toLocaleString("es")} px</div><div class="sub">${(scroll / 760).toFixed(1)} pantallas de ${state.vw}×760</div></div>
+  <div class="metric"><div class="lbl">Acción principal: «${key ? key.textContent.trim() : "–"}»</div><div class="sub" style="font-size:12px">${keyLine}</div></div>
+  <div class="metric"><div class="lbl">Toques de menos de 40 px</div><div class="val ${small.length ? "bad" : "good"}">${small.length}</div><div class="sub">${small.slice(0, 4).map((n) => "«" + (n.textContent || n.getAttribute("aria-label") || n.name || "").trim().slice(0, 18) + "»").join(", ")}${small.length > 4 ? "…" : ""}</div></div>`;
+}
+
+function seg(id, key, values, labelFn) {
+  const host = document.getElementById(id); host.innerHTML = "";
+  for (const v of values) {
+    const b = document.createElement("button");
+    b.textContent = labelFn ? labelFn(v) : (LABELS[key] && LABELS[key][v]) || v;
+    b.setAttribute("aria-pressed", String(state[key] === v));
+    b.onclick = () => { state[key] = v; if (key === "screen") { state.variant = "A"; state.caso = casos()[0]; } render(); };
+    host.appendChild(b);
+  }
+}
+function render() {
+  writeURL();
+  const S = SCREENS[state.screen];
+  seg("c-screen", "screen", Object.keys(SCREENS), (k) => SCREENS[k].name);
+  seg("c-variant", "variant", ["A", "B", "C"], (v) => v + ": " + S.v[v].name);
+  seg("c-caso", "caso", casos(), (k) => S.casos[k]);
+  seg("c-css", "css", OPTS.css.list);
+  seg("c-vw", "vw", OPTS.vw.list, (v) => v + "px");
+  document.getElementById("variant-note").innerHTML = `<b>${cur().name}.</b> ${cur().note}`;
+  document.getElementById("cur-screen").textContent = S.name;
+  document.getElementById("cur-variant").textContent = state.variant + ": " + cur().name;
+  mount();
+}
+function cycle(delta) { const l = ["A", "B", "C"]; state.variant = l[(l.indexOf(state.variant) + delta + 3) % 3]; render(); }
+function cycleScreen(delta) { const l = Object.keys(SCREENS); state.screen = l[(l.indexOf(state.screen) + delta + l.length) % l.length]; state.variant = "A"; state.caso = casos()[0]; render(); }
+document.getElementById("prev").onclick = () => cycle(-1);
+document.getElementById("next").onclick = () => cycle(1);
+addEventListener("keydown", (e) => {
+  if (e.key === "ArrowLeft") cycle(-1); else if (e.key === "ArrowRight") cycle(1);
+  else if (e.key === "ArrowUp") { e.preventDefault(); cycleScreen(-1); } else if (e.key === "ArrowDown") { e.preventDefault(); cycleScreen(1); }
+});
+stage.addEventListener("load", () => { wireStage(); paintMetrics(); });
+readURL();
+render();
+</script>
+</body>
+</html>
