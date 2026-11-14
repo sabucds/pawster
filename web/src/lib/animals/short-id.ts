@@ -18,7 +18,7 @@
  *
  * That makes the id the thing an adopter reads aloud, retypes off a screenshot and sees inside
  * the prefilled message the shelter receives. A UUID is 36 characters of that, and the
- * prefill — `Hola, les escribo por Luna (pawster.dpdns.org/a/7f3kq9mp)` — is where the cost
+ * prefill — `Hola, les escribo por Luna (pawster-web.pawster-app.workers.dev/a/7f3kq9mp)` — is where the cost
  * shows: the address is *in the message a stranger sends*, so its length is a legibility
  * property rather than a storage one.
  *

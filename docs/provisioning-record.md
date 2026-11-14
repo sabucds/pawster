@@ -18,6 +18,7 @@ so it never had stages for them. The wizard on this branch now does.
 | Fact | Value |
 | --- | --- |
 | Domain | `pawster.dpdns.org` — free DigitalPlat subdomain, registered 2026-09-03 (ADR 0014) |
+| Site address | `https://pawster-web.pawster-app.workers.dev`. The domain carries email only (ADR 0014, amended at #67). Account `workers.dev` subdomain `pawster-app`, renamed 2026-11-13 from `pawster-images-cpu-probe` |
 | DNS authority | deSEC (`ns1.desec.io`, `ns2.desec.org`), live and deliberately **not** Cloudflare (ADR 0014) |
 | Cloudflare account id | `88278572302567baf818bedddf5f6bf8` |
 | Cloudflare zone id | none, and none is wanted — ADR 0011 superseded |

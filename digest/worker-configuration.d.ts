@@ -7,7 +7,7 @@ interface __BaseEnv_Env {
 	DIGEST_QUEUE: Queue;
 	HEALTHCHECK_URL: "https://hc-ping.com/00000000-0000-0000-0000-000000000000";
 	DIGEST_FROM_ADDRESS: "digest@pawster.dpdns.org";
-	SITE_ORIGIN: "https://pawster.dpdns.org";
+	SITE_ORIGIN: "https://pawster-web.pawster-app.workers.dev";
 	MEDIA_BASE_URL: "https://pub-ca6f4461598148fa980041a7fd05262e.r2.dev";
 	ADMIN_EMAIL: "hola@pawster.dpdns.org";
 }
