@@ -207,8 +207,9 @@ export async function sendOutcomeEmail(
         "revisa una persona: mándanos el Instagram, la página o cualquier cosa pública del " +
         "refugio que nos ayude a confirmar quiénes son.",
       "",
-      `Puedes seguir entrando en ${env.SITE_ORIGIN}/refugios/entrar y no se pierde nada de ` +
-        "lo que tengas publicado.",
+      // No address of the site: a link from a fresh sender is what Gmail refuses as spam,
+      // and the shelter signs in the same way it always has.
+      "Puedes seguir entrando como siempre y no se pierde nada de lo que tengas publicado.",
     ].join("\n"),
   });
 }

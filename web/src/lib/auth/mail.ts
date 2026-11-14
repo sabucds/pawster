@@ -17,7 +17,11 @@
  * **No link, anywhere in the body.** ADR 0013 chose a code over a magic link because a
  * corporate mail scanner fetches URLs with no human behind them, and ADR 0008 forbids an
  * emailed link from mutating on `GET`. A "click here to sign in" convenience link would
- * reintroduce exactly that, so the email carries digits and a bare origin to type.
+ * reintroduce exactly that, so the email carries digits only.
+ *
+ * **No address of the site either.** Gmail turns a bare origin into a link, and a fresh
+ * sender whose first mail links to a `workers.dev` host reads as phishing: the first real
+ * code was refused as unsolicited. The shelter already has the page open.
  */
 
 import { ONE_TIME_CODE_TTL_MS } from "./policy.ts";
@@ -25,7 +29,6 @@ import { ONE_TIME_CODE_TTL_MS } from "./policy.ts";
 export interface CodeMailEnv {
   readonly RESEND_API_KEY: string;
   readonly SIGN_IN_FROM_ADDRESS: string;
-  readonly SITE_ORIGIN: string;
 }
 
 export interface CodeMail {
@@ -67,7 +70,7 @@ export async function sendOneTimeCodeEmail(
         `Tu código para entrar a Pawster es ${mail.code}.`,
         "",
         `Vence en ${TTL_MINUTES} minutos y sirve una sola vez.`,
-        `Escríbelo en la página que tienes abierta, en ${env.SITE_ORIGIN}.`,
+        "Escríbelo en la página que tienes abierta.",
         "",
         "Si no pediste este código, no hace falta que hagas nada: sin él, nadie entra.",
       ].join("\n"),
