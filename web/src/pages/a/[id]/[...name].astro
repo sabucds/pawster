@@ -8,6 +8,7 @@ import {
   isDormant,
 } from "@pawster/domain";
 import { env } from "cloudflare:workers";
+import "../../../styles/base.css";
 import { animalPath, animalUrl, messageAddress } from "../../../lib/animals/address.ts";
 import {
   OFF_PLATFORM_NOTE,
@@ -256,9 +257,10 @@ const socialTitle = `${demoPrefix}${animal.name} — ${meta}`;
     <meta name="description" content={socialDescription} />
 
     {/*
-      No stylesheet, matching every other page here: ADR 0007's rule is that the payload is small
-      on a metered Venezuelan connection, and the look of the public surface belongs to the ticket
-      that designs it. **This is not that ticket, so every rule below has to earn its line by
+      Tokens, type and width come from `styles/base.css`, like every other page. The rules below
+      are this page's own, kept few because ADR 0007 wants the payload small on a metered
+      Venezuelan connection, and the look of the public surface belongs to the ticket that
+      designs it. **This is not that ticket, so every rule below has to earn its line by
       implementing something the issue or the prototype's measurements actually require** — and
       four do. Nothing here sets a typeface, a scale, a spacing system or a brand colour.
 
@@ -300,7 +302,7 @@ const socialTitle = `${demoPrefix}${animal.name} — ${meta}`;
     </style>
   </head>
 
-  <body>
+  <body class="wrap">
     <p><a href="/">Volver al listado</a></p>
 
     {/* First on the page, live or archived, so nobody reads this animal as one to adopt. */}
