@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prototipo: páginas del resumen</title>
+<style>
+  body { margin: 0; font: 14px/1.4 system-ui, sans-serif; background: #eef0f3; color: #1a1d22; }
+  main { display: flex; gap: 1.5rem; padding: 1rem; align-items: flex-start; flex-wrap: wrap; }
+  .phone { background: #fff; border: 10px solid #1a1d22; border-radius: 22px; overflow: hidden; flex: none; }
+  .phone iframe { display: block; border: 0; height: 760px; }
+  aside { flex: 1; min-width: 320px; max-width: 640px; }
+  fieldset { border: 1px solid #c9ced6; border-radius: 8px; margin: 0 0 .75rem; padding: .5rem .75rem; background: #fff; }
+  legend { font-weight: 700; padding: 0 .25rem; }
+  .row { display: flex; flex-wrap: wrap; gap: .3rem; }
+  .row button { font: inherit; padding: .3rem .6rem; border: 1px solid #c9ced6; border-radius: 6px; background: #fff; cursor: pointer; }
+  .row button[aria-pressed=true] { background: #1a1d22; color: #fff; border-color: #1a1d22; }
+  .meter { font: 13px ui-monospace, monospace; background: #fff; border-radius: 8px; padding: .5rem .75rem; margin: 0 0 .75rem; }
+  .q { background: #fff; border-radius: 8px; padding: .5rem .75rem; margin: 0 0 .75rem; }
+  .q h3 { margin: .25rem 0; font-size: 14px; }
+  .q p { margin: .25rem 0; }
+  table { border-collapse: collapse; width: 100%; background: #fff; font-size: 12px; }
+  th, td { border-bottom: 1px solid #e2e5ea; padding: .25rem .4rem; text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+</style>
+</head>
+<body>
+<main>
+  <div class="phone"><iframe id="screen" title="Página a 360px" width="360"></iframe></div>
+  <aside>
+    <fieldset><legend>Página</legend><div class="row" id="screens"></div></fieldset>
+    <fieldset><legend>Variante</legend><div class="row" id="variants"></div></fieldset>
+    <fieldset id="sub-f"><legend>Cuál</legend><div class="row" id="subs"></div></fieldset>
+    <fieldset id="erase-f"><legend>Baja y borrar</legend><div class="row" id="erases"></div></fieldset>
+    <fieldset><legend>Ver</legend><div class="row" id="views"></div></fieldset>
+    <div class="meter" id="meter"></div>
+    <div class="q" id="question"></div>
+    <details class="q"><summary><b>Peso de todas las variantes</b> (HTML con CSS en línea, gzip real)</summary><div id="weights"></div></details>
+  </aside>
+</main>
+<script>
+/* ---------- The base every page already ships (web/src/styles/base.css), minified ---------- */
+const BASE = `:root{--ink:#1a1d22;--ink-soft:#5b6472;--line:#e2e5ea;--warn:#8a4b00;--aged:#8a5a00;--urgent-bg:#fdeaea;--urgent-ink:#9b1c1c;--page:#fff}body{margin:0;font:16px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--ink);background:var(--page)}.wrap{max-width:46rem;margin:0 auto;padding:1rem .75rem 3rem}h1{font-size:1.35rem;margin:0 0 .25rem}`;
+
+/* What every digest page would add on top: one button, one input, the listing's lede. */
+const COMMON = `.lede{margin:0 0 1rem;color:var(--ink-soft)}h2{font-size:1.05rem;margin:1.75rem 0 .5rem}a{color:inherit}.note{font-size:.9rem;color:var(--ink-soft)}input[type=email],input[type=text]{display:block;width:100%;box-sizing:border-box;font:inherit;padding:.6rem .7rem;margin-top:.25rem;border:1px solid #b9bfc9;border-radius:.4rem}.btn{display:inline-block;font:inherit;font-weight:600;padding:.7rem 1rem;border-radius:.5rem;border:1px solid var(--ink);background:var(--ink);color:#fff;text-decoration:none;cursor:pointer;text-align:center}.btn-quiet{background:var(--page);color:var(--ink)}.btn-danger{background:var(--urgent-ink);border-color:var(--urgent-ink)}.btn-danger.btn-quiet{background:var(--page);color:var(--urgent-ink)}.block{display:block;width:100%;box-sizing:border-box}`;
+
+const page = (title, heading, body, css = "") =>
+  `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${title} — Pawster</title><style>${BASE}${COMMON}${css}</style></head><body class="wrap"><h1>${heading}</h1>${body}</body></html>`;
+
+/* ---------- Vocabulary, copied from lib/axis-labels.ts ---------- */
+const AXES = [
+  ["species", "¿Perro o gato?", ["Perros", "Gatos"]],
+  ["ageBands", "Etapa", ["Cachorro", "Gatico", "Joven", "Adulto", "Senior"]],
+  ["sizes", "Tamaño adulto", ["Pequeño", "Mediano", "Grande", "Gigante"]],
+  ["sexes", "Sexo", ["Hembra", "Macho", "No se sabe"]],
+  ["goodWith", "Convivencia", ["Convive con niños", "Convive con perros", "Convive con gatos"]],
+];
+const CHECKED = new Set(["Perros", "Cachorro", "Joven"]); // a half-filled form reads truer than an empty one
+
+const box = (field, v) => `<input type="checkbox" name="${field}" value="${v}"${CHECKED.has(v) ? " checked" : ""}>`;
+const EMAIL = `<label for="email">Tu correo</label><input id="email" name="email" type="email" required maxlength="200" autocomplete="email" placeholder="tucorreo@ejemplo.com">`;
+const REGION = (cls) => `<fieldset class="${cls}"><legend>Estado</legend><label for="regions" class="note">Estados, separados por comas</label><input id="regions" name="regions" type="text" placeholder="Miranda, Distrito Capital, Aragua"><p class="note">Escríbelos como se llaman. Si escribes uno que no existe, no te va a calzar ningún animal.</p></fieldset>`;
+const OPT_IN = `<p class="note">Te llega un correo con un enlace para activarla. Hasta que lo abras no te mandamos nada más: así nadie puede anotar el correo de otra persona. Puedes guardar hasta 3 búsquedas con el mismo correo.</p>`;
+const LEDE = `<p class="lede">Dinos qué estás buscando y te mandamos un resumen por correo, una vez por semana, con los animales que aparecieron y te calzan. Sin cuenta y sin contraseña.</p>`;
+const EVERYTHING = `<p class="note">Si no marcas nada, te mandamos <strong>todos</strong> los animales que aparezcan.</p>`;
+
+const GUARDAR = {
+  A: {
+    name: "Como el listado",
+    q: "El panel de filtros del listado tal cual: leyenda en mayúsculas pequeñas, casillas en línea que se envuelven. Correo primero. ¿Se reconoce como la misma pregunta que el listado?",
+    html: () => page("Recibe el resumen", "Recibe animales en adopción por correo",
+      `${LEDE}<form method="post" action="/api/resumen/suscribir"><p>${EMAIL}</p>${AXES.map(([f, h, vs]) =>
+        `<fieldset class="axis"><legend>${h}</legend><div class="axis-options">${vs.map(v => `<label class="axis-option">${box(f, v)}${v}</label>`).join("")}</div></fieldset>`).join("")}${REGION("axis")}${EVERYTHING}<p><button class="btn block" type="submit">Mándame el resumen</button></p></form>${OPT_IN}`,
+      `.axis{border:0;margin:0;padding:.5rem 0}.axis legend{padding:0;font-size:.8rem;font-weight:600;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.02em}.axis-options{display:flex;flex-wrap:wrap;gap:0 1rem;margin:.15rem 0 0}.axis-option{display:inline-flex;align-items:center;gap:.35rem;font-size:.95rem;padding:.4rem 0}.axis-option input{width:1.15rem;height:1.15rem;margin:0;accent-color:var(--ink)}`),
+  },
+  B: {
+    name: "Chips",
+    q: "Cada valor es una pastilla con su casilla dentro; la pastilla se rellena con :has(:checked). Sin :has (Firefox < 121) o sin CSS se ve una casilla normal, nunca nada. Primero qué buscas, el correo al final junto al botón.",
+    html: () => page("Recibe el resumen", "Recibe animales en adopción por correo",
+      `${LEDE}<form method="post" action="/api/resumen/suscribir">${AXES.map(([f, h, vs]) =>
+        `<fieldset class="ax"><legend>${h}</legend><div class="chips">${vs.map(v => `<label class="chip">${box(f, v)}${v}</label>`).join("")}</div></fieldset>`).join("")}${REGION("ax")}${EVERYTHING}<div class="send"><p>${EMAIL}</p><button class="btn block" type="submit">Mándame el resumen</button></div></form>${OPT_IN}`,
+      `.ax{border:0;margin:0 0 .6rem;padding:0}.ax legend{padding:0;font-weight:600;font-size:.95rem}.chips{display:flex;flex-wrap:wrap;gap:.4rem;margin:.35rem 0 0}.chip{display:inline-flex;align-items:center;gap:.4rem;padding:.45rem .8rem;border:1px solid #b9bfc9;border-radius:999px;font-size:.92rem;cursor:pointer}.chip input{margin:0;accent-color:var(--ink)}.chip:has(:checked){background:#eef0f3;border-color:var(--ink);font-weight:600}.chip:has(:focus-visible){outline:2px solid var(--ink);outline-offset:2px}.send{border-top:1px solid var(--line);padding-top:.5rem}`),
+  },
+  C: {
+    name: "Plegado",
+    q: "Cada eje en un <details> nativo, cerrados salvo el primero; el botón queda pegado abajo con position: sticky. Sin JS el resumen de cada eje no puede decir qué marcaste, solo «Todos si no marcas nada». ¿Compensa el espacio que ahorra?",
+    html: () => page("Recibe el resumen", "Recibe animales en adopción por correo",
+      `${LEDE}<form method="post" action="/api/resumen/suscribir"><p>${EMAIL}</p>${AXES.map(([f, h, vs], i) =>
+        `<details${i === 0 ? " open" : ""}><summary>${h}<span>todos si no marcas</span></summary><div class="opts">${vs.map(v => `<label>${box(f, v)}${v}</label>`).join("")}</div></details>`).join("")}<details><summary>Estado<span>todos si lo dejas vacío</span></summary>${REGION("rg")}</details>${OPT_IN}<div class="stick"><button class="btn block" type="submit">Mándame el resumen</button></div></form>`,
+      `details{border-bottom:1px solid var(--line)}summary{display:flex;justify-content:space-between;align-items:baseline;padding:.8rem 0;font-weight:600;cursor:pointer}summary span{font-weight:400;font-size:.85rem;color:var(--ink-soft)}.opts{display:grid;grid-template-columns:1fr 1fr;gap:0 .75rem;padding:0 0 .6rem}.opts label{display:flex;align-items:center;gap:.4rem;padding:.4rem 0}.opts input{width:1.15rem;height:1.15rem;margin:0;accent-color:var(--ink)}.rg{border:0;padding:0 0 .6rem;margin:0}.rg legend{display:none}.stick{position:sticky;bottom:0;background:var(--page);padding:.6rem 0;border-top:1px solid var(--line)}`),
+  },
+};
+
+/* ---------- The manage page ---------- */
+const SUBSCRIBERS = {
+  uno: {
+    label: "Una búsqueda", email: "mariana.perez@gmail.com",
+    held: [["Tu correo", "mariana.perez@gmail.com"], ["Cuándo activaste", "3 de octubre de 2026"], ["Qué día te llega el resumen", "Jueves"], ["Último resumen que te mandamos", "12 de noviembre de 2026"], ["Idioma", "Español"], ["Te avisamos de que no había coincidencias", "No"], ["Te diste de baja", "No"], ["Dejamos de escribirte por nuestra cuenta", "No"]],
+    subs: [{ at: "3 de octubre de 2026", axes: [["¿Perro o gato?", "Perros"], ["Etapa", "Cachorro, Joven"], ["Tamaño adulto", "Pequeño, Mediano"], ["Convivencia", "Convive con gatos"], ["Estado", "Miranda, Distrito Capital"]] }],
+    unsubscribed: false,
+  },
+  tres: {
+    label: "Tres búsquedas", email: "jose.gregorio.hernandez.1987@hotmail.com",
+    held: [["Tu correo", "jose.gregorio.hernandez.1987@hotmail.com"], ["Cuándo activaste", "14 de agosto de 2026"], ["Qué día te llega el resumen", "Lunes"], ["Último resumen que te mandamos", "Ninguno todavía"], ["Idioma", "Español"], ["Te avisamos de que no había coincidencias", "11 de octubre de 2026"], ["Te diste de baja", "No"], ["Dejamos de escribirte por nuestra cuenta", "No"]],
+    subs: [
+      { at: "14 de agosto de 2026", axes: [["¿Perro o gato?", "Gatos"], ["Etapa", "Gatico"], ["Sexo", "Hembra"], ["Estado", "Lara"]] },
+      { at: "2 de septiembre de 2026", axes: [["¿Perro o gato?", "Perros"], ["Etapa", "Adulto, Senior"], ["Tamaño adulto", "Grande, Gigante"], ["Convivencia", "Convive con niños, Convive con perros, Convive con gatos"], ["Estado", "Lara, Portuguesa, Yaracuy, Falcón"]] },
+      { at: "20 de septiembre de 2026", axes: [] },
+    ],
+    unsubscribed: false,
+  },
+  retirado: {
+    label: "Dado de baja y marcado como spam", email: "ana.r@yahoo.es",
+    held: [["Tu correo", "ana.r@yahoo.es"], ["Cuándo activaste", "1 de julio de 2026"], ["Qué día te llega el resumen", "Viernes"], ["Último resumen que te mandamos", "30 de octubre de 2026"], ["Idioma", "Español"], ["Te avisamos de que no había coincidencias", "No"], ["Te diste de baja", "5 de noviembre de 2026"], ["Dejamos de escribirte por nuestra cuenta", "Sí, desde 5 de noviembre de 2026, porque marcaste nuestro correo como spam"]],
+    subs: [{ at: "1 de julio de 2026", axes: [["¿Perro o gato?", "Perros"], ["Estado", "Zulia"]] }],
+    unsubscribed: true,
+  },
+};
+
+const ERASE = {
+  zona: {
+    name: "Zona aparte",
+    q: "Darse de baja es el botón normal. Borrar vive en una caja con borde rojo, separada por espacio. Un toque cada uno.",
+    css: `.danger{border:1px solid var(--urgent-ink);border-radius:.5rem;padding:.75rem;margin-top:1.5rem}.danger h3{margin:0 0 .25rem;font-size:1rem;color:var(--urgent-ink)}.danger p{margin:.25rem 0 .75rem}`,
+    unsub: `<form method="post"><button class="btn btn-quiet block" type="submit">Darme de baja</button><p class="note">Dejamos de escribirte, pero guardamos tus búsquedas 90 días por si cambias de idea.</p></form>`,
+    erase: `<form method="post" action="/resumen/borrar" class="danger"><input type="hidden" name="t" value="…"><h3>Borrarlo todo</h3><p class="note">Borra tu correo y tus búsquedas de una vez. No se puede deshacer.</p><button class="btn btn-danger block" type="submit">Bórrenlo todo ahora</button></form>`,
+  },
+  desplegable: {
+    name: "Detrás de un desplegable",
+    q: "Borrar está detrás de un <details> nativo: el primer toque solo muestra lo que pasa y el botón; el segundo borra. Difícil de tocar sin querer, fácil a propósito, sin JS, y sin CSS sigue funcionando. Darse de baja sigue siendo un toque, como pide la ADR 0010.",
+    css: `.erase{margin-top:1.25rem;border:1px solid var(--line);border-radius:.5rem}.erase summary{padding:.75rem;cursor:pointer;color:var(--urgent-ink);font-weight:600}.erase[open] summary{border-bottom:1px solid var(--line)}.erase form{padding:.75rem}.erase p{margin:0 0 .75rem}`,
+    unsub: `<form method="post"><button class="btn btn-quiet block" type="submit">Darme de baja</button><p class="note">Dejamos de escribirte, pero guardamos tus búsquedas 90 días por si cambias de idea.</p></form>`,
+    erase: `<details class="erase"><summary>Quiero borrarlo todo</summary><form method="post" action="/resumen/borrar"><input type="hidden" name="t" value="…"><p class="note">Borra tu correo y tus búsquedas de una vez. No se puede deshacer, y no hay un periodo de 90 días como al darte de baja.</p><button class="btn btn-danger block" type="submit">Sí, bórrenlo todo ahora</button></form></details>`,
+  },
+  lado: {
+    name: "Lado a lado",
+    q: "Las dos salidas en dos columnas iguales, cada una con su consecuencia. Es la comparación más directa, pero a 360px cada columna mide ~160px y los dos botones quedan a un pulgar de distancia.",
+    css: `.pair{display:grid;grid-template-columns:1fr 1fr;gap:.6rem}.pair form{border:1px solid var(--line);border-radius:.5rem;padding:.6rem;display:flex;flex-direction:column;justify-content:space-between}.pair p{margin:0 0 .6rem;font-size:.85rem}.pair .btn{padding:.6rem .4rem;font-size:.9rem}`,
+    unsub: `<form method="post"><p><b>Darme de baja.</b> Dejamos de escribirte. Tus búsquedas se guardan 90 días.</p><button class="btn btn-quiet block" type="submit">Darme de baja</button></form>`,
+    erase: `<form method="post" action="/resumen/borrar"><input type="hidden" name="t" value="…"><p><b>Borrarlo todo.</b> Tu correo y tus búsquedas, ya. No se puede deshacer.</p><button class="btn btn-danger btn-quiet block" type="submit">Bórrenlo todo</button></form>`,
+    wrap: (a, b) => `<div class="pair">${a}${b}</div>`,
+  },
+};
+
+const ends = (s, e) => {
+  const t = ERASE[e];
+  const a = s.unsubscribed ? "" : t.unsub;
+  return `<h2>Si ya no quieres</h2>${t.wrap && a ? t.wrap(a, t.erase) : a + t.erase}<p><a href="/privacidad">Cuánto tiempo guardamos cada cosa</a></p>`;
+};
+
+const sub = (s, i, style) => {
+  const body = s.axes.length === 0
+    ? `<p><strong>Todos los animales</strong>, sin filtrar por nada.</p>`
+    : `<dl>${s.axes.map(([h, v]) => `<dt>${h}</dt><dd>${v}</dd>`).join("")}</dl>`;
+  return `<li class="sub"><h3>Búsqueda ${i + 1}</h3>${body}<p class="note">Guardada el ${s.at}.</p></li>`;
+};
+const subsList = (s) => s.subs.length === 0 ? `<p>No te queda ninguna búsqueda guardada.</p>` : `<ol class="subs">${s.subs.map(sub).join("")}</ol>`;
+const SUB_CSS = `.subs{list-style:none;margin:0;padding:0}.sub{border:1px solid var(--line);border-radius:.5rem;padding:.6rem .75rem;margin:0 0 .6rem}.sub h3{margin:0 0 .3rem;font-size:.95rem}.sub dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:.15rem .6rem;font-size:.92rem}.sub dt{color:var(--ink-soft)}.sub dd{margin:0}.sub .note{margin:.4rem 0 0;font-size:.8rem}`;
+const isNo = (v) => v === "No" || v === "Ninguno todavía";
+
+const MIS = {
+  A: {
+    name: "Ficha y tarjetas",
+    q: "El orden de hoy: todo lo que guardamos primero, como pares etiqueta / valor en una sola columna con líneas, y las búsquedas en tarjetas. Los «No» van en gris para que lo que sí pasó se lea primero.",
+    html: (s, e) => page("Mis búsquedas", "Lo que Pawster guarda tuyo",
+      `<p class="lede">Esto es <strong>todo</strong> lo que tenemos sobre ti. No hay nada más en otra parte, y desde aquí puedes borrarlo.</p><dl class="held">${s.held.map(([k, v]) => `<div><dt>${k}</dt><dd${isNo(v) ? ' class="no"' : ""}>${v}</dd></div>`).join("")}</dl><h2>Tus búsquedas</h2>${subsList(s)}${ends(s, e)}`,
+      `.held{margin:0}.held div{padding:.45rem 0;border-bottom:1px solid var(--line)}.held dt{font-size:.85rem;color:var(--ink-soft)}.held dd{margin:0;overflow-wrap:anywhere}.held .no{color:var(--ink-soft)}${SUB_CSS}${ERASE[e].css}`),
+  },
+  B: {
+    name: "Búsquedas primero",
+    q: "Quien abre el enlace casi siempre viene por sus búsquedas o a irse, así que eso va arriba. La lista completa de datos va después con su propio título, entera y abierta, nunca plegada (ADR 0010).",
+    html: (s, e) => page("Mis búsquedas", "Tus búsquedas",
+      `<p class="lede">Te llegan a <strong class="em">${s.email}</strong>.</p>${subsList(s)}${ends(s, e)}<h2>Todo lo que guardamos tuyo</h2><p class="note">Esto es <strong>todo</strong>. No hay nada más en otra parte.</p><dl class="held">${s.held.map(([k, v]) => `<dt>${k}</dt><dd${isNo(v) ? ' class="no"' : ""}>${v}</dd>`).join("")}</dl>`,
+      `.em{overflow-wrap:anywhere}.held{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:.5rem .75rem;margin:0;font-size:.92rem}.held dt{color:var(--ink-soft)}.held dd{margin:0;overflow-wrap:anywhere}.held .no{color:var(--ink-soft)}${SUB_CSS}${ERASE[e].css}`),
+  },
+  C: {
+    name: "Agrupado",
+    q: "Los ocho datos repartidos en dos grupos que responden a dos preguntas: «a dónde y cuándo te escribimos» y «qué ha pasado». Mismo contenido que A, menos lectura en fila.",
+    html: (s, e) => {
+      const [email, opted, day, last, lang, nudged, unsub, retired] = s.held;
+      const grp = (title, rows) => `<section class="grp"><h3>${title}</h3><dl>${rows.map(([k, v]) => `<dt>${k}</dt><dd${isNo(v) ? ' class="no"' : ""}>${v}</dd>`).join("")}</dl></section>`;
+      return page("Mis búsquedas", "Lo que Pawster guarda tuyo",
+        `<p class="lede">Esto es <strong>todo</strong> lo que tenemos sobre ti. No hay nada más en otra parte, y desde aquí puedes borrarlo.</p>${grp("A dónde y cuándo te escribimos", [email, day, lang])}${grp("Lo que ha pasado", [opted, last, nudged, unsub, retired])}<h2>Tus búsquedas</h2>${subsList(s)}${ends(s, e)}`,
+        `.grp{background:#f5f6f8;border-radius:.5rem;padding:.6rem .75rem;margin:0 0 .6rem}.grp h3{margin:0 0 .35rem;font-size:.95rem}.grp dl{margin:0}.grp dt{font-size:.82rem;color:var(--ink-soft);margin-top:.35rem}.grp dd{margin:0;overflow-wrap:anywhere}.grp .no{color:var(--ink-soft)}${SUB_CSS}${ERASE[e].css}`);
+    },
+  },
+};
+
+const BAJA = (s, e) => page("Te diste de baja", "Listo, no te escribimos más",
+  `<p>Ya no te mandamos el resumen a <strong style="overflow-wrap:anywhere">${s.email}</strong>. No hace falta que hagas nada más.</p><p class="note">Guardamos tus búsquedas 90 días por si le diste sin querer, y después se borran solas.</p>${ends({ ...s, unsubscribed: true }, e).replace("<h2>Si ya no quieres</h2>", "<h2>¿Prefieres que no guardemos nada?</h2>")}`,
+  ERASE[e].css);
+
+/* ---------- Holding and error pages ---------- */
+const BACK = { href: "/resumen", label: "Volver al formulario" };
+const OUTCOMES = {
+  "revisa-tu-correo": { title: "Revisa tu correo", h: "Revisa tu correo", tag: ["Falta un paso", "info"],
+    lead: "Si el correo que escribiste está bien, te llega un mensaje con un enlace para activar tu búsqueda. Ábrelo y quedas listo.",
+    rest: ["El enlace sirve una sola vez y vence en 7 días. Si no te llega en unos minutos, revisa la carpeta de spam y que el correo esté bien escrito.", "Esta página responde igual siempre, incluso si el correo ya estaba anotado o si escribiste uno que no es tuyo. Así nadie puede usar este formulario para averiguar quién recibe el resumen."],
+    next: { href: "/resumen", label: "Volver al formulario", quiet: true } },
+  "listo": { title: "Listo", h: "Listo, tu búsqueda quedó activa", tag: ["Activa", "ok"],
+    lead: "Tu resumen te llega los <strong>jueves</strong>, una vez por semana.",
+    keep: "Guarda este enlace: es el único que tienes para ver lo que guardamos tuyo, cambiar tus búsquedas o borrarlo todo.",
+    rest: ["Solo trae los animales que aparecieron y no te habíamos mandado antes. Si una semana no hay ninguno que te calce, no te llega nada.", "Cada resumen trae al final un enlace para cambiar tus búsquedas o darte de baja, sin contraseña."],
+    next: { href: "/resumen", label: "Agregar otra búsqueda", quiet: true } },
+  "enlace-vencido": { title: "El enlace ya no sirve", h: "Ese enlace ya no sirve", tag: ["Enlace vencido", "warn"],
+    lead: "Vuelve a llenar el formulario y te mandamos un enlace nuevo.",
+    rest: ["Puede que ya lo hayas usado, porque sirve una sola vez, o que se haya vencido: los enlaces duran 7 días y después borramos la solicitud.", "Si ya lo habías activado antes, tu búsqueda sigue guardada y el resumen te va a llegar igual."],
+    next: { href: "/resumen", label: "Ir al formulario" } },
+  "demasiados": { title: "Demasiadas solicitudes", h: "Espera un momento", tag: ["Demasiadas solicitudes", "warn"],
+    lead: "Vuelve a intentarlo dentro de un rato y va a pasar sin problema.",
+    rest: ["Llegaron muchas solicitudes desde tu conexión en poco tiempo, así que esta no la procesamos. No es nada del correo que escribiste."],
+    next: BACK },
+  "correo-invalido": { title: "Revisa el correo", h: "Ese correo no se puede usar", tag: ["Correo mal escrito", "warn"],
+    lead: "Revísalo y vuelve a intentar: como está escrito no es una dirección de correo.",
+    rest: ["No buscamos el correo en ninguna parte: lo único que vimos es que le falta algo para ser una dirección."],
+    next: BACK },
+  "limite": { title: "Ya tienes tres búsquedas", h: "Ya tienes tres búsquedas guardadas", tag: ["Tope alcanzado", "warn"],
+    lead: "Si quieres cambiar una por esta, el enlace para manejarlas viene al final de cada resumen que te mandamos.",
+    rest: ["Con un mismo correo se pueden guardar 3 búsquedas, y ya las tienes todas. Esta no la pudimos agregar. Tus búsquedas siguen igual y el resumen te llega como siempre.", "El tope existe para que el resumen siga siendo un solo correo a la semana."],
+    next: BACK },
+  "espera": { title: "Vuelve más tarde", h: "Ahora mismo no podemos mandar el correo", tag: ["Tope del día", "warn"],
+    lead: "Vuelve a intentarlo <strong>en unas horas</strong> y te va a llegar el enlace sin problema.",
+    rest: ["Pawster manda una cantidad limitada de correos al día y hoy ya se llegó al tope. No es nada que hayas hecho tú y tu correo está bien.", "La mayor parte de esos correos está reservada para los resúmenes que ya se prometieron."],
+    next: BACK },
+  "borrado": { title: "Borrado", h: "Listo, ya no tenemos nada tuyo", tag: ["Borrado", "ok"],
+    lead: "Borramos tu correo y tus búsquedas. No te vamos a escribir más.",
+    rest: ["Lo único que puede quedar por unos días son las copias de Resend, la empresa que manda nuestros correos: los mensajes se les borran solos a los 30 días y sus copias de seguridad a los 7.", "Si alguna vez marcaste nuestro correo como spam, guardamos un código del que no se puede sacar tu dirección, y nada más."],
+    next: { href: "/resumen", label: "Guardar una búsqueda nueva", quiet: true } },
+  "activar": { title: "Activa tu búsqueda", h: "Activa tu búsqueda", tag: ["Falta un paso", "info"],
+    lead: "Esto es lo que pediste. Si está bien, dale al botón y desde la semana que viene te empieza a llegar el resumen.",
+    criteria: [["¿Perro o gato?", "Perros"], ["Etapa", "Cachorro, Joven"], ["Estado", "Miranda"]],
+    form: "Activar mi búsqueda",
+    rest: ["Si no pediste esto, cierra esta página y no pasa nada: sin darle al botón no se guarda nada."] },
+};
+const TONE = `.tag{display:inline-block;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;padding:.1rem .4rem;border-radius:.25rem;margin:0 0 .4rem}.tag.ok{background:#e6f4ea;color:#1e6b34}.tag.warn{background:#fdf1e3;color:var(--warn)}.tag.info{background:#eef0f3;color:var(--ink-soft)}`;
+const crit = (o) => o.criteria ? `<dl class="crit">${o.criteria.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>` : "";
+const CRIT_CSS = `.crit{display:grid;grid-template-columns:auto 1fr;gap:.2rem .75rem;border:1px solid var(--line);border-radius:.5rem;padding:.6rem .75rem}.crit dt{color:var(--ink-soft)}.crit dd{margin:0}`;
+const activate = (o, cls) => o.form ? `<form method="post" action="/resumen/activar"><input type="hidden" name="t" value="…"><p><button class="btn ${cls}" type="submit">${o.form}</button></p></form>` : "";
+const keep = (o) => o.keep ? `<p class="keep">${o.keep} <a href="/resumen/mis-busquedas/…">Ver lo que guardamos tuyo</a>.</p>` : "";
+const KEEP_CSS = `.keep{border-left:3px solid var(--ink);padding:.25rem 0 .25rem .75rem}`;
+
+const AVISO = {
+  A: {
+    name: "Solo texto",
+    q: "Lo de hoy con la base aplicada: párrafos y un enlace al final. Lo que hay que hacer está en el texto, a veces en el segundo párrafo.",
+    html: (o) => page(o.title, o.h, `<p>${o.lead}</p>${crit(o)}${activate(o, "")}${keep(o)}${o.rest.map(p => `<p>${p}</p>`).join("")}${o.next ? `<p><a href="${o.next.href}">${o.next.label}</a></p>` : ""}`, CRIT_CSS + KEEP_CSS),
+  },
+  B: {
+    name: "Paso como botón",
+    q: "Primero la frase que dice qué hacer, grande; luego el botón; después la explicación en letra chica. Mismo texto que A, en otro orden.",
+    html: (o) => page(o.title, o.h, `<p class="lede big">${o.lead}</p>${crit(o)}${activate(o, "block")}${keep(o)}${o.next ? `<p><a class="btn block${o.next.quiet ? " btn-quiet" : ""}" href="${o.next.href}">${o.next.label}</a></p>` : ""}${o.rest.map(p => `<p class="note">${p}</p>`).join("")}`,
+      `.big{font-size:1.1rem;color:var(--ink)}` + CRIT_CSS + KEEP_CSS),
+  },
+  C: {
+    name: "Etiqueta de estado",
+    q: "Como B, más una etiqueta encima del título que nombra el estado con el color que el listado ya usa para avisos. ¿Ayuda a reconocer «esto es un error» de un vistazo, o es una capa más?",
+    html: (o) => page(o.title, `<span class="tag ${o.tag[1]}">${o.tag[0]}</span><br>${o.h}`, `<p class="lede big">${o.lead}</p>${crit(o)}${activate(o, "block")}${keep(o)}${o.next ? `<p><a class="btn block${o.next.quiet ? " btn-quiet" : ""}" href="${o.next.href}">${o.next.label}</a></p>` : ""}${o.rest.map(p => `<p class="note">${p}</p>`).join("")}`,
+      `.big{font-size:1.1rem;color:var(--ink)}` + TONE + CRIT_CSS + KEEP_CSS),
+  },
+};
+
+/* ---------- Privacy ---------- */
+const ROWS = [
+  ["Tu correo y tus búsquedas, mientras estés suscrito", "Hasta que te des de baja o lo borres", "Es lo que hace falta para mandarte el resumen. Nada más.", false],
+  ["Una solicitud que no llegaste a activar", "7 días", "Si no le diste al enlace, no tenemos tu permiso para nada. El enlace vence y la solicitud se borra el mismo día.", true],
+  ["Tu IP, al pedir el enlace de activación", "7 días", "Solo para que nadie use el formulario para llenarle el correo a otra persona. Va en esa misma solicitud y se borra con ella; si activas, no guardamos ninguna IP tuya.", true],
+  ["Que te mandamos un enlace de activación (sin tu correo, solo una huella)", "24 horas", "Para no mandarte el mismo correo dos veces en un día y para no pasarnos del límite diario de la plataforma.", true],
+  ["Tus búsquedas después de darte de baja", "90 días, y luego se borran solas", "Darse de baja es un clic sin confirmación, a propósito, para que funcione desde el correo. A veces lo aprieta un programa o se aprieta sin querer, así que guardamos las búsquedas por si quieres volver. Después se borra todo sin que tengas que pedirlo.", true],
+  ["Que te avisamos de que no había coincidencias", "Se manda una sola vez, a los 60 días", "Para que siempre tengas un enlace que sirva, aunque nunca te llegue un resumen.", true],
+  ["Una huella de tu correo, si nos marcaste como spam", "Para siempre", "Es lo único que queda si borras todo, y solo cuando nos marcaste como spam. No guarda tu correo: guarda un código del que no se puede sacar tu dirección, y sirve únicamente para que el formulario se niegue a inscribirte otra vez. La ley no nos deja borrar esto, porque es justo lo que nos impide volver a escribirte.", false],
+  ["Si eres un refugio y dejas Pawster: tus formas de contacto y el correo del refugio", "30 días desde que pides irte, y luego se borran solos", "Esos días son para que puedas arrepentirte: hasta entonces, un clic lo deja todo como estaba. Después ya no hay manera de escribirle al refugio por Pawster, ni de entrar con ese correo.", true],
+  ["Si eres un refugio y dejas Pawster: tus animales publicados, sus páginas de archivo y el registro de verificación", "Para siempre", "Las páginas de archivo son una promesa a quienes adoptaron: el enlace que guardaron sigue diciendo qué pasó con el animal. El registro de verificación es la constancia de nuestras propias decisiones sobre cada refugio, y no lo borramos porque dejaría de servir para rendir cuentas de ellas.", false],
+  ["Copias en Resend, la empresa que manda nuestros correos", "30 días los correos y sus registros, 7 días sus copias de seguridad", "Esto no lo controlamos nosotros y el botón de borrar no lo alcanza. Si borras todo, desaparece de Pawster de una vez, pero en Resend se va solo cuando se cumplen esos plazos.", false],
+  ["La lista de bloqueo de Resend", "Mientras Resend la mantenga", "Si tu correo rebota o nos marcas como spam, Resend guarda tu dirección en su propia lista, y la guarda tal cual, sin cifrar. Es de ellos, no nuestra, y es distinta de la huella de arriba.", false],
+];
+const PRIV_INTRO = `<p class="lede">Esta tabla es la política completa. No hay letra pequeña en otra parte, y cada plazo que dice que lo borramos solos lo borra un programa que corre todos los días.</p>`;
+const PRIV_END = `<h2>Lo que puedes hacer</h2><p>Todo lo tuyo está en una sola página, la que abre el enlace que te mandamos por correo. Ahí ves lo que guardamos, te puedes dar de baja y puedes borrarlo todo. No hay que escribirle a nadie.</p><p class="note">En Pawster no tienes cuenta ni contraseña: el enlace del correo es lo único que te identifica.</p>`;
+const AUTO = `<span class="auto">Se borra solo</span>`;
+const AUTO_CSS = `.auto{display:inline-block;font-size:.7rem;font-weight:700;text-transform:uppercase;padding:.05rem .35rem;border-radius:.25rem;background:#e6f4ea;color:#1e6b34;margin-left:.25rem;vertical-align:.1rem}`;
+const TABLE = `<table><thead><tr><th>Qué</th><th>Cuánto tiempo</th><th>Por qué</th></tr></thead><tbody>${ROWS.map(([w, h, y, e]) => `<tr><td data-l="Qué">${w}</td><td data-l="Cuánto tiempo"><strong>${h}</strong>${e ? AUTO : ""}</td><td data-l="Por qué">${y}</td></tr>`).join("")}</tbody></table>`;
+
+const PRIV = {
+  A: {
+    name: "Tabla con scroll lateral",
+    q: "La tabla de siempre dentro de una caja que se desliza de lado. Ninguna fila se esconde, pero la columna «Por qué» queda fuera de la pantalla y hay que saber que existe.",
+    html: () => page("Qué guardamos", "Qué guardamos y por cuánto tiempo", `${PRIV_INTRO}<div class="scroll">${TABLE}</div>${PRIV_END}`,
+      `.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:.5rem}table{border-collapse:collapse;min-width:44rem;font-size:.9rem}th,td{text-align:left;vertical-align:top;padding:.5rem .6rem;border-bottom:1px solid var(--line)}th{background:#f5f6f8}td:first-child{width:14rem}td:nth-child(2){width:10rem}${AUTO_CSS}`),
+  },
+  B: {
+    name: "Tarjetas",
+    q: "Cada fila es un <section> con el «qué» como título, el plazo en negrita debajo y el porqué en texto. Se lee de arriba abajo; deja de ser una tabla para lectores de pantalla y los tests que buscan <tr>.",
+    html: () => page("Qué guardamos", "Qué guardamos y por cuánto tiempo", `${PRIV_INTRO}${ROWS.map(([w, h, y, e]) => `<section class="row"><h3>${w}</h3><p class="when">${h}${e ? AUTO : ""}</p><p class="note">${y}</p></section>`).join("")}${PRIV_END}`,
+      `.row{border-top:1px solid var(--line);padding:.6rem 0}.row h3{font-size:1rem;margin:0 0 .2rem}.when{margin:0 0 .3rem;font-weight:600}.row .note{margin:0}${AUTO_CSS}`),
+  },
+  C: {
+    name: "Tabla que se apila",
+    q: "Sigue siendo un <table> en el HTML, así que sin CSS y a partir de 40rem se ve como tabla. Por debajo de 40rem cada fila se apila con su etiqueta. Ojo: display:block sobre <tr> le quita la semántica de tabla en algunos lectores de pantalla (Safari), y hay que devolverla con role=\"row\"/\"cell\".",
+    html: () => page("Qué guardamos", "Qué guardamos y por cuánto tiempo", `${PRIV_INTRO}${TABLE}${PRIV_END}`,
+      `table{border-collapse:collapse;width:100%}th,td{text-align:left;vertical-align:top;padding:.5rem .4rem;border-bottom:1px solid var(--line)}@media (max-width:40rem){thead{position:absolute;left:-999px}table,tbody,tr,td{display:block}tr{border-top:1px solid var(--line);padding:.5rem 0}td{border:0;padding:.1rem 0}td::before{content:attr(data-l);display:block;font-size:.75rem;text-transform:uppercase;letter-spacing:.02em;color:var(--ink-soft)}td:first-child{font-weight:600}td:first-child::before{display:none}td:nth-child(3){font-size:.92rem;color:var(--ink-soft)}td:nth-child(3)::before{display:none}}${AUTO_CSS}`),
+  },
+};
+
+/* ---------- Wiring ---------- */
+const SCREENS = {
+  guardar: { label: "Guardar búsqueda", variants: GUARDAR, render: (v) => GUARDAR[v].html() },
+  mis: { label: "Mis búsquedas", variants: MIS, subs: Object.fromEntries(Object.entries(SUBSCRIBERS).map(([k, s]) => [k, s.label])), erase: true, render: (v, st) => MIS[v].html(SUBSCRIBERS[st.sub], st.erase) },
+  baja: { label: "Baja", variants: { A: { name: "Única", q: "La página a la que lleva el enlace de un clic del correo. El botón de borrar sigue la variante de «Baja y borrar»." } }, subs: { uno: "Normal" }, erase: true, render: (v, st) => BAJA(SUBSCRIBERS.uno, st.erase) },
+  aviso: { label: "Avisos y errores", variants: AVISO, subs: Object.fromEntries(Object.keys(OUTCOMES).map(k => [k, k])), render: (v, st) => AVISO[v].html(OUTCOMES[st.sub]) },
+  privacidad: { label: "Privacidad", variants: PRIV, render: (v) => PRIV[v].html() },
+};
+
+const st = Object.assign({ screen: "guardar", v: "A", sub: "", erase: "desplegable", css: "on", w: "360" },
+  Object.fromEntries(new URLSearchParams(location.hash.slice(1))));
+
+const noCss = (html) => html.replace(/<style>[\s\S]*?<\/style>/, "");
+const gz = async (s) => new Response(new Blob([s]).stream().pipeThrough(new CompressionStream("gzip"))).arrayBuffer().then(b => b.byteLength);
+const kb = (n) => (n / 1024).toFixed(1) + " KB";
+const bytes = (s) => new Blob([s]).size;
+
+function buttons(el, entries, key, after) {
+  el.innerHTML = "";
+  for (const [k, label] of entries) {
+    const b = document.createElement("button");
+    b.textContent = label; b.setAttribute("aria-pressed", String(st[key] === k));
+    b.onclick = () => { st[key] = k; after?.(); draw(); };
+    el.append(b);
+  }
+}
+
+async function draw() {
+  const sc = SCREENS[st.screen];
+  if (!sc.variants[st.v]) st.v = Object.keys(sc.variants)[0];
+  if (sc.subs && !sc.subs[st.sub]) st.sub = Object.keys(sc.subs)[0];
+  buttons(document.getElementById("screens"), Object.entries(SCREENS).map(([k, s]) => [k, s.label]), "screen", () => { st.v = "A"; st.sub = ""; });
+  buttons(document.getElementById("variants"), Object.entries(sc.variants).map(([k, v]) => [k, `${k} · ${v.name}`]), "v");
+  document.getElementById("sub-f").hidden = !sc.subs;
+  if (sc.subs) buttons(document.getElementById("subs"), Object.entries(sc.subs), "sub");
+  document.getElementById("erase-f").hidden = !sc.erase;
+  buttons(document.getElementById("erases"), Object.entries(ERASE).map(([k, e]) => [k, e.name]), "erase");
+  buttons(document.getElementById("views"), [["on", "Con CSS"], ["off", "Sin CSS"]], "css");
+  document.getElementById("views").append(...["320", "360", "430"].map(w => {
+    const b = document.createElement("button"); b.textContent = w + "px"; b.setAttribute("aria-pressed", String(st.w === w));
+    b.onclick = () => { st.w = w; draw(); }; return b;
+  }));
+  location.hash = new URLSearchParams(st).toString();
+
+  const html = sc.render(st.v, st);
+  const gzBytes = await gz(html);
+  const f = document.getElementById("screen");
+  f.width = st.w;
+  f.srcdoc = st.css === "off" ? noCss(html) : html;
+  f.onload = () => {
+    const d = f.contentDocument.documentElement;
+    const over = d.scrollWidth > +st.w;
+    document.getElementById("meter").innerHTML =
+      `HTML ${kb(bytes(html))} · gzip <b>${kb(gzBytes)}</b> · alto ${d.scrollHeight}px (${(d.scrollHeight / 760).toFixed(1)} pantallas) · ${over ? `<b style="color:#9b1c1c">desborda: ${d.scrollWidth}px</b>` : "sin scroll lateral"}`;
+  };
+  const v = sc.variants[st.v];
+  document.getElementById("question").innerHTML = `<h3>${sc.label} · ${st.v} · ${v.name}</h3><p>${v.q}</p>${sc.erase ? `<h3>Baja y borrar · ${ERASE[st.erase].name}</h3><p>${ERASE[st.erase].q}</p>` : ""}`;
+}
+
+async function weights() {
+  const rows = [];
+  for (const [k, sc] of Object.entries(SCREENS)) for (const v of Object.keys(sc.variants)) {
+    const s = { sub: sc.subs ? Object.keys(sc.subs)[k === "mis" ? 1 : 0] : "", erase: "desplegable" };
+    const html = sc.render(v, s);
+    rows.push(`<tr><td>${sc.label} · ${v} ${sc.variants[v].name}${k === "mis" ? " (3 búsquedas)" : k === "aviso" ? " (revisa-tu-correo)" : ""}</td><td>${kb(bytes(html))}</td><td>${kb(await gz(html))}</td><td>${kb(await gz(noCss(html)))}</td></tr>`);
+  }
+  const base = await gz(`<style>${BASE}${COMMON}</style>`);
+  document.getElementById("weights").innerHTML = `<table><tr><th>Página</th><th>HTML</th><th>gzip</th><th>gzip sin CSS</th></tr>${rows.join("")}</table><p>La base de hoy más el botón y el campo comunes pesan ${kb(base)} gzip por página.</p>`;
+}
+
+draw(); weights();
+</script>
+</body>
+</html>
