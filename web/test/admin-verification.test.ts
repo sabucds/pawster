@@ -193,6 +193,16 @@ describe("the decision link", () => {
     expect(html).toMatch(/never people/i);
   });
 
+  it("carries the shared base, and refuse does not look like verify (#99)", async () => {
+    await register();
+    const html = await (await get(await decisionLink(await shelterIdFor()))).text();
+    expect(html).toContain("--ink-soft");
+    expect(html).toMatch(/<body class="wrap/);
+    expect(html).toMatch(/<button[^>]*class="refuse[^>]*data-testid="submit-Refused"/);
+    expect(html).toMatch(/<button[^>]*class="verify[^>]*data-testid="submit-Verified"/);
+    expect(html).not.toMatch(/<script/);
+  });
+
   it("never shows the shelter's account email", async () => {
     await register();
     const html = await (await get(await decisionLink(await shelterIdFor()))).text();
