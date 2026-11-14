@@ -128,6 +128,11 @@ however often it runs.
   catalogue from tripping on ordinary churn; the percentage catches the systemic failure. The
   asymmetry is the whole argument: **a skipped sweep costs about a megabyte and self-heals
   tomorrow, a wrong sweep is permanent.**
+  *(Amended after the [#45](https://github.com/sabucds/pawster/issues/45) review: an aborted run
+  mails the admin inbox too, not only a refused one. A stopped run means storage is not being freed,
+  and a run that keeps stopping would otherwise go unnoticed until the storage modes bite. The run
+  sends at most one admin email, so at most one a day, and it comes out of the same daily send budget
+  as every other mail. `reclamationAlert` in `digest/src/reclaim.ts` writes it.)*
 - **The measured byte total replaces ADR 0012's animal-count proxy.** `list` returns each object's
   size, so the true total falls out of a pass that is already happening. ADR 0012 rejected a D1 byte
   ledger because it could drift; a total recomputed from the buckets each night cannot, on the same
