@@ -18,7 +18,8 @@
     "check:ssr-cpu": "node scripts/measure-ssr-cpu.mjs",
     "check:i18n": "node scripts/measure-i18n.mjs",
     "check:filter-index": "node scripts/measure-filter-index.mjs",
-    "check:short-id": "node scripts/measure-short-id.mjs"
+    "check:short-id": "node scripts/measure-short-id.mjs",
+    "check:brand-contrast": "node scripts/check-brand-contrast.mjs"
   },
   "devDependencies": {
     "typescript": "^5.9.3"
