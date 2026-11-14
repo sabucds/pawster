@@ -31,7 +31,7 @@ so it never had stages for them. The wizard on this branch now does.
 | Queue name | `pawster-digest` |
 | Dead-letter queue | `pawster-digest-dlq` |
 | Admin inbox (ADR 0002 credential) | `Sabrinacorreia760@gmail.com` |
-| Resend sending domain | `mail.pawster.dpdns.org` — records published, awaiting Resend's verification poll; sandbox `onboarding@resend.dev` until it goes green |
+| Resend sending domain | `mail.pawster.dpdns.org`, verified. Every sender address must be on this subdomain: Resend refuses `@pawster.dpdns.org` with a 403, and neither name has an inbox |
 | Digest cron (UTC) | `0 11 * * *` (daily, per ADR 0009's seven-way shard) |
 | Repository visibility | public |
 
@@ -197,6 +197,10 @@ Needing the digest Worker, which now exists as `digest/`:
 - point the `pawster-digest-dlq` consumer at the Healthchecks `/fail` endpoint
   (ADR 0009). `HEALTHCHECK_URL` is a committed `var` rather than a secret: it
   is a check URL, not a credential, and `digest/wrangler.jsonc` carries it
+- `wrangler secret put ADMIN_EMAIL` on **both** Workers, the same inbox. It is
+  not a credential, but it is a person's own address and this repository is
+  public, so it is not a committed `var`. The sending domain has no inbox, so it
+  cannot be an address there
 
 Needing the web Worker, on which subscriber signup landed with issue #61 and
 admin verification with issue #53:

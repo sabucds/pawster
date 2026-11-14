@@ -50,6 +50,11 @@
   // `SUBSCRIBER_LINK_SECRET`. They are set with `wrangler secret put`, and the test seam supplies
   // fixed ones, so the suite still needs no credentials.
   //
+  // `ADMIN_EMAIL` is set the same way, though it is not a credential: it is the one address a
+  // signed admin link is sent to (ADR 0002) and the `reply_to` a refused shelter answers. It
+  // is a person's own inbox and this repository is public, so it stays out of the committed
+  // file. The sending domain has no inbox, so it cannot be an address there.
+  //
   // `DO_NOT_CONTACT_PEPPER` is the one that must never be rotated: ADR 0010 records that a
   // lost pepper fails *open*, silently resuming mail to people who reported us as spam. The
   // canary in `web/src/lib/subscriber/store.ts` is what turns that silence into a 500.
@@ -61,19 +66,15 @@
     // A different sender from the digest's, so a shelter's mail client and Postmaster Tools
     // can tell a credential from a newsletter, and so a spam complaint about the digest
     // cannot take the sign-in sender's reputation with it.
-    "SIGN_IN_FROM_ADDRESS": "entrar@pawster.dpdns.org",
-    // The one address a signed admin link is sent to (ADR 0002), and the `reply_to` a refused
-    // shelter answers. A var and not a secret: it is a destination, and the credential is the
-    // signature over the link.
-    "ADMIN_EMAIL": "hola@pawster.dpdns.org",
+    "SIGN_IN_FROM_ADDRESS": "entrar@mail.pawster.dpdns.org",
     // Verification mail, held apart from `entrar@` so a refusal marked as spam cannot take
     // the sign-in sender's reputation with it.
-    "VERIFICATION_FROM_ADDRESS": "verificacion@pawster.dpdns.org",
+    "VERIFICATION_FROM_ADDRESS": "verificacion@mail.pawster.dpdns.org",
     // The same sender `digest/wrangler.jsonc` holds, and the opt-in link goes out from it:
     // that mail is the first message of the digest relationship, so it should arrive from the
     // address every later resumen arrives from. A subscriber allow-lists it once, and a
     // complaint about it lands on the reputation it actually belongs to.
-    "DIGEST_FROM_ADDRESS": "digest@pawster.dpdns.org",
+    "DIGEST_FROM_ADDRESS": "digest@mail.pawster.dpdns.org",
     "SITE_ORIGIN": "https://pawster-web.pawster-app.workers.dev",
     // Where `pawster-media` is readable from, and the only place an adopter's browser fetches
     // a photograph. The `r2.dev` managed hostname recorded in `docs/provisioning-record.md`:

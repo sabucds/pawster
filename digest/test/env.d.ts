@@ -17,6 +17,8 @@ declare global {
        * signs.
        */
       SUBSCRIBER_LINK_SECRET: string;
+      /** A person's own inbox, so a secret kept out of the public `wrangler.jsonc`. */
+      ADMIN_EMAIL: string;
       /**
        * The real `db/migrations` files, read on the Node side at config time and handed
        * in as a binding because `applyD1Migrations` runs inside the Worker, where there
