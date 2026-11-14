@@ -21,6 +21,7 @@ export default defineConfig({
           // Cloudflare account and no credentials, so nothing real may be required.
           RESEND_API_KEY: "re_test_key",
           SUBSCRIBER_LINK_SECRET: "test-subscriber-link-secret",
+          ADMIN_EMAIL: "admin@pawster.test",
         },
       },
     }),
