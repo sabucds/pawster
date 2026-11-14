@@ -38,7 +38,7 @@ iframe{width:100%;height:560px;border:1px solid #0002;border-radius:8px;backgrou
 
 <!-- ============ A · Camperito ============ -->
 <style id="css-a">
-.v-a{--p:#c2410c;--p2:#9a3412;--tint:#ffefde;--ink:#1f2937;--soft:#4b5563;--line:#ecdccb;--page:#fffaf5;--ok:#166534;--okbg:#dcfce7;--urg:#9b1c1c;--urgbg:#fdeaea;--aged:#8a5a00;--agedbg:#fef3c7;
+.v-a{--p:#7a4b2a;--p2:#5c3820;--tint:#f1e8e0;--ink:#1c1917;--soft:#57534e;--line:#e7e5e4;--page:#fafaf9;--ok:#166534;--okbg:#dcfce7;--urg:#9b1c1c;--urgbg:#fdeaea;--aged:#8a5a00;--agedbg:#fef3c7;
  background:var(--page);color:var(--ink);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 .v-a .top{position:sticky;top:0;z-index:5;display:flex;justify-content:center;align-items:center;height:52px;background:var(--page);border-bottom:1px solid var(--line)}
 .v-a .wm{font:800 24px/1 Nunito,system-ui;color:var(--p);display:flex;gap:6px;align-items:center;letter-spacing:-.02em}
@@ -51,7 +51,7 @@ iframe{width:100%;height:560px;border:1px solid #0002;border-radius:8px;backgrou
 .v-a .chip{all:unset;cursor:pointer;flex:none;display:inline-flex;align-items:center;gap:6px;height:40px;padding:0 14px;border-radius:999px;background:#fff;border:1.5px solid var(--line);font-weight:600;font-size:15px}
 .v-a .chip[aria-pressed=true]{background:var(--p);border-color:var(--p);color:#fff}
 .v-a .notice{display:flex;gap:10px;padding:12px 14px;border-radius:16px;background:var(--agedbg);color:#713f12;margin:12px 0;font-size:15px}
-.v-a .card{background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 1px 2px #0000000d,0 6px 16px #c2410c14;margin:16px 0}
+.v-a .card{background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 1px 2px #0000000d,0 6px 16px #1c191714;margin:16px 0}
 .v-a .card .ph{aspect-ratio:4/3}
 .v-a .ib.fav{position:absolute;top:10px;right:10px}
 .v-a .badge{position:absolute;left:10px;bottom:10px;display:inline-flex;gap:4px;align-items:center;padding:4px 10px;border-radius:999px;font-size:13px;font-weight:700;background:#fff}
@@ -391,7 +391,7 @@ const SHEET = `<div class="scrim js-close"></div>
 
 /* ---------- the digest email, real email HTML ---------- */
 const MAIL = {
-  a: { head:`<td align="center" style="background:#c2410c;padding:18px;font:800 24px Arial,sans-serif;color:#ffffff">pawster</td>`, p:'#c2410c', r:'16px', btn:'999px', tint:'#ffefde', ok:'#166534', link:'#9a3412' },
+  a: { get head(){ return `<td align="center" style="background:${T().p};padding:18px;font:800 24px Arial,sans-serif;color:#ffffff">pawster</td>` }, get p(){ return T().p }, r:'16px', btn:'999px', get tint(){ return T().tint }, ok:'#166534', get link(){ return T().p2 } },
   b: { head:`<td style="padding:16px 20px;border-bottom:4px solid #03705f;font:700 20px Arial,sans-serif;color:#1a1d22">Pawster</td>`, p:'#03705f', r:'4px', btn:'4px', tint:'#e6f4f1', ok:'#03705f', link:'#03705f' },
   c: { head:`<td style="padding:20px;background:#fff4ef;font:700 26px Georgia,serif;color:#b4432c">paw<span style="color:#0f6e75">ster</span></td>`, p:'#b4432c', r:'12px', btn:'12px', tint:'#fff4ef', ok:'#0f6e75', link:'#0f6e75' },
 };
@@ -418,19 +418,27 @@ function mail(v){
   </table></td></tr></table></body></html>`;
 }
 
-/* ---------- switching ---------- */
-const ORDER = ['a','b','c'];
+/* ---------- switching: direction A only, three brown tones on a neutral page ---------- */
+const TONES = {
+  cafe:      { name:'A · Café',      sub:'Marrón medio, página neutra', p:'#7a4b2a', p2:'#5c3820', tint:'#f1e8e0' },
+  chocolate: { name:'A · Chocolate', sub:'Marrón oscuro, página neutra', p:'#5b3a29', p2:'#432a1d', tint:'#efe7e2' },
+  caramelo:  { name:'A · Caramelo',  sub:'Marrón claro, página neutra', p:'#8a5a33', p2:'#6e4626', tint:'#f5ebe0' },
+};
+const ORDER = Object.keys(TONES);
+let tone = ORDER.includes(new URLSearchParams(location.search).get('tone')) ? new URLSearchParams(location.search).get('tone') : 'cafe';
+const T = () => TONES[tone];
 async function show(v){
   cur = v;
   for (const el of document.querySelectorAll('[data-v]')) { el.hidden = el.dataset.v !== v; el.innerHTML = ''; el.classList.remove('open'); }
   const el = document.querySelector(`[data-v="${v}"]`);
+  el.style.cssText = `--p:${T().p};--p2:${T().p2};--tint:${T().tint}`;
   el.innerHTML = SCREEN[v]();
   el.querySelector('#sw').innerHTML = swatches(el);
   el.querySelector('#mail').srcdoc = mail(v);
   const ov = document.getElementById('overlay'); ov.className = 'overlay' + (v==='c' ? ' v-c' : ''); ov.innerHTML = v==='c' ? SHEET : '';
   document.getElementById('phone').scrollTop = 0;
-  document.getElementById('label').innerHTML = `${VARIANTS[v].name}<small>${VARIANTS[v].sub}</small>`;
-  const u = new URL(location); u.searchParams.set('variant', v); history.replaceState(null,'',u);
+  document.getElementById('label').innerHTML = `${T().name}<small>${T().sub}</small>`;
+  const u = new URL(location); u.searchParams.delete('variant'); u.searchParams.set('tone', tone); history.replaceState(null,'',u);
   const css = document.getElementById('css-'+v).textContent;
   const fontB = { a: 9228, b: 0, c: 10648 }[v];
   const bytes = await gz(css);
@@ -443,11 +451,11 @@ document.addEventListener('click', e => {
   if (e.target.closest('.js-sheet')) vc.classList.add('open');
   if (e.target.closest('.js-close')) vc.classList.remove('open');
 });
-const step = d => show(ORDER[(ORDER.indexOf(cur)+d+3)%3]);
+const step = d => { tone = ORDER[(ORDER.indexOf(tone)+d+3)%3]; show('a'); };
 document.getElementById('prev').onclick = () => step(-1);
 document.getElementById('next').onclick = () => step(1);
 document.addEventListener('keydown', e => { if (e.target.matches('input')) return; if (e.key==='ArrowLeft') step(-1); if (e.key==='ArrowRight') step(1); });
-show(ORDER.includes(new URLSearchParams(location.search).get('variant')) ? new URLSearchParams(location.search).get('variant') : 'a');
+show('a');
 </script>
 </body>
 </html>

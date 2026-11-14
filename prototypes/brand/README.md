@@ -1,14 +1,26 @@
 # Prototype: three brand directions for Pawster
 
-> **Verdict: pending.** The maintainer picks one on
+> **Verdict so far: direction A (Camperito), with a brown primary instead of orange and a neutral page
+> instead of cream.** The maintainer still picks the brown tone on
 > [Prototype: Pawster's design system and brand manual](https://github.com/sabucds/pawster/issues/106).
 
 This is a throwaway prototype, not production code. The real tokens live in
 `web/src/styles/base.css`. This file doesn't touch them.
 
-**Open `index.html` by double-clicking.** There is nothing to install and no build step. The arrows
-on the dark bar at the bottom switch direction, and so do the left and right arrow keys. The choice
-is saved in the URL as `?variant=a`, `b` or `c`.
+**Open `index.html` by double-clicking.** There is nothing to install and no build step. The page now
+shows only direction A. The arrows on the dark bar at the bottom switch between three brown tones,
+and so do the left and right arrow keys. The choice is saved in the URL as `?tone=cafe`, `chocolate`
+or `caramelo`.
+
+| Tone | Primary | Hover | Tint | Primary on white |
+|---|---|---|---|---|
+| Café | `#7a4b2a` | `#5c3820` | `#f1e8e0` | 7.3:1 |
+| Chocolate | `#5b3a29` | `#432a1d` | `#efe7e2` | 10.1:1 |
+| Caramelo | `#8a5a33` | `#6e4626` | `#f5ebe0` | 5.9:1 |
+
+All three share the same neutral greys: page `#fafaf9`, lines `#e7e5e4`, text `#1c1917`, soft text
+`#57534e`, white cards. Directions B and C are still in the file but out of the switcher. The table
+below describes the original three directions.
 
 The icons (Lucide, Phosphor and two Simple Icons brand marks) and the two font subsets are inlined,
 so the page works offline. The dog photos come from dog.ceo and need a connection. Without one you
