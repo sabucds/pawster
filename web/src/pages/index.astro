@@ -2,6 +2,7 @@
 import type { LabelledAxis } from "../lib/axis-labels.ts";
 import { LABELLED_AXES, REGION_HEADING } from "../lib/axis-labels.ts";
 import { MEDIA_BASE_URL } from "../lib/listing/media.ts";
+import "../styles/base.css";
 
 /**
  * The one sentence some axes need, and prose is why it is here rather than in
@@ -83,35 +84,6 @@ const AXIS_NOTES: Partial<Record<LabelledAxis["field"], string>> = {
       collide with.
     -->
     <style is:global>
-      :root {
-        --ink: #1a1d22;
-        --ink-soft: #5b6472;
-        --line: #e2e5ea;
-        --warn: #8a4b00;
-        --aged: #8a5a00;
-        --urgent-bg: #fdeaea;
-        --urgent-ink: #9b1c1c;
-        --page: #ffffff;
-      }
-
-      body {
-        margin: 0;
-        font: 16px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
-        color: var(--ink);
-        background: var(--page);
-      }
-
-      .wrap {
-        max-width: 46rem;
-        margin: 0 auto;
-        padding: 1rem 0.75rem 3rem;
-      }
-
-      h1 {
-        font-size: 1.35rem;
-        margin: 0 0 0.25rem;
-      }
-
       .lede {
         margin: 0 0 1rem;
         color: var(--ink-soft);

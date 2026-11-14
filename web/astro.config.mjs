@@ -11,6 +11,12 @@ import { defineConfig } from "astro/config";
 export default defineConfig({
   output: "static",
   /**
+   * Every page's CSS goes into its own HTML, never a separate file. Astro's default inlines
+   * only under 4 KB, and the listing's CSS sits near that line, so one more rule would quietly
+   * turn it into a render-blocking second request. See `src/styles/base.css` for the numbers.
+   */
+  build: { inlineStylesheets: "always" },
+  /**
    * Astro's session API, not Pawster's Session. Left on, the adapter binds a `SESSION` KV
    * namespace that nothing provisions and nothing reads. A shelter's session is its own
    * concept, held in D1 and begun by typing back an emailed one-time code (ADR 0013).

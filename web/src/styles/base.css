@@ -1,0 +1,38 @@
+/*
+  The base every page starts from: colour tokens, the body's type, and the reading width.
+  Anything only one page draws stays in that page.
+
+  Imported from frontmatter, and Astro writes it into each page's own `<style>` because
+  `build.inlineStylesheets` is "always" (astro.config.mjs). That is cheaper than a separate
+  cached file at this size: about 300 bytes gzipped per page, against a second
+  render-blocking request on a first visit over a slow mobile connection. Measure with
+  `node scripts/measure-page-css.mjs` after a build.
+*/
+:root {
+  --ink: #1a1d22;
+  --ink-soft: #5b6472;
+  --line: #e2e5ea;
+  --warn: #8a4b00;
+  --aged: #8a5a00;
+  --urgent-bg: #fdeaea;
+  --urgent-ink: #9b1c1c;
+  --page: #ffffff;
+}
+
+body {
+  margin: 0;
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: var(--ink);
+  background: var(--page);
+}
+
+.wrap {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 1rem 0.75rem 3rem;
+}
+
+h1 {
+  font-size: 1.35rem;
+  margin: 0 0 0.25rem;
+}

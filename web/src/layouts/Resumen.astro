@@ -12,14 +12,13 @@
  * result is a page that answers nothing for whoever lands on it. So the property is a prop
  * with the safe value as its default: a page has to *ask* to be indexed.
  *
- * **No stylesheet and no script**, for the reason `Refugios.astro` gives: ADR 0007's rule is
- * that the Worker runs as rarely as possible and the payload is small on a metered
- * Venezuelan connection, and every page in this group has to work before any of that
- * arrives. The look belongs to the listing (#56, #57).
+ * **The shared base and no script**, for the reason `Refugios.astro` gives.
  *
  * The copy is es-VE, hard-coded, and `lib/axis-labels.ts` records why that is the
  * shape ADR 0018 asks for until `strings/` exists.
  */
+import "../styles/base.css";
+
 interface Props {
   title: string;
   heading: string;
@@ -37,7 +36,7 @@ const { title, heading, indexable = false } = Astro.props;
     <title>{title} — Pawster</title>
     {!indexable && <meta name="robots" content="noindex" />}
   </head>
-  <body>
+  <body class="wrap">
     <h1>{heading}</h1>
     <slot />
   </body>

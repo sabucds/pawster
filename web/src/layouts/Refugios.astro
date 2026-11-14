@@ -6,11 +6,10 @@
  * at once with issue #51 and the alternative was six copies of the same `<head>`, not
  * because a design system is being started here.
  *
- * **No stylesheet and no script.** Both are real decisions rather than things not done yet:
- * ADR 0007's rule is that the Worker runs as rarely as possible and the payload is small on
- * a metered Venezuelan connection, and every page in this group is a form that has to work
- * before any of that arrives. The look belongs to the ticket that designs the publishing
- * area; what these pages owe the shelter is that the words are right and the form submits.
+ * **The shared base and no script.** `styles/base.css` gives these pages the listing's
+ * tokens, type and width, and Astro inlines it, so nothing extra is fetched. No script,
+ * because every page in this group is a form that has to submit before any script arrives
+ * on a metered Venezuelan connection (ADR 0007).
  *
  * The copy is es-VE, hard-coded, matching `index.astro` and `a/[id]/[...name].astro`. ADR 0018
  * settles that UI strings become typed phrase functions in a `strings/` workspace; that
@@ -18,6 +17,8 @@
  * Astro does not make for us, which belongs with the listing (#56/#57) rather than with
  * auth. `CONTEXT.md`'s *User-facing Spanish* table governs the words used here.
  */
+import "../styles/base.css";
+
 interface Props {
   title: string;
   heading: string;
@@ -38,7 +39,7 @@ const { title, heading } = Astro.props;
     -->
     <meta name="robots" content="noindex" />
   </head>
-  <body>
+  <body class="wrap">
     <h1>{heading}</h1>
     <slot />
   </body>
