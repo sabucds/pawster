@@ -65,7 +65,7 @@ export interface StoredAnimal {
   readonly sterilisation: Sterilisation;
   readonly availability: Availability;
   readonly lastConfirmedAt: Date;
-  readonly matchableSince: Date;
+  readonly publishedAt: Date;
   readonly urgentReason: string | null;
   /** Shared by every animal adopted together with this one; `null` for a lone animal. */
   readonly bondedGroupId: string | null;
@@ -91,7 +91,7 @@ const ANIMAL_COLUMNS = {
   sterilisation: animals.sterilisation,
   availability: animals.availability,
   lastConfirmedAt: animals.lastConfirmedAt,
-  matchableSince: animals.matchableSince,
+  publishedAt: animals.publishedAt,
   urgentReason: animals.urgentReason,
   bondedGroupId: animals.bondedGroupId,
 } as const;
@@ -220,7 +220,7 @@ export async function findAnimal(
 /**
  * A shelter's own animals, newest first.
  *
- * Ordered by `matchableSince` rather than by `lastConfirmedAt`, which would reshuffle the list
+ * Ordered by `publishedAt` rather than by `lastConfirmedAt`, which would reshuffle the list
  * every time the shelter confirmed anything — the page is a stable inventory a shelter learns
  * the shape of, not a feed. Every availability is included: an adopted animal is still the
  * shelter's, and hiding it would look like the row had been lost.
@@ -233,7 +233,7 @@ export async function listShelterAnimals(
     .select(ANIMAL_COLUMNS)
     .from(animals)
     .where(eq(animals.shelterId, shelterId))
-    .orderBy(desc(animals.matchableSince));
+    .orderBy(desc(animals.publishedAt));
   return rows.map(toStoredAnimal);
 }
 
@@ -266,7 +266,7 @@ export interface PublishAnimal {
  * derivatives are already stored, so there is no second row that has to succeed with this one
  * and no window in which half an animal exists.
  *
- * `matchableSince` and `lastConfirmedAt` are both set to `now` and they are not the same fact —
+ * `publishedAt` and `lastConfirmedAt` are both set to `now` and they are not the same fact —
  * they merely coincide at publication. Publishing is the animal entering the pool *and* the
  * shelter asserting the animal is true, so both clocks start together and then diverge: every
  * later edit moves the second and never the first.
@@ -308,7 +308,7 @@ export async function publishAnimal(
     sterilisation: animal.sterilisation,
     availability: "Available",
     lastConfirmedAt: request.now,
-    matchableSince: request.now,
+    publishedAt: request.now,
     urgentReason: animal.urgentReason,
   });
 
@@ -318,10 +318,10 @@ export async function publishAnimal(
 /**
  * Save an edit, which is also a Confirmation.
  *
- * **`lastConfirmedAt` moves and `matchableSince` does not.** `CONTEXT.md` makes a Confirmation
+ * **`lastConfirmedAt` moves and `publishedAt` does not.** `CONTEXT.md` makes a Confirmation
  * "a shelter's deliberate write to one animal — an edit, a new photo, or an explicit 'still
  * available' click — which records that the animal was true as of that moment", so every edit
- * is one by definition and issue #55 requires it. `matchableSince` stays put so the shelter's
+ * is one by definition and issue #55 requires it. `publishedAt` stays put so the shelter's
  * list (`listShelterAnimals`) does not reshuffle on every edit. Moving it would not re-announce
  * anything either way: the digest's sent-set decides what is new (`db/src/schema.ts`).
  *

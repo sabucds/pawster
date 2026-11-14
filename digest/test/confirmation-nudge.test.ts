@@ -83,7 +83,7 @@ async function seedAnimal(
     sterilisation: "Sterilised",
     availability,
     lastConfirmedAt,
-    matchableSince: daysAgo(400),
+    publishedAt: daysAgo(400),
   });
 }
 

@@ -1,0 +1,1 @@
+ALTER TABLE `animals` RENAME COLUMN `matchable_since` TO `published_at`;

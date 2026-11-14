@@ -64,7 +64,7 @@ export async function confirmAllAvailable(
  * adopted and confirmed together, so both reach every member, as in `editAnimal()`.
  *
  * Relisting is this same call with `Available`: the row keeps its id, photos and
- * `matchableSince`, and only the state and the confirmation move.
+ * `publishedAt`, and only the state and the confirmation move.
  */
 export async function confirmAnimal(
   db: Database,

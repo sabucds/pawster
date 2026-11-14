@@ -164,7 +164,7 @@ npx([
      id, shelter_id, upload_session_id, name, species, size, sex,
      estimated_birth_date, age_estimate_basis, region,
      good_with_children, good_with_dogs, good_with_cats,
-     description, sterilisation, availability, last_confirmed_at, matchable_since
+     description, sterilisation, availability, last_confirmed_at, published_at
    ) VALUES (
      'measure01', 'measure-s', 'measure-u', 'Canela', 'dog', 'Medium', 'Female',
      1735689600000, 'ShelterGuess', 'Miranda',

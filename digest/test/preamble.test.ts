@@ -195,7 +195,7 @@ async function seedListedAnimal(
     env.DB.prepare(
       `INSERT INTO animals (id, shelter_id, name, species, estimated_birth_date, region,
         last_confirmed_at, upload_session_id, sex, size, age_estimate_basis, good_with_children,
-        good_with_dogs, good_with_cats, description, sterilisation, availability, matchable_since)
+        good_with_dogs, good_with_cats, description, sterilisation, availability, published_at)
        VALUES (?, 'shelter-1', ?, 'dog', ?, 'Miranda', ?, ?, 'Female', 'Medium', 'VetEstimate',
         'Unknown', 'Unknown', 'Unknown', 'A good animal.', 'Unknown', ?, ?)`,
     ).bind(id, `Animal ${id}`, at, at, `session-${id}`, availability, at),

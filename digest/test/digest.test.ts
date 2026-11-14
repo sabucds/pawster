@@ -163,7 +163,7 @@ interface AnimalSeed {
   readonly estimatedBirthDate?: Date;
   readonly availability?: "Available" | "Adopted" | "NoLongerAvailable";
   readonly bondedGroupId?: string | null;
-  readonly matchableSince?: Date;
+  readonly publishedAt?: Date;
   readonly shelterId?: string;
 }
 
@@ -186,7 +186,7 @@ async function seedAnimal(id: string, seed: AnimalSeed = {}) {
       `INSERT INTO animals (id, shelter_id, name, species, estimated_birth_date, region,
         last_confirmed_at, upload_session_id, sex, size, age_estimate_basis, good_with_children,
         good_with_dogs, good_with_cats, description, sterilisation, availability,
-        matchable_since, bonded_group_id)
+        published_at, bonded_group_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Female', ?, 'VetEstimate', 'Unknown', 'Unknown',
         'Unknown', 'A good animal.', 'Unknown', ?, ?, ?)`,
     ).bind(
@@ -200,7 +200,7 @@ async function seedAnimal(id: string, seed: AnimalSeed = {}) {
       `session-${id}`,
       species === "dog" ? "Medium" : null,
       seed.availability ?? "Available",
-      (seed.matchableSince ?? new Date(at)).getTime(),
+      (seed.publishedAt ?? new Date(at)).getTime(),
       seed.bondedGroupId ?? null,
     ),
   ]);
@@ -569,17 +569,17 @@ describe("matching", () => {
     expect(next.map((m) => m.sections[0]!.units)).toEqual([[["animal-1"]]]);
   });
 
-  it("sends an animal whose matchable_since predates the subscriber's last digest", async () => {
+  it("sends an animal whose published_at predates the subscriber's last digest", async () => {
     /**
      * No time cutoff can narrow the candidates without dropping the graduation above or the
      * overflow below (ADR 0009). This pins that the producer does not filter on
-     * `matchable_since`: the sent-set alone decides what is new.
+     * `published_at`: the sent-set alone decides what is new.
      */
     await seedSubscriber("s-wed", "wed@example.org", 3, {
       lastDigestAt: new Date("2026-08-26"),
     });
     await seedShelter();
-    await seedAnimal("animal-1", { matchableSince: new Date("2026-01-01") });
+    await seedAnimal("animal-1", { publishedAt: new Date("2026-01-01") });
     await seedSubscription("sub-all", "s-wed");
 
     expect((await enqueuedBy(WEDNESDAY)).map((m) => m.subscriberId)).toEqual(["s-wed"]);

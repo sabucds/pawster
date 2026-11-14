@@ -277,3 +277,52 @@ describe("the subscriber model's IP", () => {
     expect(holdsIp).toEqual(["pending_opt_ins"]);
   });
 });
+
+/**
+ * That migration 0014 renames `matchable_since` to `published_at` and keeps the value.
+ *
+ * A rename that drizzle-kit is not told about comes out as a drop and an add, and on a
+ * `NOT NULL` column that loses every animal's publication time. This applies the rest of the
+ * migrations up to 0013, seeds an animal, then applies 0014 and reads the value back.
+ */
+describe("migration 0014", () => {
+  const publishedAt = Date.UTC(2026, 0, 15);
+
+  beforeAll(async () => {
+    expect(migrations[14]!.name).toContain("0014");
+    const before = migrations.slice(0, 14).filter((_, i) => ![0, 1, 2, 4].includes(i));
+    await applyD1Migrations(env.MIGRATION_DB, before);
+
+    await env.MIGRATION_DB.batch([
+      env.MIGRATION_DB.prepare(
+        "INSERT INTO upload_sessions (id, shelter_id, created_at) VALUES ('session-1', 'legacy-1', 0)",
+      ),
+      env.MIGRATION_DB.prepare(
+        `INSERT INTO animals (id, shelter_id, name, species, estimated_birth_date, region,
+          last_confirmed_at, upload_session_id, sex, size, age_estimate_basis, good_with_children,
+          good_with_dogs, good_with_cats, description, sterilisation, availability, matchable_since)
+         VALUES ('animal-1', 'legacy-1', 'Luna', 'dog', 0, 'Miranda', 0, 'session-1', 'Female',
+          'Medium', 'VetEstimate', 'Unknown', 'Unknown', 'Unknown', 'A good animal.', 'Unknown',
+          'Available', ?)`,
+      ).bind(publishedAt),
+    ]);
+
+    await applyD1Migrations(env.MIGRATION_DB, [migrations[14]!]);
+  });
+
+  it("keeps an existing animal's value under the new name", async () => {
+    const row = await env.MIGRATION_DB.prepare(
+      "SELECT published_at FROM animals WHERE id = 'animal-1'",
+    ).first<{ published_at: number }>();
+
+    expect(row!.published_at).toBe(publishedAt);
+  });
+
+  it("leaves no matchable_since column behind", async () => {
+    const { results } = await env.MIGRATION_DB.prepare(
+      "SELECT name FROM pragma_table_info('animals')",
+    ).all<{ name: string }>();
+
+    expect(results.map((column) => column.name)).not.toContain("matchable_since");
+  });
+});

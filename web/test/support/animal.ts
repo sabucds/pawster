@@ -142,7 +142,7 @@ export async function seedAnimal(
     sterilisation: "Sterilised",
     availability: options.availability ?? "Available",
     lastConfirmedAt: options.lastConfirmedAt ?? new Date("2026-08-30"),
-    matchableSince: createdAt,
+    publishedAt: createdAt,
     urgentReason: options.urgentReason ?? null,
     bondedGroupId: options.bondedGroupId ?? null,
   });
