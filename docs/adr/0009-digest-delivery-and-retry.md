@@ -34,9 +34,19 @@ wrong region and fixes it the next day is invisible to a watermark that has alre
 past; overflow beyond the per-email cap is silently dropped by a watermark and survives in a
 sent-set; and a re-listed animal can be reasoned about explicitly. The candidate set for a
 subscription is therefore *matches the criteria* AND *currently listed* AND *not already sent
-to this subscription*. `matchableSince` on the animal — bumped when a filter-axis attribute
-or availability changes — exists only to make that query cheap, never to decide the answer.
-`lastDigestAt` survives as a reporting field.
+to this subscription*. The sent-set alone decides what is new, and no time cutoff narrows
+the read. `lastDigestAt` survives as a reporting field.
+*(Amended after the [#45](https://github.com/sabucds/pawster/issues/45) review. This paragraph
+used to say `matchableSince` was bumped whenever a filter-axis attribute or availability changed,
+and that it existed to make the candidate query cheap. Nothing ever bumped it and the digest never
+read it. A cutoff on publish time cannot narrow the read, because it would drop three kinds of
+animal the sent-set exists to keep. The caps of `DIGEST_SECTION_CAP` (12) per section and
+`DIGEST_EMAIL_CAP` (24) per email, both in `domain/src/digest.ts`, leave overflow for later runs,
+and that overflow was published before the last digest. An animal can age into a subscriber's band
+with no edit at all ([ADR 0004](0004-age-bands-are-derived.md)). And a new Subscription starts with
+an empty sent-set, so it should see every listed animal that matches it, however long that animal
+has been listed. `matchableSince` still exists, set once at publication; the digest ignores it and
+only the shelter's own list sorts by it.)*
 
 **Shard the run by day, with a reserved quota floor.** Every subscriber carries a stored send
 day, assigned at opt-in to the least-loaded day of the week, so a weekly digest becomes seven

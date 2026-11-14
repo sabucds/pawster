@@ -571,9 +571,9 @@ describe("matching", () => {
 
   it("sends an animal whose matchable_since predates the subscriber's last digest", async () => {
     /**
-     * ADR 0009 says `matchable_since` narrows candidates. No time cutoff can without dropping
-     * the graduation above or the overflow below. This pins that the producer does not: the
-     * sent-set alone decides what is new.
+     * No time cutoff can narrow the candidates without dropping the graduation above or the
+     * overflow below (ADR 0009). This pins that the producer does not filter on
+     * `matchable_since`: the sent-set alone decides what is new.
      */
     await seedSubscriber("s-wed", "wed@example.org", 3, {
       lastDigestAt: new Date("2026-08-26"),

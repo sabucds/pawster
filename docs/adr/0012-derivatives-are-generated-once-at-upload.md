@@ -171,7 +171,10 @@ out near 830 animals.
   set.** Promoting a photo to primary needs only its digest thumbnail and social preview (its card
   thumbnail already exists), and any change to the primary rewrites the filter index. Deleting is
   refused at one photo remaining; deleting the primary promotes the next. A reorder is a
-  Confirmation under the existing definition, so it refreshes `lastConfirmedAt`. The alternative -
+  Confirmation under the existing definition, so it refreshes `lastConfirmedAt`, and so is deleting
+  a photo. *(Amended after the [#45](https://github.com/sabucds/pawster/issues/45) review, which
+  added the deletion: a shelter that removes a photo is looking at the animal now, which is what a
+  Confirmation records. `web/src/lib/photos/arrange.ts` treats both the same way.)* The alternative -
   async regeneration - opens a window in which the digest reads the index and finds an animal whose
   thumbnail does not exist.
 - **The caps are ours, because R2 bills instead of failing.** Three, in the order they bite: reject
