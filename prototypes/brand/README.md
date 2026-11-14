@@ -1,8 +1,10 @@
 # Prototype: three brand directions for Pawster
 
-> **Verdict so far: direction A (Camperito), with a brown primary instead of orange and a neutral page
-> instead of cream.** The maintainer still picks the brown tone on
+> **Verdict: direction A (Camperito) in Chocolate brown (`#5b3a29`), on a neutral grey page instead of
+> cream.** Chosen on
 > [Prototype: Pawster's design system and brand manual](https://github.com/sabucds/pawster/issues/106).
+> The result is `docs/brand.md`, added in
+> [Write the brand manual: direction A in chocolate brown](https://github.com/sabucds/pawster/pull/107).
 
 This is a throwaway prototype, not production code. The real tokens live in
 `web/src/styles/base.css`. This file doesn't touch them.
