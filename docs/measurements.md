@@ -179,10 +179,26 @@ One run of `npm run check:ssr-cpu`, 500 samples, local `workerd` on an Apple-sil
 **31% of the 10 ms ceiling**, up from 24 to 27% at #57. That is still an upper bound, for the
 local-D1 reason given above.
 
-This is not yet the figure from the deployed Worker that #67 asked for. Cloudflare's Workers
-analytics reports CPU time per request (`workersInvocationsAdaptive`, `cpuTimeP50` to
-`cpuTimeP999`), but reading it needs an API token with Analytics read access, and `.env` has
-none yet. Once one exists, record those percentiles for `pawster-web` here.
+### Recorded 2026-11-14, on the deployed Worker (#67)
+
+Cloudflare's Workers analytics (`workersInvocationsAdaptive` in the GraphQL API) reports CPU
+time per request but not per path. To isolate the animal page, 30 requests went to
+`/a/:id/:name` for one adopted animal between 03:03:07Z and 03:04:30Z, with nothing else
+hitting `pawster-web` in that window. All 30 succeeded.
+
+| Percentile | CPU time |
+|---|---|
+| P50 | 13.4 ms |
+| P90 | 30.4 ms |
+| P99 | 56.9 ms |
+
+**The median is 134% of the 10 ms ceiling.** The local figure above (3.1 ms) understated the
+deployed one by about four times. For comparison, the last 24 hours across every route
+(25 requests, including sign-in, upload and publish) gave P50 10.6 ms and P90 27.2 ms.
+
+No request failed, so the free plan did not cut any of them off in this sample. That is not
+a guarantee: the ceiling is a contract, and this page is over it at the median. Finding
+where the 13 ms goes is follow-up work, not part of #67.
 
 ### What this number is not
 
