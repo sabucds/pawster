@@ -48,7 +48,7 @@ export interface ArrangePlatform {
  *
  * Every arrangement is a Confirmation: `CONTEXT.md` defines one as "a shelter's deliberate
  * write to one animal", and ADR 0012 names the reorder explicitly. A delete is treated the
- * same way, since it is just as deliberate. `matchableSince` does not move.
+ * same way, since it is just as deliberate. `publishedAt` does not move.
  *
  * The caller regenerates the filter index afterwards, as every other act does (ADR 0018).
  */

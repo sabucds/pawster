@@ -396,7 +396,7 @@ export const animals = sqliteTable(
       enum: ["Available", "Adopted", "NoLongerAvailable"],
     }).notNull(),
     /**
-     * When the animal first became matchable. Set once at publication and never moved.
+     * When the shelter published the animal. Set once at publication and never moved.
      *
      * Distinct from `lastConfirmedAt`: a confirmation records that the animal is still true
      * *now*, while this records when it entered the pool, and the shelter's own list sorts by
@@ -404,7 +404,7 @@ export const animals = sqliteTable(
      * but no time cutoff can do that without dropping overflow a capped email left for next
      * week or a puppy that grew into a band, so the sent-set alone decides what is new.
      */
-    matchableSince: integer("matchable_since", {
+    publishedAt: integer("published_at", {
       mode: "timestamp_ms",
     }).notNull(),
     /**

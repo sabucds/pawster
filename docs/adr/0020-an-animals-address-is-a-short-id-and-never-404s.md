@@ -133,7 +133,8 @@ it is an exception about *what was ever public* rather than about tidiness.
   ([ADR 0014](0014-the-domain-is-free-and-lives-outside-cloudflare.md)).
 - **Nothing may be inferred from an id.** It is random, so it sorts arbitrarily, reveals no
   publication order and cannot be counted. Anything wanting insertion order reads
-  `matchableSince`, which is a column that means it.
+  `publishedAt`, which is a column that means it. (It was called `matchable_since` before
+  migration 0014.)
 - **Bonded groups will need an address of their own** (issue #59). A group is an Adoption Unit
   with no name and no description, so `/a/<id>/<name>` describes one member of it; that ticket
   decides whether a group is a third path shape or an id in the same space.

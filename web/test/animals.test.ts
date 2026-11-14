@@ -181,7 +181,7 @@ describe("publishing an animal", () => {
     // Publishing an animal *is* making it available; the form offers no other choice.
     expect(row!.availability).toBe("Available");
     // Both clocks start together at publication and diverge from the first edit onwards.
-    expect(row!.matchableSince.getTime()).toBe(row!.lastConfirmedAt.getTime());
+    expect(row!.publishedAt.getTime()).toBe(row!.lastConfirmedAt.getTime());
   });
 
   it("stores no ageBand, because the band is derived", async () => {
@@ -527,13 +527,13 @@ describe("editing an animal", () => {
    */
   async function ageTimestamps(animalId: string, to: Date) {
     await env.DB.prepare(
-      "UPDATE animals SET last_confirmed_at = ?, matchable_since = ? WHERE id = ?",
+      "UPDATE animals SET last_confirmed_at = ?, published_at = ? WHERE id = ?",
     )
       .bind(to.getTime(), to.getTime(), animalId)
       .run();
   }
 
-  it("moves lastConfirmedAt and leaves matchableSince alone", async () => {
+  it("moves lastConfirmedAt and leaves publishedAt alone", async () => {
     const { shelterId, cookie, animalId } = await published();
     const past = new Date("2026-01-01");
     await ageTimestamps(animalId, past);
@@ -549,7 +549,7 @@ describe("editing an animal", () => {
     // "Any edit moves lastConfirmedAt" — every edit is a Confirmation.
     expect(row!.lastConfirmedAt.getTime()).toBeGreaterThan(past.getTime());
     // And the animal did not re-enter the pool, so the digest must not re-announce it.
-    expect(row!.matchableSince.getTime()).toBe(past.getTime());
+    expect(row!.publishedAt.getTime()).toBe(past.getTime());
   });
 
   it("renames without changing anything a link depends on", async () => {

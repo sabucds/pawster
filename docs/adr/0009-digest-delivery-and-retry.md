@@ -37,7 +37,8 @@ subscription is therefore *matches the criteria* AND *currently listed* AND *not
 to this subscription*. The sent-set alone decides what is new, and no time cutoff narrows
 the read. `lastDigestAt` survives as a reporting field.
 *(Amended after the [#45](https://github.com/sabucds/pawster/issues/45) review. This paragraph
-used to say `matchableSince` was bumped whenever a filter-axis attribute or availability changed,
+used to say `publishedAt` (called `matchable_since` before migration 0014) was bumped whenever a
+filter-axis attribute or availability changed,
 and that it existed to make the candidate query cheap. Nothing ever bumped it and the digest never
 read it. A cutoff on publish time cannot narrow the read, because it would drop three kinds of
 animal the sent-set exists to keep. The caps of `DIGEST_SECTION_CAP` (12) per section and
@@ -45,7 +46,7 @@ animal the sent-set exists to keep. The caps of `DIGEST_SECTION_CAP` (12) per se
 and that overflow was published before the last digest. An animal can age into a subscriber's band
 with no edit at all ([ADR 0004](0004-age-bands-are-derived.md)). And a new Subscription starts with
 an empty sent-set, so it should see every listed animal that matches it, however long that animal
-has been listed. `matchableSince` still exists, set once at publication; the digest ignores it and
+has been listed. `publishedAt` still exists, set once at publication; the digest ignores it and
 only the shelter's own list sorts by it.)*
 
 **Shard the run by day, with a reserved quota floor.** Every subscriber carries a stored send

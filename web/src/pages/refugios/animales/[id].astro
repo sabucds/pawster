@@ -40,7 +40,7 @@ import { listSessionPhotos } from "../../../lib/photos/store.ts";
  *
  * `CONTEXT.md` makes a Confirmation "a shelter's deliberate write to one animal — an edit, a new
  * photo, or an explicit 'still available' click", so saving this form moves `lastConfirmedAt` and
- * that is not a side effect: it is what the ticket requires of any edit. `matchableSince` does
+ * that is not a side effect: it is what the ticket requires of any edit. `publishedAt` does
  * not move, because the animal did not re-enter the pool — see `lib/animals/store.ts`.
  *
  * ## Why the visibility notice is computed and not stored
@@ -300,7 +300,7 @@ const listingPending =
     <dt>Última confirmación</dt>
     <dd data-testid="last-confirmed">{asDateInput(animal.lastConfirmedAt)}</dd>
     <dt>En el sitio desde</dt>
-    <dd data-testid="matchable-since">{asDateInput(animal.matchableSince)}</dd>
+    <dd data-testid="published-at">{asDateInput(animal.publishedAt)}</dd>
   </dl>
 
   {
