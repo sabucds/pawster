@@ -23,6 +23,13 @@
     }
   ],
 
+  // The same buckets `web/` binds. The reclamation sweep deletes unreferenced derivatives under
+  // `d/` in MEDIA and measures the bytes in both (ADR 0016).
+  "r2_buckets": [
+    { "binding": "MEDIA", "bucket_name": "pawster-media" },
+    { "binding": "ORIGINALS", "bucket_name": "pawster-originals" }
+  ],
+
   "queues": {
     "producers": [{ "binding": "DIGEST_QUEUE", "queue": "pawster-digest" }],
     "consumers": [
@@ -50,6 +57,12 @@
   "vars": {
     "HEALTHCHECK_URL": "https://hc-ping.com/00000000-0000-0000-0000-000000000000",
     "DIGEST_FROM_ADDRESS": "digest@pawster.dpdns.org",
-    "SITE_ORIGIN": "https://pawster.dpdns.org"
+    "SITE_ORIGIN": "https://pawster.dpdns.org",
+    // Where the digest's thumbnails load from: the media bucket's public URL, the same value
+    // as `web/src/lib/listing/media.ts`. Public by design, so a var and not a secret.
+    "MEDIA_BASE_URL": "https://pub-ca6f4461598148fa980041a7fd05262e.r2.dev",
+    // Where a refused or failed sweep, and a storage alarm, are mailed. The same inbox `web/`
+    // uses.
+    "ADMIN_EMAIL": "hola@pawster.dpdns.org"
   }
 }

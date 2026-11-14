@@ -624,6 +624,9 @@ describe("the session", () => {
     expect(tables).toEqual([
       "animals",
       "d1_migrations",
+      "digest_deliveries",
+      "digest_runs",
+      "digest_sent",
       "do_not_contact",
       "one_time_codes",
       "opt_in_mails",

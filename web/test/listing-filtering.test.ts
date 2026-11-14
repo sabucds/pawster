@@ -43,6 +43,7 @@ function listed(overrides: Partial<ListedAnimal> = {}): ListedAnimal {
     thumbnailKey: "d/abc.webp",
     bondedGroupId: null,
     urgent: false,
+    demo: false,
     shelterId: "s1",
     ...overrides,
   };
@@ -90,9 +91,9 @@ function renderFor(search: string) {
   const criteria = criteriaFromSearch(search);
   const shown = selectListed(CATALOGUE, criteria, NOW);
   return {
-    ids: shown.map((animal) => animal.id),
-    html: shown.map((animal) => renderCard(cardModel(animal, NOW, MEDIA))).join(""),
-    status: statusLine(shown.length, CATALOGUE.length),
+    ids: shown.map(([animal]) => animal.id),
+    html: shown.map((unit) => renderCard(cardModel(unit, NOW, MEDIA))).join(""),
+    status: statusLine(shown.flat().length, CATALOGUE.length),
   };
 }
 

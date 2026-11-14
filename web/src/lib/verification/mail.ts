@@ -30,7 +30,7 @@
  * put sign-in's deliverability at the mercy of the platform's least welcome mail.
  */
 
-import type { VerificationOutcome } from "@pawster/domain";
+import { type VerificationOutcome, wholeDays } from "@pawster/domain";
 import type { StoredContactPoint } from "../shelter/store.ts";
 import { CONTACT_POINT_LABELS } from "../shelter/fields.ts";
 import { DECISION_LINK_TTL_MS, PENDING_LIST_LINK_TTL_MS } from "./policy.ts";
@@ -47,7 +47,7 @@ export interface VerificationMailEnv {
   readonly SITE_ORIGIN: string;
 }
 
-const DECISION_LINK_DAYS = Math.round(DECISION_LINK_TTL_MS / (24 * 60 * 60_000));
+const DECISION_LINK_DAYS = wholeDays(DECISION_LINK_TTL_MS);
 const PENDING_LINK_HOURS = Math.round(PENDING_LIST_LINK_TTL_MS / (60 * 60_000));
 
 /** The shelter facts a decision mail describes. No account email — see below. */

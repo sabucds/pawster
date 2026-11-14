@@ -3,6 +3,7 @@ import {
   check,
   index,
   integer,
+  primaryKey,
   sqliteTable,
   text,
   uniqueIndex,
@@ -10,9 +11,9 @@ import {
 
 /**
  * The skeleton's schema plus shelter access, the photo pipeline, the verification log and
- * the subscriber side. What is left is the sent-set, which lands with the ticket that needs
- * it. What is settled here is the *shape*: this package owns the schema and the migrations,
- * and both Workers bind the same database.
+ * the subscriber side, and the digest's sent-set and run record. What is settled here is
+ * the *shape*: this package owns the schema and the migrations, and both Workers bind the
+ * same database.
  *
  * Two absences in the access tables below are load-bearing rather than unfinished, and
  * both come from [ADR 0013](../../docs/adr/0013-shelters-sign-in-with-an-emailed-code.md):
@@ -79,6 +80,28 @@ export const shelters = sqliteTable("shelters", {
    * rule that an email change invalidates every outstanding link.
    */
   sessionEpoch: integer("session_epoch").notNull().default(0),
+  /**
+   * The generation of the shelter's Confirmation Nudge link (ADR 0008, issue #60). Each
+   * nudge bumps it, and only a link carrying the current value verifies, so a new nudge
+   * supersedes every older one without a revoke list.
+   */
+  nudgeVersion: integer("nudge_version").notNull().default(0),
+  /** When the last Confirmation Nudge was sent; null if never. Spaces nudges apart. */
+  nudgedAt: integer("nudged_at", { mode: "timestamp_ms" }),
+  /**
+   * When the shelter asked to leave Pawster; null while it has not (ADR 0015, issue #65).
+   *
+   * A column on the shelter and never a verification entry: leaving is the shelter's own act,
+   * and the log is the record of the platform's decisions. Setting it delists every animal at
+   * once through `isListed()`. Clearing it within `DEPARTURE_GRACE_MS` is the cancel; past
+   * that, the daily preamble erases the contact points and account email (issue #66).
+   */
+  departedAt: integer("departed_at", { mode: "timestamp_ms" }),
+  /**
+   * The demo shelter (ADR 0021): its animals are listed and labelled on every public page,
+   * and never enter a digest. Only `scripts/seed-demo-shelter.mjs` sets it; no form can.
+   */
+  demo: integer("demo", { mode: "boolean" }).notNull().default(false),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   /**
    * **No `verified` column and no legal-name column**, and both absences are decisions
@@ -290,6 +313,13 @@ export const animals = sqliteTable(
       mode: "timestamp_ms",
     }).notNull(),
     /**
+     * How the last Confirmation arrived: signed in, or through a nudge link that anyone
+     * holding it may use (ADR 0008 asks the record to say which).
+     */
+    lastConfirmedVia: text("last_confirmed_via", { enum: ["session", "link"] })
+      .notNull()
+      .default("session"),
+    /**
      * The upload session whose photos this animal was assembled from.
      *
      * The **only** link between an animal and its photographs, and it points this way
@@ -368,10 +398,11 @@ export const animals = sqliteTable(
     /**
      * When the animal first became matchable. Set once at publication and never moved.
      *
-     * Distinct from `lastConfirmedAt`, and the pair is the point: a confirmation records
-     * that the animal is still true *now*, while this records when it entered the pool. The
-     * digest's "what is new" reads this one, so folding the two together would make every
-     * edit re-announce an animal that subscribers were shown weeks ago.
+     * Distinct from `lastConfirmedAt`: a confirmation records that the animal is still true
+     * *now*, while this records when it entered the pool, and the shelter's own list sorts by
+     * it. The digest does not read it. ADR 0009 meant it to narrow the digest's candidates,
+     * but no time cutoff can do that without dropping overflow a capped email left for next
+     * week or a puppy that grew into a band, so the sent-set alone decides what is new.
      */
     matchableSince: integer("matchable_since", {
       mode: "timestamp_ms",
@@ -387,6 +418,12 @@ export const animals = sqliteTable(
      */
     urgentReason: text("urgent_reason"),
     /**
+     * The bonded group this animal is adopted with, or `null` for a lone animal. Members
+     * share the value; nothing else describes a group, so there is no join table and no
+     * group name. A group of one is not a group: the last member left gets `null` back.
+     */
+    bondedGroupId: text("bonded_group_id"),
+    /**
      * No `listed` column, and this is a deliberate omission rather than a gap. CONTEXT.md
      * defines a Listing as *derived*: an animal is listed while it is available, its shelter
      * is verified, that shelter offers at least one contact point, and that shelter has not
@@ -401,6 +438,7 @@ export const animals = sqliteTable(
   },
   (table) => [
     index("animals_shelter_idx").on(table.shelterId),
+    index("animals_bonded_group_idx").on(table.bondedGroupId),
     uniqueIndex("animals_upload_session_idx").on(table.uploadSessionId),
     /**
      * The dog-only size pairing, as a single equivalence rather than two rules.
@@ -594,7 +632,7 @@ export const subscribers = sqliteTable(
      * longest-waiting subscribers" expressible: `ORDER BY last_digest_at ASC` puts NULLs
      * first in SQLite, so whoever has waited longest goes first and the tail rotates
      * instead of starving. It is *not* the source of truth for "new" — that is the
-     * per-subscription sent-set, which lands with the matching ticket.
+     * per-subscription sent-set, `digestSent`.
      */
     lastDigestAt: integer("last_digest_at", { mode: "timestamp_ms" }),
     /**
@@ -744,6 +782,104 @@ export const subscriptions = sqliteTable(
     check("subscriptions_slot_range", sql`${table.slot} between 0 and 2`),
   ],
 );
+
+/**
+ * The sent-set: which animals each subscription has already been sent (ADR 0009).
+ *
+ * **This is the source of truth for "new", not a watermark.** The digest's candidate set is
+ * *matches the criteria* AND *currently listed* AND *not in here*, so an animal whose region a
+ * shelter corrects after a run still reaches the subscriber, and a queue message lost to
+ * retention is simply recomputed by the next run. A row is written by the consumer only after
+ * the email actually went out.
+ *
+ * Per animal rather than per unit, because a bonded group's membership can change; `domain/`'s
+ * `digestCandidates` treats a unit as sent once every member has a row.
+ *
+ * Both foreign keys cascade: deleting a subscription (the manage page, or erasure) takes its
+ * sent-set with it, which is what keeps this from being personal data that outlives consent.
+ */
+export const digestSent = sqliteTable(
+  "digest_sent",
+  {
+    subscriptionId: text("subscription_id")
+      .notNull()
+      .references(() => subscriptions.id, { onDelete: "cascade" }),
+    animalId: text("animal_id")
+      .notNull()
+      .references(() => animals.id, { onDelete: "cascade" }),
+    sentAt: integer("sent_at", { mode: "timestamp_ms" }).notNull(),
+    /**
+     * When the daily run first saw this row's animal not listed; null while it is listed.
+     *
+     * Issue #66 prunes a sent-set row 90 days after its animal unlists, and no other record
+     * says when that happened: an animal can stop being listed through its availability, its
+     * shelter's verification, its last contact point or its shelter's departure. So the run
+     * reconciles this column against the listed set every day, and clears it if the animal
+     * comes back, which means a still-listed animal's row is never pruned and never re-sent.
+     */
+    unlistedSince: integer("unlisted_since", { mode: "timestamp_ms" }),
+  },
+  (table) => [primaryKey({ columns: [table.subscriptionId, table.animalId] })],
+);
+
+/**
+ * One row per digest actually sent (`CONTEXT.md`'s Digest Delivery), kept 90 days (ADR 0010).
+ *
+ * Keyed on the subscriber and never on an address, so erasing the subscriber erases these
+ * through the cascade and nothing here outlives consent.
+ */
+export const digestDeliveries = sqliteTable(
+  "digest_deliveries",
+  {
+    id: text("id").primaryKey(),
+    subscriberId: text("subscriber_id")
+      .notNull()
+      .references(() => subscribers.id, { onDelete: "cascade" }),
+    period: text("period").notNull(),
+    sentAt: integer("sent_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [index("digest_deliveries_sent_at_idx").on(table.sentAt)],
+);
+
+/**
+ * One row per Digest Run (`CONTEXT.md`), kept forever.
+ *
+ * Counts and nothing else, so there is no personal data to retain or erase (ADR 0010), and it
+ * is the only long-run evidence that the digest is running rather than silently dead: Resend
+ * keeps events for 30 days and Healthchecks.io only knows about the last ping.
+ *
+ * No unique index on `period`, on purpose: a re-run of the same day is a second run and gets
+ * a second row.
+ */
+export const digestRuns = sqliteTable("digest_runs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  period: text("period").notNull(),
+  ranAt: integer("ran_at", { mode: "timestamp_ms" }).notNull(),
+  /** Subscribers whose send day it was and who are still being mailed. */
+  shard: integer("shard").notNull(),
+  /** Of those, how many had something new and were enqueued. */
+  enqueued: integer("enqueued").notNull(),
+  /** Units across every enqueued message; a bonded group counts once. */
+  units: integer("units").notNull(),
+  nudged: integer("nudged").notNull(),
+  purgedOptIns: integer("purged_opt_ins").notNull(),
+  purgedOptInMails: integer("purged_opt_in_mails").notNull(),
+  erasedSubscribers: integer("erased_subscribers").notNull(),
+  /** Issue #66's preamble. Default 0 so the rows written before it still read. */
+  erasedDeliveries: integer("erased_deliveries").notNull().default(0),
+  expiredSentRows: integer("expired_sent_rows").notNull().default(0),
+  erasedDepartures: integer("erased_departures").notNull().default(0),
+  /**
+   * How the Reclamation ended: `reclaimed`, `refused` (the delete set was too large, so
+   * nothing was deleted and the admin was mailed) or `aborted` (a read failed, so nothing was
+   * deleted). Null on rows written before #66.
+   */
+  reclamation: text("reclamation", { enum: ["reclaimed", "refused", "aborted"] }),
+  reclaimedObjects: integer("reclaimed_objects").notNull().default(0),
+  reclaimedBytes: integer("reclaimed_bytes").notNull().default(0),
+  /** Bytes across both buckets after Reclamation; null when the listing itself failed. */
+  storedBytes: integer("stored_bytes"),
+});
 
 /**
  * A signup that has not been proved yet: an address the platform holds **no consent for at
@@ -956,7 +1092,7 @@ export const uploadSessions = sqliteTable(
  * bytes plus the spec (ADR 0012), so every key this row implies is recomputable from
  * `sourceDigest` and `position` — storing them would be storing a derived value that could
  * disagree with the function that derives it, which is the drift ADR 0004 avoids for age
- * bands. It also matters to the sweep: reclamation asks "does a live session hold this
+ * bands. It also matters to Reclamation: reclamation asks "does a live session hold this
  * key", and it can only ask that if the keys come from one place.
  */
 export const uploadSessionPhotos = sqliteTable(
@@ -1074,12 +1210,12 @@ export const storageMeasurements = sqliteTable(
      */
     totalBytes: integer("total_bytes").notNull(),
     /**
-     * The mode the sweep concluded, for the admin mail and the run summary.
+     * The mode Reclamation concluded, for the admin mail and the run summary.
      *
      * **The upload path does not read this**; it derives the mode from `totalBytes` in the
      * same row, so the number and the mode cannot disagree in the direction that matters.
      * Kept because ADR 0016 specifies the row as "measured bytes, timestamp, resulting
-     * mode", and because what the sweep *concluded* is the thing an admin needs when
+     * mode", and because what Reclamation *concluded* is the thing an admin needs when
      * asking why a mail arrived.
      */
     mode: text("mode", {
@@ -1095,6 +1231,7 @@ export type Animal = typeof animals.$inferSelect;
 export type Subscriber = typeof subscribers.$inferSelect;
 export type Verification = typeof verifications.$inferSelect;
 export type Subscription = typeof subscriptions.$inferSelect;
+export type DigestRun = typeof digestRuns.$inferSelect;
 export type PendingOptIn = typeof pendingOptIns.$inferSelect;
 export type OptInMail = typeof optInMails.$inferSelect;
 export type DoNotContactEntry = typeof doNotContact.$inferSelect;

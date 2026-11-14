@@ -16,11 +16,15 @@
  * `db/src/index.ts` gives.
  */
 
-import { and, eq, isNotNull, isNull, lt } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, lt, lte, ne, sql } from "drizzle-orm";
 import type { Database } from "./index.ts";
 import {
+  digestDeliveries,
+  digestSent,
   optInMails,
   pendingOptIns,
+  shelterContactPoints,
+  shelters,
   subscribers,
   subscriptions,
 } from "./schema.ts";
@@ -223,4 +227,90 @@ export async function runSubscriberPurges(
       cutoffs.unsubscribed,
     ),
   };
+}
+
+/**
+ * What an erased account email becomes. `account_email` is `NOT NULL UNIQUE`, so it cannot
+ * be cleared; a per-shelter address under `.invalid` (RFC 2606) is unique, can never receive
+ * mail, and marks the erasure as done so the next run skips the shelter. SQL over the row's
+ * own id, so the write and the "already erased" check below share one spelling.
+ */
+const erasedAccountEmail = sql<string>`'departed+' || ${shelters.id} || '@invalid'`;
+
+/**
+ * ADR 0015's day-30 erasure: a shelter that departed at or before `cutoff` loses its contact
+ * points and its account email, and its session epoch is bumped so every session it still
+ * holds stops working. Everything else about the shelter is kept. Returns how many shelters
+ * it erased this run; a shelter already erased is not counted or bumped again.
+ */
+export async function eraseDepartedShelters(
+  db: Database,
+  cutoff: Date,
+): Promise<number> {
+  const due = await db
+    .select({ id: shelters.id })
+    .from(shelters)
+    .where(
+      and(
+        lte(shelters.departedAt, cutoff),
+        ne(shelters.accountEmail, erasedAccountEmail),
+      ),
+    );
+  for (const { id } of due) {
+    await db.batch([
+      db.delete(shelterContactPoints).where(eq(shelterContactPoints.shelterId, id)),
+      db
+        .update(shelters)
+        .set({
+          accountEmail: erasedAccountEmail,
+          sessionEpoch: sql`${shelters.sessionEpoch} + 1`,
+        })
+        .where(eq(shelters.id, id)),
+    ]);
+  }
+  return due.length;
+}
+
+/** Drops Digest Delivery rows older than `cutoff` (ADR 0010's 90 days). */
+export async function eraseDigestDeliveries(
+  db: Database,
+  cutoff: Date,
+): Promise<number> {
+  const rows = await db
+    .delete(digestDeliveries)
+    .where(lt(digestDeliveries.sentAt, cutoff))
+    .returning({ id: digestDeliveries.id });
+  return rows.length;
+}
+
+/**
+ * ADR 0010's sent-set rule: a row expires 90 days after its animal unlists. Nothing records
+ * when an animal unlists, so each run reconciles: a row whose animal is not in `listedIds`
+ * gets `unlisted_since = now` if it had none, a row whose animal is listed again loses it, and
+ * rows unlisted since before `cutoff` go. Returns how many rows expired.
+ *
+ * The ids travel as one JSON parameter, because D1 caps a statement at 100 bound values.
+ */
+export async function expireSentSets(
+  db: Database,
+  listedIds: readonly string[],
+  now: Date,
+  cutoff: Date,
+): Promise<number> {
+  const listed = sql`${digestSent.animalId} in (select value from json_each(${JSON.stringify(listedIds)}))`;
+  await db.batch([
+    db
+      .update(digestSent)
+      .set({ unlistedSince: null })
+      .where(and(isNotNull(digestSent.unlistedSince), listed)),
+    db
+      .update(digestSent)
+      .set({ unlistedSince: now })
+      .where(and(isNull(digestSent.unlistedSince), sql`not ${listed}`)),
+  ]);
+  const rows = await db
+    .delete(digestSent)
+    .where(lt(digestSent.unlistedSince, cutoff))
+    .returning({ animalId: digestSent.animalId });
+  return rows.length;
 }

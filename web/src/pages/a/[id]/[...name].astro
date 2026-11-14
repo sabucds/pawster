@@ -1,12 +1,14 @@
 ---
 import { createDb } from "@pawster/db";
 import {
+  DORMANT_AFTER_DAYS,
   GOOD_WITH_AXES,
   deriveAgeBand,
   deriveStalenessBand,
+  isDormant,
 } from "@pawster/domain";
 import { env } from "cloudflare:workers";
-import { animalUrl, messageAddress } from "../../../lib/animals/address.ts";
+import { animalPath, animalUrl, messageAddress } from "../../../lib/animals/address.ts";
 import {
   OFF_PLATFORM_NOTE,
   PREFILL_NOTE,
@@ -14,25 +16,31 @@ import {
   prefillMessage,
 } from "../../../lib/animals/contact.ts";
 import { readAnimalGallery } from "../../../lib/animals/gallery.ts";
-import { findAnimal } from "../../../lib/animals/store.ts";
+import { findAnimal, findBondedWith } from "../../../lib/animals/store.ts";
 import { publicView } from "../../../lib/animals/visibility.ts";
 import {
   ARCHIVE_ELSEWHERE,
   ARCHIVE_PHOTOS_DROPPED,
+  DEMO_NOTICE,
+  DEMO_SHELTER_NOTE,
+  DEMO_SOCIAL_LEAD,
   ageWithBasis,
   archiveExplanation,
   archiveHeadline,
   confirmationSentence,
   goodWithPhrase,
   metaLine,
+  namesList,
   sizeLabel,
   sterilisationLabel,
 } from "../../../lib/animals/words.ts";
 import { readShelterFacts } from "../../../lib/auth/store.ts";
 import {
+  readShelterLastActivity,
   readShelterPublicIdentity,
   readStoredContactPoints,
 } from "../../../lib/shelter/store.ts";
+import { DEMO_CHIP_LABEL } from "../../../lib/listing/words.ts";
 
 /**
  * The animal page, the contact hand-off and the archive page — one route, because they are one
@@ -68,21 +76,15 @@ import {
  *   is issue #55's criterion holding: an unlisted animal of an unverified shelter has no public
  *   existence to describe, and a page saying "this is hidden" would leak that the id is real.
  *
- * **A Departure cannot be observed yet.** `readShelterFacts()` returns `departedAt: null` for
- * every shelter until issue #65 adds the column, so the `ShelterDeparted` wording is written,
- * unit-tested in `visibility.test.ts`, and unreachable from here — the same position issue #55
- * was in with verification before #53 landed the log. Nothing about this page changes when #65
- * arrives.
+ * A Departure archives every animal of the shelter at once, through `publicView()`'s
+ * `ShelterDeparted` reason (issue #65): the wording is fixed platform text, and nothing the
+ * shelter wrote reaches it.
  *
- * ## The one thing on the prototype's field budget that is missing
+ * ## The dormancy notice
  *
- * The public-listing prototype lists "shelter, its verification badge **and any dormancy
- * notice**" among what only this page shows, and the dormancy notice is not here. A Dormant
- * Shelter is one with no activity of any kind for ninety days (`CONTEXT.md`), and nothing on the
- * platform records activity yet — the fact the notice would be derived from does not exist, so a
- * notice would either never fire or fire on something else. It arrives with issue #65, which
- * owns shelter-level notices, and it is a block above the contact hand-off rather than anything
- * that changes the rules on this page.
+ * A Dormant Shelter has done nothing for ninety days (`CONTEXT.md`). Its animals stay listed,
+ * and a listed animal's page says so about the shelter, above the contact hand-off. It is a
+ * notice and never a state: nothing reads it to archive anything.
  *
  * ## Copy
  *
@@ -123,14 +125,22 @@ if (!shelter) return new Response("No encontrado", { status: 404 });
 const now = new Date();
 
 const listed = view.kind === "listed";
+const lastActivity = listed ? await readShelterLastActivity(db, animal.shelterId) : null;
+const dormant = lastActivity !== null && isDormant(lastActivity, now);
 const band = deriveAgeBand(animal.species, animal.estimatedBirthDate, now);
 const meta = metaLine(animal, band);
 const gallery = await readAnimalGallery(db, animal, env.MEDIA_PUBLIC_ORIGIN);
 const canonical = animalUrl(env.SITE_ORIGIN, animal.id, animal.name);
 
 /** Built once and used twice: it goes into the links, and it is quoted to the adopter. */
+/**
+ * The rest of its group, each kept as its own animal. A group shares its state, so a listed
+ * animal's partners are listed too; on an archive page there is nobody left to write to.
+ */
+const partners = listed ? await findBondedWith(db, animal) : [];
+
 const prefill = prefillMessage(
-  animal.name,
+  [animal.name, ...partners.map((partner) => partner.name)],
   messageAddress(env.SITE_ORIGIN, animal.id),
 );
 
@@ -142,7 +152,7 @@ const prefill = prefillMessage(
 const contacts = listed
   ? contactHandoffs(
       await readStoredContactPoints(db, animal.shelterId),
-      animal.name,
+      namesList([animal.name, ...partners.map((partner) => partner.name)]),
       prefill,
     )
   : [];
@@ -175,18 +185,21 @@ const archive =
  * consumer at somewhere between 150 and 300 characters and a sentence cut mid-word by WhatsApp
  * looks like a broken page — better to choose where it ends.
  */
+const socialText = shelter.demo
+  ? `${DEMO_SOCIAL_LEAD} ${animal.description}`
+  : animal.description;
 const socialDescription =
-  animal.description.length > 160
-    ? `${animal.description.slice(0, 157).trimEnd()}…`
-    : animal.description;
-const socialTitle = `${animal.name} — ${meta}`;
+  socialText.length > 160 ? `${socialText.slice(0, 157).trimEnd()}…` : socialText;
+/** The demo shelter's animal is labelled in the title too, which is what a forward shows first. */
+const demoPrefix = shelter.demo ? `${DEMO_CHIP_LABEL}: ` : "";
+const socialTitle = `${demoPrefix}${animal.name} — ${meta}`;
 ---
 
 <html lang="es">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{animal.name} — Pawster</title>
+    <title>{demoPrefix}{animal.name} — Pawster</title>
     <link rel="canonical" href={canonical} />
 
     {/*
@@ -281,11 +294,17 @@ const socialTitle = `${animal.name} — ${meta}`;
       .contact-rest { display: flex; gap: 7px; list-style: none; padding: 8px 0 0; }
       .contact-rest a { padding: 9px 12px; border: 1px solid #d8d8d2; border-radius: 9px; }
       .prefill { font-style: italic; }
+      .demo-notice {
+        padding: 10px 12px; border-radius: 9px; background: #1a1d22; color: #fff; font-weight: 700;
+      }
     </style>
   </head>
 
   <body>
     <p><a href="/">Volver al listado</a></p>
+
+    {/* First on the page, live or archived, so nobody reads this animal as one to adopt. */}
+    {shelter.demo && <p class="demo-notice" data-testid="demo-notice">{DEMO_NOTICE}</p>}
 
     {
       /*
@@ -443,6 +462,36 @@ const socialTitle = `${animal.name} — ${meta}`;
       )
     }
 
+    {
+      /*
+        Each partner's facts stay its own: the safety answers of the group are the card's job,
+        and an adopter deciding whether to write needs to know *which* of them is the one who
+        does not get on with cats.
+      */
+      partners.length > 0 && (
+        <section data-testid="bonded-with">
+          <h2>Se adoptan juntos</h2>
+          {partners.map((partner) => (
+            <article>
+              <h3>
+                <a href={animalPath(partner.id, partner.name)}>{partner.name}</a>
+              </h3>
+              <p>
+                {metaLine(partner, deriveAgeBand(partner.species, partner.estimatedBirthDate, now))}
+              </p>
+              <ul>
+                {GOOD_WITH_AXES.map((axis) => (
+                  <li data-axis={axis} data-flag={partner.goodWith[axis]}>
+                    {goodWithPhrase(axis, partner.goodWith[axis])}
+                  </li>
+                ))}
+              </ul>
+            </article>
+          ))}
+        </section>
+      )
+    }
+
     <section>
       <h2>Publicado por</h2>
       {/*
@@ -458,6 +507,15 @@ const socialTitle = `${animal.name} — ${meta}`;
         conditional because the state it would be conditional on is a 404.
       */}
       <p data-testid="verified">Refugio verificado</p>
+      {shelter.demo && <p data-testid="demo-shelter">{DEMO_SHELTER_NOTE}</p>}
+      {
+        dormant && (
+          <p data-testid="dormant-shelter">
+            Este refugio no ha tenido actividad en Pawster en más de {DORMANT_AFTER_DAYS} días.
+            Puede que tarde en responder.
+          </p>
+        )
+      }
     </section>
 
     {

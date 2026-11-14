@@ -1,4 +1,4 @@
-import { OPT_IN_TTL_MS, optInMailLedgerCutoff } from "@pawster/domain";
+import { DAY_MS, OPT_IN_TTL_MS, optInMailLedgerCutoff, wholeDays } from "@pawster/domain";
 
 /**
  * The numbers and verdicts of subscriber opt-in, with no I/O and no clock of its own.
@@ -53,11 +53,11 @@ export {
 /**
  * The link's lifetime in whole days, for the three pages and the email that say it out loud.
  *
- * Derived here rather than at each surface, because `Math.round(OPT_IN_TTL_MS / 86_400_000)`
+ * Derived here rather than at each surface, because `wholeDays(OPT_IN_TTL_MS)`
  * written four times is four places that would keep agreeing only by luck — and the number a
  * subscriber is told is the one promise on this path they can check.
  */
-export const OPT_IN_TTL_DAYS = Math.round(OPT_IN_TTL_MS / (24 * 60 * 60_000));
+export const OPT_IN_TTL_DAYS = wholeDays(OPT_IN_TTL_MS);
 
 /**
  * At most one opt-in mail per address per 24 hours (ADR 0010).
@@ -73,7 +73,7 @@ export const OPT_IN_TTL_DAYS = Math.round(OPT_IN_TTL_MS / (24 * 60 * 60_000));
  * `OPT_IN_TTL_MS` serving two purposes, and the test is whether the two uses are the *same
  * fact*: there, they are — the row is what the link names.
  */
-export const OPT_IN_MAIL_COOLDOWN_MS = 24 * 60 * 60_000;
+export const OPT_IN_MAIL_COOLDOWN_MS = DAY_MS;
 
 /**
  * The global ceiling on opt-in mail: six sends a day.

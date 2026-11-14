@@ -46,6 +46,8 @@ export interface SeedAnimalOptions {
   readonly availability?: Availability;
   /** `null` for an animal not carrying the mark, which is the default. */
   readonly urgentReason?: string | null;
+  /** `null` for a lone animal, which is the default. */
+  readonly bondedGroupId?: string | null;
   /** How many photos its session holds. One unless a test is about the count. */
   readonly photoCount?: number;
 }
@@ -142,6 +144,7 @@ export async function seedAnimal(
     lastConfirmedAt: options.lastConfirmedAt ?? new Date("2026-08-30"),
     matchableSince: createdAt,
     urgentReason: options.urgentReason ?? null,
+    bondedGroupId: options.bondedGroupId ?? null,
   });
 
   return { animalId, sessionId };

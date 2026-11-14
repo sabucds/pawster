@@ -5,6 +5,7 @@ import { env } from "cloudflare:workers";
 import AnimalFields from "../../../components/AnimalFields.astro";
 import FormErrors from "../../../components/FormErrors.astro";
 import Refugios from "../../../layouts/Refugios.astro";
+import { confirmAnimal } from "../../../lib/animals/confirm.ts";
 import { readSubmittedValues } from "../../../lib/animals/fields.ts";
 import type { AnimalError } from "../../../lib/animals/publish.ts";
 import { parseEdit } from "../../../lib/animals/publish.ts";
@@ -12,6 +13,7 @@ import {
   countUrgentAnimals,
   editAnimal,
   findAnimal,
+  listShelterAnimals,
 } from "../../../lib/animals/store.ts";
 import {
   ageBandLabel,
@@ -21,6 +23,8 @@ import {
 import { authenticate } from "../../../lib/auth/guard.ts";
 import { readShelterFacts } from "../../../lib/auth/store.ts";
 import { regenerateForAct } from "../../../lib/listing/regenerate.ts";
+import { derivativeKey } from "../../../lib/photos/keys.ts";
+import { listSessionPhotos } from "../../../lib/photos/store.ts";
 
 /**
  * A shelter's own page for one of its animals: what it looks like, why it may not be visible
@@ -81,6 +85,25 @@ const animal = found;
 if (Astro.request.method === "POST") {
   submitted = await Astro.request.formData();
 
+  /**
+   * The explicit "sigue disponible" click (issue #60): a Confirmation that changes no fact, so
+   * it skips the edit form's parsing entirely and only moves `lastConfirmedAt`.
+   */
+  if (submitted.get("accion") === "confirmar") {
+    await confirmAnimal(db, { shelterId: session.shelterId, animalId: animal.id }, { via: "session", now });
+    const regenerated = await regenerateForAct({ db, media: env.MEDIA, now });
+    const headers = new Headers({
+      location:
+        regenerated === null
+          ? `/refugios/animales/${animal.id}?confirmado&listado=pendiente`
+          : `/refugios/animales/${animal.id}?confirmado`,
+    });
+    if (session.refreshedCookie) {
+      headers.set("set-cookie", session.refreshedCookie);
+    }
+    return new Response(null, { status: 303, headers });
+  }
+
   const parsed = parseEdit(submitted, {
     now,
     /**
@@ -92,7 +115,10 @@ if (Astro.request.method === "POST") {
   });
 
   if (parsed.ok) {
-    await editAnimal(db, animal.id, parsed.value, now);
+    const bondedWith = submitted
+      .getAll("bondedWith")
+      .filter((value): value is string => typeof value === "string" && value !== animal.id);
+    await editAnimal(db, animal, parsed.value, bondedWith, now);
 
     /**
      * An edit is a Confirmation and can change what the listing shows — a new name, a changed
@@ -182,7 +208,20 @@ const stored: Record<string, string> = {
  */
 const values = submitted ? readSubmittedValues(submitted) : stored;
 
+/** Every other animal of this shelter's, any of which this one can be adopted together with. */
+const others = (await listShelterAnimals(db, session.shelterId)).filter(
+  (other) => other.id !== animal.id,
+);
+const bonded = new Set(
+  submitted
+    ? submitted.getAll("bondedWith")
+    : others
+        .filter((other) => animal.bondedGroupId !== null && other.bondedGroupId === animal.bondedGroupId)
+        .map((other) => other.id),
+);
+
 const saved = Astro.url.searchParams.has("guardado") && submitted === null;
+const confirmed = Astro.url.searchParams.has("confirmado") && submitted === null;
 const published = Astro.url.searchParams.has("publicado") && submitted === null;
 
 /**
@@ -194,6 +233,32 @@ const published = Astro.url.searchParams.has("publicado") && submitted === null;
  * is the shelter's next act of any kind: anything it does to any animal rewrites the whole
  * index from D1 and heals this without knowing it happened.
  */
+/**
+ * The photos in the shelter's order, each with the order its two buttons would post.
+ *
+ * Every button is its own form carrying the finished order, so the endpoint
+ * (`api/refugios/animales/[id]/fotos.ts`) needs no "move" or "delete" verbs and the page
+ * works without JavaScript. "Antes" swaps a photo with the one before it, so moving a photo
+ * to first place makes it the primary. "Borrar" is not offered on the last photo, which the
+ * endpoint refuses anyway.
+ */
+const photoRows = await listSessionPhotos(db, animal.uploadSessionId);
+const photoIds = photoRows.map((row) => row.id);
+const photos = await Promise.all(
+  photoRows.map(async (row, position) => ({
+    id: row.id,
+    url: `${env.MEDIA_PUBLIC_ORIGIN.replace(/\/+$/, "")}/${await derivativeKey(row.sourceDigest, "cardThumbnail")}`,
+    earlier:
+      position === 0
+        ? null
+        : photoIds.map((id, i) =>
+            i === position - 1 ? row.id : i === position ? photoIds[position - 1]! : id,
+          ),
+    without: photoIds.filter((id) => id !== row.id),
+  })),
+);
+const photosSaved = Astro.url.searchParams.has("fotos") && submitted === null;
+
 const listingPending =
   Astro.url.searchParams.get("listado") === "pendiente" && submitted === null;
 ---
@@ -201,6 +266,8 @@ const listingPending =
 <Refugios title={animal.name} heading={animal.name}>
   {published && <p data-testid="published">Publicado. Ya quedó guardado.</p>}
   {saved && <p data-testid="saved">Guardado.</p>}
+  {confirmed && <p data-testid="confirmed">Confirmado: sigue disponible.</p>}
+  {photosSaved && <p data-testid="photos-saved">Fotos guardadas.</p>}
   {
     listingPending && (
       <p data-testid="listing-pending">
@@ -278,11 +345,66 @@ const listingPending =
     )
   }
 
+  {
+    animal.availability === "Available" && (
+      <form method="post" data-testid="confirm-form">
+        <input type="hidden" name="accion" value="confirmar" />
+        <button type="submit">Sigue disponible</button>
+      </form>
+    )
+  }
+
+  <h2>Fotos</h2>
+  <p>La primera es la principal: la que sale en el listado y en los correos.</p>
+  <ol data-testid="photos">
+    {
+      photos.map((photo, position) => (
+        <li>
+          <img src={photo.url} alt={`Foto ${position + 1} de ${animal.name}`} width="200" />
+          {photo.earlier && (
+            <form method="post" action={`/api/refugios/animales/${animal.id}/fotos`}>
+              {photo.earlier.map((id) => <input type="hidden" name="orden" value={id} />)}
+              <button type="submit">{position === 1 ? "Hacer principal" : "Antes"}</button>
+            </form>
+          )}
+          {photos.length > 1 && (
+            <form method="post" action={`/api/refugios/animales/${animal.id}/fotos`}>
+              {photo.without.map((id) => <input type="hidden" name="orden" value={id} />)}
+              <button type="submit">Borrar</button>
+            </form>
+          )}
+        </li>
+      ))
+    }
+  </ol>
+
   <h2>Editar</h2>
   <FormErrors errors={errors} />
 
   <form method="post" data-testid="edit-form">
     <AnimalFields errors={errors} values={values} withAvailability />
+    {
+      others.length > 0 && (
+        <fieldset data-testid="bonded-with">
+          <legend>Se adoptan junto con</legend>
+          <p>
+            Marca los que tienen que irse juntos. Se publican en una sola tarjeta, y lo que
+            cambies de su estado aquí les llega a todos.
+          </p>
+          {others.map((other) => (
+            <label>
+              <input
+                type="checkbox"
+                name="bondedWith"
+                value={other.id}
+                checked={bonded.has(other.id)}
+              />
+              {other.name}
+            </label>
+          ))}
+        </fieldset>
+      )
+    }
     <p>
       <button type="submit">Guardar</button>
     </p>

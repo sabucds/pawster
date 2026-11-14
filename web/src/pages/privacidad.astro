@@ -1,9 +1,11 @@
 ---
 import {
+  DEPARTURE_GRACE_MS,
   NEVER_MATCHED_NUDGE_MS,
   OPT_IN_TTL_MS,
   OPT_IN_WINDOW_MS,
   UNSUBSCRIBE_GRACE_MS,
+  wholeDays,
 } from "@pawster/domain";
 import Resumen from "../layouts/Resumen.astro";
 
@@ -25,10 +27,10 @@ export const prerender = true;
  * makes the page a *rendering of the policy* rather than a claim about it, so changing a period
  * changes this page in the same commit or not at all.
  *
- * The three rows that cannot be derived are marked as such below. Two of them are facts about
- * Resend rather than about our code, so there is no constant that could enforce them and
- * pretending otherwise would be worse than saying where they come from; the third is
- * "forever", which is the absence of a job rather than the presence of one.
+ * The rows that cannot be derived are marked as such below. Two of them are facts about Resend
+ * rather than about our code, so there is no constant that could enforce them and pretending
+ * otherwise would be worse than saying where they come from; the others are "forever", which is
+ * the absence of a job rather than the presence of one.
  *
  * ## Why the provider's tail is in the table rather than in a footnote
  *
@@ -47,7 +49,6 @@ export const prerender = true;
  * people should be able to find without holding a link.
  */
 
-const days = (ms: number) => Math.round(ms / (24 * 60 * 60_000));
 const hours = (ms: number) => Math.round(ms / (60 * 60_000));
 
 interface Row {
@@ -72,13 +73,13 @@ const ROWS: readonly Row[] = [
   },
   {
     what: "Una solicitud que no llegaste a activar",
-    howLong: `${days(OPT_IN_TTL_MS)} días`,
+    howLong: `${wholeDays(OPT_IN_TTL_MS)} días`,
     why: "Si no le diste al enlace, no tenemos tu permiso para nada. El enlace vence y la solicitud se borra el mismo día.",
     enforced: true,
   },
   {
     what: "Tu IP, al pedir el enlace de activación",
-    howLong: `${days(OPT_IN_TTL_MS)} días`,
+    howLong: `${wholeDays(OPT_IN_TTL_MS)} días`,
     why: "Solo para que nadie use el formulario para llenarle el correo a otra persona. Va en esa misma solicitud y se borra con ella; si activas, no guardamos ninguna IP tuya.",
     enforced: true,
   },
@@ -90,13 +91,13 @@ const ROWS: readonly Row[] = [
   },
   {
     what: "Tus búsquedas después de darte de baja",
-    howLong: `${days(UNSUBSCRIBE_GRACE_MS)} días, y luego se borran solas`,
+    howLong: `${wholeDays(UNSUBSCRIBE_GRACE_MS)} días, y luego se borran solas`,
     why: "Darse de baja es un clic sin confirmación, a propósito, para que funcione desde el correo. A veces lo aprieta un programa o se aprieta sin querer, así que guardamos las búsquedas por si quieres volver. Después se borra todo sin que tengas que pedirlo.",
     enforced: true,
   },
   {
     what: "Que te avisamos de que no había coincidencias",
-    howLong: `Se manda una sola vez, a los ${days(NEVER_MATCHED_NUDGE_MS)} días`,
+    howLong: `Se manda una sola vez, a los ${wholeDays(NEVER_MATCHED_NUDGE_MS)} días`,
     why: "Para que siempre tengas un enlace que sirva, aunque nunca te llegue un resumen.",
     enforced: true,
   },
@@ -104,6 +105,23 @@ const ROWS: readonly Row[] = [
     what: "Una huella de tu correo, si nos marcaste como spam",
     howLong: "Para siempre",
     why: "Es lo único que queda si borras todo, y solo cuando nos marcaste como spam. No guarda tu correo: guarda un código del que no se puede sacar tu dirección, y sirve únicamente para que el formulario se niegue a inscribirte otra vez. La ley no nos deja borrar esto, porque es justo lo que nos impide volver a escribirte.",
+    enforced: false,
+  },
+  /**
+   * The two shelter rows (issue #65, ADR 0015). The erasure is the daily preamble's (issue
+   * #66), timed by the same constant the cancel on `refugios/dejar-pawster.astro` is bounded
+   * by, so the page and the job cannot disagree about the date.
+   */
+  {
+    what: "Si eres un refugio y dejas Pawster: tus formas de contacto y el correo del refugio",
+    howLong: `${wholeDays(DEPARTURE_GRACE_MS)} días desde que pides irte, y luego se borran solos`,
+    why: "Esos días son para que puedas arrepentirte: hasta entonces, un clic lo deja todo como estaba. Después ya no hay manera de escribirle al refugio por Pawster, ni de entrar con ese correo.",
+    enforced: true,
+  },
+  {
+    what: "Si eres un refugio y dejas Pawster: tus animales publicados, sus páginas de archivo y el registro de verificación",
+    howLong: "Para siempre",
+    why: "Las páginas de archivo son una promesa a quienes adoptaron: el enlace que guardaron sigue diciendo qué pasó con el animal. El registro de verificación es la constancia de nuestras propias decisiones sobre cada refugio, y no lo borramos porque dejaría de servir para rendir cuentas de ellas.",
     enforced: false,
   },
   {

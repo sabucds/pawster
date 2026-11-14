@@ -35,7 +35,8 @@ import type {
   Species,
   Sterilisation,
 } from "@pawster/domain";
-import { and, count, desc, eq, isNotNull, ne } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNotNull, ne, sql } from "drizzle-orm";
+import { withItsGroup } from "./confirm.ts";
 import type { AnimalEditInput, AnimalInput } from "./publish.ts";
 import { newShortId } from "./short-id.ts";
 
@@ -66,6 +67,8 @@ export interface StoredAnimal {
   readonly lastConfirmedAt: Date;
   readonly matchableSince: Date;
   readonly urgentReason: string | null;
+  /** Shared by every animal adopted together with this one; `null` for a lone animal. */
+  readonly bondedGroupId: string | null;
 }
 
 /** The columns every read below selects, named once so the three of them cannot drift. */
@@ -90,6 +93,7 @@ const ANIMAL_COLUMNS = {
   lastConfirmedAt: animals.lastConfirmedAt,
   matchableSince: animals.matchableSince,
   urgentReason: animals.urgentReason,
+  bondedGroupId: animals.bondedGroupId,
 } as const;
 
 /**
@@ -233,6 +237,20 @@ export async function listShelterAnimals(
   return rows.map(toStoredAnimal);
 }
 
+/** The animals adopted together with this one, in id order; empty for a lone animal. */
+export async function findBondedWith(
+  db: Database,
+  animal: Pick<StoredAnimal, "id" | "bondedGroupId">,
+): Promise<readonly StoredAnimal[]> {
+  if (animal.bondedGroupId === null) return [];
+  const rows = await db
+    .select(ANIMAL_COLUMNS)
+    .from(animals)
+    .where(and(eq(animals.bondedGroupId, animal.bondedGroupId), ne(animals.id, animal.id)))
+    .orderBy(animals.id);
+  return rows.map(toStoredAnimal);
+}
+
 export interface PublishAnimal {
   readonly shelterId: string;
   /** The session whose photographs this animal is being assembled from. */
@@ -300,12 +318,12 @@ export async function publishAnimal(
 /**
  * Save an edit, which is also a Confirmation.
  *
- * **`lastConfirmedAt` moves and `matchableSince` does not**, and the asymmetry is the reason both
- * columns exist. `CONTEXT.md` makes a Confirmation "a shelter's deliberate write to one animal —
- * an edit, a new photo, or an explicit 'still available' click — which records that the animal
- * was true as of that moment", so every edit is one by definition and issue #55 requires it.
- * Touching `matchableSince` would re-announce the animal to every subscriber who has already
- * been shown it, turning a corrected typo into a second notification.
+ * **`lastConfirmedAt` moves and `matchableSince` does not.** `CONTEXT.md` makes a Confirmation
+ * "a shelter's deliberate write to one animal — an edit, a new photo, or an explicit 'still
+ * available' click — which records that the animal was true as of that moment", so every edit
+ * is one by definition and issue #55 requires it. `matchableSince` stays put so the shelter's
+ * list (`listShelterAnimals`) does not reshuffle on every edit. Moving it would not re-announce
+ * anything either way: the digest's sent-set decides what is new (`db/src/schema.ts`).
  *
  * `uploadSessionId` is absent from the update, and so is the shelter: an animal belongs to
  * exactly one shelter for life and is assembled from exactly one session, and a write path that
@@ -314,29 +332,65 @@ export async function publishAnimal(
  */
 export async function editAnimal(
   db: Database,
-  animalId: string,
+  owner: { readonly id: string; readonly shelterId: string },
   animal: AnimalEditInput,
+  bondedWith: readonly string[],
   now: Date,
 ): Promise<void> {
-  await db
-    .update(animals)
-    .set({
-      name: animal.name,
-      species: animal.species,
-      size: animal.size,
-      sex: animal.sex,
-      estimatedBirthDate: animal.estimatedBirthDate,
-      ageEstimateBasis: animal.ageEstimateBasis,
-      region: animal.region,
-      goodWithChildren: animal.goodWith.children,
-      goodWithDogs: animal.goodWith.dogs,
-      goodWithCats: animal.goodWith.cats,
-      description: animal.description,
-      medicalNeeds: animal.medicalNeeds,
-      sterilisation: animal.sterilisation,
-      availability: animal.availability,
-      urgentReason: animal.urgentReason,
-      lastConfirmedAt: now,
-    })
-    .where(eq(animals.id, animalId));
+  const newGroup = and(eq(animals.shelterId, owner.shelterId), inArray(animals.id, [owner.id, ...bondedWith]));
+
+  /**
+   * One batch, so the bond, the facts and the spread land together or not at all.
+   *
+   * The ticked set is the whole group as this animal sees it, so it gets a fresh id each save
+   * rather than reusing the old one: an animal left unticked stays behind in the old group,
+   * and the last statement dissolves that group if it is down to one. Filtering on the shelter
+   * is what keeps a forged id for someone else's animal from bonding it.
+   */
+  await db.batch([
+    db
+      .update(animals)
+      .set({ bondedGroupId: bondedWith.length === 0 ? null : crypto.randomUUID() })
+      .where(bondedWith.length === 0 ? eq(animals.id, owner.id) : newGroup),
+    db
+      .update(animals)
+      .set({
+        name: animal.name,
+        species: animal.species,
+        size: animal.size,
+        sex: animal.sex,
+        estimatedBirthDate: animal.estimatedBirthDate,
+        ageEstimateBasis: animal.ageEstimateBasis,
+        region: animal.region,
+        goodWithChildren: animal.goodWith.children,
+        goodWithDogs: animal.goodWith.dogs,
+        goodWithCats: animal.goodWith.cats,
+        description: animal.description,
+        medicalNeeds: animal.medicalNeeds,
+        sterilisation: animal.sterilisation,
+        availability: animal.availability,
+        urgentReason: animal.urgentReason,
+        lastConfirmedAt: now,
+        lastConfirmedVia: "session",
+      })
+      .where(eq(animals.id, owner.id)),
+    /**
+     * A group is adopted together and confirmed together: its state and its confirmation are
+     * the group's, so they reach every member. Every other fact stays each animal's own.
+     */
+    db
+      .update(animals)
+      .set({ availability: animal.availability, lastConfirmedAt: now, lastConfirmedVia: "session" })
+      .where(withItsGroup(owner.id)),
+    /** A group of one is not a group. */
+    db
+      .update(animals)
+      .set({ bondedGroupId: null })
+      .where(
+        and(
+          eq(animals.shelterId, owner.shelterId),
+          sql`${animals.bondedGroupId} in (select ${animals.bondedGroupId} from ${animals} where ${animals.bondedGroupId} is not null group by ${animals.bondedGroupId} having count(*) = 1)`,
+        ),
+      ),
+  ]);
 }

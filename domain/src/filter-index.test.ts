@@ -35,6 +35,7 @@ function listed(overrides: Partial<ListedAnimal> = {}): ListedAnimal {
     thumbnailKey: "d/abc123.webp",
     bondedGroupId: null,
     urgent: false,
+    demo: false,
     shelterId: "s1",
     ...overrides,
   };
@@ -51,6 +52,7 @@ describe("the index's wire shape", () => {
       goodWith: { children: "No", dogs: "Yes", cats: "Unknown" },
       bondedGroupId: "g1",
       urgent: true,
+      demo: true,
     });
 
     const [decoded] = parseIndex(
@@ -58,6 +60,14 @@ describe("the index's wire shape", () => {
     ).animals;
 
     expect(decoded).toEqual(animal);
+  });
+
+  it("adds no bytes to a real animal for the demo mark", () => {
+    const text = serializeIndex({ generatedAt: "2026-09-08", animals: [listed()] });
+    expect(text).not.toContain('"e"');
+    expect(
+      serializeIndex({ generatedAt: "2026-09-08", animals: [listed({ demo: true })] }),
+    ).toContain('"e":1');
   });
 
   it("round-trips a dog carrying every size", () => {
@@ -264,7 +274,7 @@ describe("what an adopter's filters leave", () => {
       listed({ id: "new", lastConfirmedAt: new Date("2026-09-07T00:00:00.000Z") }),
     ];
 
-    expect(selectListed(animals, {}, NOW).map((a) => a.id)).toEqual([
+    expect(selectListed(animals, {}, NOW).map(([a]) => a.id)).toEqual([
       "new",
       "old",
     ]);
@@ -313,7 +323,7 @@ describe("what an adopter's filters leave", () => {
       NOW,
     );
 
-    expect(left.map((animal) => animal.id).sort()).toEqual([
+    expect(left.map(([animal]) => animal.id).sort()).toEqual([
       "aragua",
       "carabobo",
     ]);
@@ -329,7 +339,7 @@ describe("what an adopter's filters leave", () => {
 
     const left = selectListed([yes, unknown, no], { goodWith: ["cats"] }, NOW);
 
-    expect(left.map((animal) => animal.id).sort()).toEqual(["unknown", "yes"]);
+    expect(left.map(([animal]) => animal.id).sort()).toEqual(["unknown", "yes"]);
   });
 
   it("filters on all six axes at once", () => {
@@ -371,7 +381,7 @@ describe("what an adopter's filters leave", () => {
       NOW,
     );
 
-    expect(left.map((animal) => animal.id)).toEqual(["wanted"]);
+    expect(left.map(([animal]) => animal.id)).toEqual(["wanted"]);
   });
 
   /**
@@ -440,5 +450,45 @@ describe("keeping the i/ prefix", () => {
   it("keys the index by its bytes, under the prefix reclamation does not sweep", () => {
     expect(indexObjectKey("9f3ac14e")).toBe("i/9f3ac14e.json");
     expect(INDEX_POINTER_KEY.startsWith(INDEX_PREFIX)).toBe(true);
+  });
+});
+
+describe("a bonded group in the listing", () => {
+  const mother = listed({
+    id: "mother",
+    name: "Canela",
+    bondedGroupId: "g1",
+    estimatedBirthDate: new Date("2022-01-01T00:00:00.000Z"),
+  });
+  const pup = listed({
+    id: "pup",
+    name: "Pimienta",
+    bondedGroupId: "g1",
+    estimatedBirthDate: new Date("2026-07-01T00:00:00.000Z"),
+  });
+
+  it("is one unit, whatever order its members arrive in", () => {
+    const loner = listed({ id: "loner", bondedGroupId: null });
+
+    const units = selectListed([pup, loner, mother], {}, NOW);
+
+    expect(units.map((unit) => unit.map((a) => a.id))).toEqual([
+      ["loner"],
+      ["mother", "pup"],
+    ]);
+  });
+
+  it("matches a Puppy subscriber and an Adult subscriber alike", () => {
+    expect(selectListed([mother, pup], { ageBands: ["Puppy"] }, NOW)).toHaveLength(1);
+    expect(selectListed([mother, pup], { ageBands: ["Adult"] }, NOW)).toHaveLength(1);
+  });
+
+  it("is a No with cats when any one member is", () => {
+    const catHater = listed({
+      ...pup,
+      goodWith: { ...ALL_UNKNOWN, cats: "No" },
+    });
+
+    expect(selectListed([mother, catHater], { goodWith: ["cats"] }, NOW)).toHaveLength(0);
   });
 });

@@ -168,12 +168,17 @@ describe("what reaches the index", () => {
     expect((await regenerate()).animalCount).toBe(0);
   });
 
+  it("withholds an animal whose shelter has departed", async () => {
+    await seedListableShelter();
+    await seedAnimal({ shelterId: "shelter-1" });
+    await env.DB.prepare("UPDATE shelters SET departed_at = ? WHERE id = 'shelter-1'")
+      .bind(Date.now())
+      .run();
+
+    expect((await regenerate()).animalCount).toBe(0);
+  });
+
   /**
-   * *The fourth clause — `shelter.departedAt is null` — has no column to fail on until
-   * Departure lands with issue #65, so it has no test of its own here: one written today
-   * would be asserting `null === null`. `../src/lib/listing/store.ts` records where the field
-   * enters when that ticket adds it.*
-   *
    * A regeneration's unit is the act and never the animal, which is what keeps a bulk act
    * from being quadratic — three animals across two shelters is one index and one pointer.
    */
@@ -190,6 +195,33 @@ describe("what reaches the index", () => {
     /** One index object and one pointer: a regeneration's unit is the act, not the animal. */
     const listed = await env.MEDIA.list({ prefix: INDEX_PREFIX });
     expect(listed.objects).toHaveLength(2);
+  });
+
+  it("lists the demo shelter's animal and marks it, so its card can say so", async () => {
+    await seedListableShelter("shelter-1");
+    await seedListableShelter("demo");
+    await env.DB.prepare("UPDATE shelters SET demo = 1 WHERE id = 'demo'").run();
+    await seedAnimal({ id: "a1", shelterId: "shelter-1" });
+    await seedAnimal({ id: "a2", shelterId: "demo" });
+
+    await regenerate();
+    const { index } = await currentIndex();
+
+    expect(index.animals.map((animal) => [animal.id, animal.demo])).toEqual([
+      ["a1", false],
+      ["a2", true],
+    ]);
+  });
+
+  it("carries each member's bonded group, so the browser can draw one card", async () => {
+    await seedListableShelter();
+    await seedAnimal({ id: "a1", bondedGroupId: "g1" });
+    await seedAnimal({ id: "a2", bondedGroupId: "g1" });
+
+    await regenerate();
+    const { index } = await currentIndex();
+
+    expect(index.animals.map((animal) => animal.bondedGroupId)).toEqual(["g1", "g1"]);
   });
 
   it("leaves out a listed animal whose primary photograph is gone, and counts it", async () => {

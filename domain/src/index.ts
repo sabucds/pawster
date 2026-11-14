@@ -71,14 +71,27 @@ export {
   derivativeKeyMaterial,
   derivativeSpecFingerprint,
 } from "./derivative.ts";
-export type { DigestPeriod } from "./digest.ts";
-export { DIGEST_DAILY_BUDGET, digestIdempotencyKey } from "./digest.ts";
+export type {
+  DigestAnimal,
+  DigestPeriod,
+  DigestSection,
+  DigestSubscriptionMatches,
+} from "./digest.ts";
+export {
+  composeDigest,
+  DIGEST_DAILY_BUDGET,
+  DIGEST_EMAIL_CAP,
+  DIGEST_SECTION_CAP,
+  digestCandidates,
+  digestIdempotencyKey,
+} from "./digest.ts";
 export type { KeyedHashPurpose } from "./keyed-hash.ts";
 export { digestsEqual, sign, toBase64Url } from "./keyed-hash.ts";
 export type {
   FilterIndex,
   IndexPointer,
   ListedAnimal,
+  ListedUnit,
   StoredIndexObject,
 } from "./filter-index.ts";
 export {
@@ -89,6 +102,7 @@ export {
   INDEX_PREFIX,
   POINTER_CACHE_CONTROL,
   SUPERSEDED_INDEX_GRACE_MS,
+  adoptionUnitOf,
   compareByFreshestConfirmed,
   indexGeneratedAt,
   indexObjectKey,
@@ -112,17 +126,32 @@ export type {
 } from "./matching.ts";
 export { ageBandsFor, goodWithFor, matches } from "./matching.ts";
 export {
+  DEPARTURE_GRACE_MS,
+  DAY_MS,
+  DIGEST_DELIVERY_TTL_MS,
   NEVER_MATCHED_NUDGE_MS,
+  SENT_SET_UNLISTED_TTL_MS,
+  digestDeliveryErasureCutoff,
+  sentSetExpiryCutoff,
   OPT_IN_TTL_MS,
   OPT_IN_WINDOW_MS,
   UNSUBSCRIBE_GRACE_MS,
+  departureErasureCutoff,
   neverMatchedNudgeCutoff,
   optInMailLedgerCutoff,
   optInPurgeCutoff,
   unsubscribedErasureCutoff,
+  wholeDays,
 } from "./retention.ts";
+export type { ConfirmableShelter, ConfirmationClaim } from "./confirmation-links.ts";
+export {
+  CONFIRMATION_NUDGE_INTERVAL_MS,
+  CONFIRM_PATH,
+  confirmationUrl,
+  verifyConfirmationToken,
+} from "./confirmation-links.ts";
 export type { StalenessBand } from "./staleness.ts";
-export { daysBetween, deriveStalenessBand } from "./staleness.ts";
+export { DORMANT_AFTER_DAYS, daysBetween, deriveStalenessBand, isDormant } from "./staleness.ts";
 export type {
   ManageClaim,
   SubscriberLinkOrigin,

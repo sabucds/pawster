@@ -19,9 +19,9 @@
  */
 
 import type { Database, Verification } from "@pawster/db";
-import { shelterContactPoints, shelters, verifications } from "@pawster/db";
+import { contactPointCount, shelters, verifications } from "@pawster/db";
 import type { VerificationOutcome } from "@pawster/domain";
-import { count, desc, eq, gte, notInArray, sql } from "drizzle-orm";
+import { count, desc, eq, gte, notInArray } from "drizzle-orm";
 import type { CitedArtifacts } from "./policy.ts";
 import { storedCitedArtifacts } from "./policy.ts";
 import type { VerificationMethod } from "./policy.ts";
@@ -169,10 +169,7 @@ export async function readPendingShelters(
       baseRegion: shelters.baseRegion,
       countryCode: shelters.countryCode,
       registeredAt: shelters.createdAt,
-      contactPointCount: sql<number>`(
-        select count(*) from ${shelterContactPoints}
-        where ${shelterContactPoints.shelterId} = ${shelters.id}
-      )`,
+      contactPointCount: contactPointCount(shelters.id),
     })
     .from(shelters)
     .where(notInArray(shelters.id, decided))

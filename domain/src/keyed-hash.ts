@@ -91,6 +91,11 @@ const LABELS = {
    * Keyed by `SUBSCRIBER_LINK_SECRET`.
    */
   manage: "manage:",
+  /**
+   * A Confirmation Nudge link (ADR 0008), signed over shelter id, nudge version and account
+   * email. Keyed by `SUBSCRIBER_LINK_SECRET`; see `confirmation-links.ts`.
+   */
+  confirm: "confirm:",
 } as const;
 
 export type KeyedHashPurpose = keyof typeof LABELS;

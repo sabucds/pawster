@@ -15,7 +15,7 @@
  * consumers already import.
  */
 
-import type { VerificationOutcome } from "@pawster/domain";
+import { DAY_MS, type VerificationOutcome } from "@pawster/domain";
 import type { ContactPointKind } from "@pawster/db";
 import type { StoredContactPoint } from "../shelter/store.ts";
 import { CONTACT_POINT_KINDS } from "../shelter/fields.ts";
@@ -29,7 +29,7 @@ import { MAIL_BUDGET_WINDOW_MS } from "../auth/policy.ts";
  * registration arriving on a Friday survives a week away and short enough that a link
  * sitting in an archived thread a month later is worth nothing.
  */
-export const DECISION_LINK_TTL_MS = 7 * 24 * 60 * 60_000;
+export const DECISION_LINK_TTL_MS = 7 * DAY_MS;
 
 /**
  * Twenty-four hours for the pending-list link — the shortest-lived link on the platform,
@@ -41,7 +41,7 @@ export const DECISION_LINK_TTL_MS = 7 * 24 * 60 * 60_000;
  * reversed this ordering would be a bug that no test could see, which is why
  * `verification-policy.test.ts` asserts the ordering itself and not just the two figures.
  */
-export const PENDING_LIST_LINK_TTL_MS = 24 * 60 * 60_000;
+export const PENDING_LIST_LINK_TTL_MS = DAY_MS;
 
 /**
  * How many decision emails the platform will send in a trailing day.

@@ -220,6 +220,7 @@ const AXIS_NOTES: Partial<Record<LabelledAxis["field"], string>> = {
 
       .card-link {
         display: block;
+        position: relative;
         color: inherit;
         text-decoration: none;
       }
@@ -247,6 +248,26 @@ const AXIS_NOTES: Partial<Record<LabelledAxis["field"], string>> = {
       }
 
       /*
+        A bonded group's strip (#59). The strip, not its photos, holds the single frame's
+        proportion, so a group's card is exactly as tall as the lone animal's beside it and the
+        members split the width between them.
+      */
+      .card-photo-strip {
+        display: flex;
+        gap: 2px;
+        aspect-ratio: 344 / 430;
+        background: var(--line);
+      }
+
+      .card-photo-strip .card-photo {
+        flex: 1 1 0;
+        min-width: 0;
+        width: auto;
+        height: 100%;
+        aspect-ratio: auto;
+      }
+
+      /*
         Two lines reserved: a name plus its urgency chip wraps at two-up on a 360px handset,
         and a card whose name wrapped must not be taller than its neighbour whose name did not.
       */
@@ -268,6 +289,24 @@ const AXIS_NOTES: Partial<Record<LabelledAxis["field"], string>> = {
         background: var(--urgent-bg);
         color: var(--urgent-ink);
         vertical-align: 0.05rem;
+      }
+
+      /*
+        Over the photo rather than beside the name: the name box is clipped at two lines, and
+        a label that says the animal cannot be adopted must never be the part that is cut.
+      */
+      .chip-demo {
+        position: absolute;
+        top: 0.4rem;
+        left: 0.4rem;
+        right: 0.4rem;
+        font-size: 0.75rem;
+        font-weight: 700;
+        padding: 0.15rem 0.35rem;
+        border-radius: 0.25rem;
+        background: var(--ink);
+        color: var(--page);
+        text-align: center;
       }
 
       /*

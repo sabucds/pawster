@@ -1,8 +1,18 @@
+import type { DigestSection } from "@pawster/domain";
+
 export interface DigestMessage {
   /** The day this run covers, `YYYY-MM-DD`. */
   period: string;
   subscriberId: string;
   email: string;
+  /** Signs the footer's manage link, so a link from an older email dies with a rotation. */
+  manageTokenVersion: number;
+  /**
+   * What this subscriber is being sent, one entry per saved search with something new, in
+   * slot order. Chosen by the producer (`composeDigest`), so a redelivered message renders
+   * and remembers exactly the same thing.
+   */
+  sections: DigestSection[];
 }
 
 export interface Env {
@@ -23,6 +33,11 @@ export interface Env {
    */
   SITE_ORIGIN: string;
   /**
+   * Public base URL of the media bucket the thumbnails are served from. Not a secret; the
+   * same value as `web/src/lib/listing/media.ts`.
+   */
+  MEDIA_BASE_URL: string;
+  /**
    * Signs both subscriber links — the unsubscribe link in every digest's `List-Unsubscribe`
    * header, and the manage link the ninety-day nudge carries. A secret, never a `var` — see
    * `digest/wrangler.jsonc`.
@@ -32,4 +47,10 @@ export interface Env {
    * It was named `UNSUBSCRIBE_SECRET` until issue #62 gave it a second kind of link to sign.
    */
   SUBSCRIBER_LINK_SECRET: string;
+  /** Derivatives under `d/`, which the sweep reclaims, and the filter index under `i/`. */
+  MEDIA: R2Bucket;
+  /** Originals for their seven days. Only measured, never deleted from here. */
+  ORIGINALS: R2Bucket;
+  /** Where a refused or failed sweep and a storage alarm are mailed. */
+  ADMIN_EMAIL: string;
 }

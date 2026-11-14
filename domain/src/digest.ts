@@ -5,6 +5,10 @@
  * deterministic to assert against.
  */
 
+import { adoptionUnitOf, unitsOf } from "./filter-index.ts";
+import type { AnimalAxes, SubscriptionCriteria } from "./matching.ts";
+import { matches } from "./matching.ts";
+
 /** The day a run covers, as `YYYY-MM-DD`. One shard per day, one run per shard. */
 export type DigestPeriod = string;
 
@@ -27,3 +31,97 @@ export function digestIdempotencyKey(
  * an outage.
  */
 export const DIGEST_DAILY_BUDGET = 100 - 30;
+
+/** A listed animal as the digest matches it: its axes, plus what groups it into a unit. */
+export interface DigestAnimal extends AnimalAxes {
+  readonly id: string;
+  readonly bondedGroupId: string | null;
+  /** The animal belongs to the demo shelter (ADR 0021). It is listed but never mailed. */
+  readonly demo: boolean;
+}
+
+/**
+ * The units one subscription should be sent today, each as its members' ids in id order.
+ *
+ * ADR 0009's candidate set, minus the "currently listed" clause, which the caller has already
+ * applied with `isListed`: *matches the criteria* AND *not already in this subscription's
+ * sent-set*. Matching takes the adoption **unit** (#59), so a bonded group is one entry and
+ * is matched as a group, through the same grouping and the same region normalisation the
+ * listing uses.
+ *
+ * **A unit counts as sent only when every member has been sent.** A member who joins a group
+ * after it went out makes the group news again; that is the rule the spec left open, and it
+ * errs towards one repeated card rather than a dog nobody is told about.
+ *
+ * **A unit with any demo member is never a candidate** (ADR 0021). Checking every member, not
+ * the first, keeps a group out even if a bad group id mixed a demo animal with real ones.
+ */
+export function digestCandidates(
+  listed: readonly DigestAnimal[],
+  criteria: SubscriptionCriteria,
+  sent: ReadonlySet<string>,
+  now: Date,
+): string[][] {
+  return unitsOf(listed)
+    .filter((unit) => !unit.some((animal) => animal.demo))
+    .filter((unit) => !unit.every((animal) => sent.has(animal.id)))
+    .filter((unit) => matches(criteria, adoptionUnitOf(unit), now))
+    .map((unit) => unit.map((animal) => animal.id));
+}
+
+/** At most this many rows under one Subscription (issue #10's structure, kept by #15). */
+export const DIGEST_SECTION_CAP = 12;
+/** At most this many rows in one email, across all of a subscriber's Subscriptions. */
+export const DIGEST_EMAIL_CAP = 24;
+
+/** One Subscription's candidates, in the order {@link digestCandidates} returned them. */
+export interface DigestSubscriptionMatches {
+  readonly subscriptionId: string;
+  /** The Subscription's criteria, for the chips that head its section. */
+  readonly criteria: SubscriptionCriteria;
+  /** Each unit is its members' animal ids: one id for a single animal, more for a bonded group. */
+  readonly units: string[][];
+}
+
+/**
+ * What one Subscription's section of the email carries. The producer chooses it and the queue
+ * message carries it, so a redelivered message renders and remembers exactly the same thing.
+ */
+export interface DigestSection extends DigestSubscriptionMatches {
+  /**
+   * Units this Subscription matched that an earlier section of the same email already shows.
+   * Not shown twice, but written to this Subscription's sent-set too, so neither Subscription
+   * offers them again.
+   */
+  readonly repeats: string[][];
+  /** Candidates that did not fit: the "and N more" line. Not marked sent, so they arrive next time. */
+  readonly more: number;
+}
+
+/**
+ * Chooses what one email shows out of everything a subscriber's Subscriptions matched, filling
+ * sections in the order given (slot order) up to {@link DIGEST_SECTION_CAP} each and
+ * {@link DIGEST_EMAIL_CAP} in all.
+ *
+ * What is cut is only *not shown*: the sent-set is written from `units` and `repeats`, so the
+ * overflow stays new and is offered again by the next run.
+ */
+export function composeDigest(
+  subscriptions: readonly DigestSubscriptionMatches[],
+): DigestSection[] {
+  const shown = new Set<string>();
+  return subscriptions.map((subscription) => {
+    const units: string[][] = [];
+    const repeats: string[][] = [];
+    let more = 0;
+    for (const unit of subscription.units) {
+      const key = unit.join(",");
+      if (shown.has(key)) repeats.push(unit);
+      else if (units.length < DIGEST_SECTION_CAP && shown.size < DIGEST_EMAIL_CAP) {
+        units.push(unit);
+        shown.add(key);
+      } else more++;
+    }
+    return { ...subscription, units, repeats, more };
+  });
+}
