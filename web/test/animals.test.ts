@@ -89,6 +89,27 @@ function publishedId(response: Response): string {
   return match![1]!;
 }
 
+describe("choosing the photos", () => {
+  it("turns away a visitor who is not signed in", async () => {
+    const response = await get("/refugios/animales/subir");
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe("/refugios/entrar");
+  });
+
+  it("shows the photo picker, and the panel links to it", async () => {
+    const { cookie } = await freshShelter();
+
+    const page = await get("/refugios/animales/subir", cookie);
+    expect(page.status).toBe(200);
+    const html = await page.text();
+    expect(html).toContain('data-testid="upload-form"');
+    expect(html).toContain('type="file"');
+
+    const panel = await (await get("/refugios/panel", cookie)).text();
+    expect(panel).toContain('href="/refugios/animales/subir"');
+  });
+});
+
 describe("reaching the publishing form", () => {
   it("turns away a request with no session", async () => {
     const response = await get("/refugios/animales/nuevo?sesion=whatever");
