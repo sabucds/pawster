@@ -1,0 +1,158 @@
+---
+import { createDb } from "@pawster/db";
+import { ACCEPTED_ORIGINAL_TYPES, MAX_ORIGINAL_BYTES } from "@pawster/domain";
+import { env } from "cloudflare:workers";
+import Refugios from "../../../layouts/Refugios.astro";
+import { authenticate } from "../../../lib/auth/guard.ts";
+
+/**
+ * The first step of publishing: choosing the photos.
+ *
+ * ADR 0012 puts the photos before the animal, so `nuevo.astro` only opens with an upload
+ * session in hand. This page makes that session. The script opens it with
+ * `POST /api/refugios/subidas`, sends each photo to `/api/refugios/subidas/<id>/fotos` as its
+ * own request, and then moves on to `nuevo.astro?sesion=<id>`.
+ *
+ * It needs JavaScript because the upload endpoint takes the photo's raw bytes, one per request,
+ * which a plain HTML form cannot send.
+ */
+export const prerender = false;
+
+const db = createDb(env.DB);
+const session = await authenticate(Astro.request, db, env, new Date());
+if (!session) return Astro.redirect("/refugios/entrar", 303);
+
+if (session.refreshedCookie) {
+  Astro.response.headers.append("set-cookie", session.refreshedCookie);
+}
+
+const maxMegabytes = MAX_ORIGINAL_BYTES / (1024 * 1024);
+---
+
+<Refugios title="Subir fotos" heading="Publicar un animal">
+  <p>
+    Primero elige sus fotos. La primera que elijas será la principal. Cada foto puede pesar
+    hasta {maxMegabytes} MB.
+  </p>
+
+  <form data-testid="upload-form" id="upload-form">
+    <p>
+      <label for="photos">Fotos</label>
+      <input
+        id="photos"
+        name="photos"
+        type="file"
+        multiple
+        required
+        accept={ACCEPTED_ORIGINAL_TYPES.join(",")}
+      />
+    </p>
+    <p>
+      <button type="submit">Subir fotos</button>
+    </p>
+  </form>
+
+  <p id="upload-status" role="status"></p>
+  <ul id="upload-list"></ul>
+  <p id="upload-next" hidden>
+    <a id="upload-next-link" href="#">Seguir con los datos del animal</a>
+  </p>
+
+  <p><a href="/refugios/panel">Volver al panel</a></p>
+</Refugios>
+
+<script>
+  const REFUSALS: Record<string, string> = {
+    "session-expired": "Pasó demasiado tiempo. Vuelve a elegir las fotos.",
+    "photo-limit-reached": "Ya llegaste al máximo de fotos para un animal.",
+    "duplicate-photo": "Esta foto ya está subida.",
+    "unsupported-type": "Este archivo no es una foto que podamos usar. Usa JPG, PNG, WebP o HEIC.",
+    "file-too-large": "Esta foto pesa demasiado.",
+    "image-too-large": "Esta foto es demasiado grande.",
+    "storage-exhausted": "Pawster no puede recibir más fotos por ahora.",
+    "transformation-budget-exhausted": "Pawster no puede recibir más fotos este mes.",
+  };
+
+  async function reason(response: Response | null): Promise<string> {
+    if (response?.status === 401) return "Tu sesión se cerró. Vuelve a entrar.";
+    const body = await response?.json().catch(() => null);
+    return (
+      REFUSALS[body?.refused] ?? "No se pudo subir. Revisa la conexión y vuelve a intentar."
+    );
+  }
+
+  /** Some phones give HEIC photos no type at all, so the extension is the only clue. */
+  function typeOf(file: File): string {
+    if (file.type) return file.type;
+    return /\.hei[cf]$/i.test(file.name) ? "image/heic" : "application/octet-stream";
+  }
+
+  const form = document.querySelector<HTMLFormElement>("#upload-form")!;
+  const input = document.querySelector<HTMLInputElement>("#photos")!;
+  const status = document.querySelector<HTMLElement>("#upload-status")!;
+  const list = document.querySelector<HTMLUListElement>("#upload-list")!;
+  const next = document.querySelector<HTMLElement>("#upload-next")!;
+  const nextLink = document.querySelector<HTMLAnchorElement>("#upload-next-link")!;
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = form.querySelector("button")!;
+    button.disabled = true;
+    list.replaceChildren();
+    next.hidden = true;
+    status.textContent = "Preparando…";
+
+    const opened = await fetch("/api/refugios/subidas", { method: "POST" }).catch(() => null);
+    if (!opened?.ok) {
+      status.textContent = await reason(opened);
+      button.disabled = false;
+      return;
+    }
+    const { id, maxPhotos } = (await opened.json()) as { id: string; maxPhotos: number };
+
+    const files = [...(input.files ?? [])];
+    const chosen = files.slice(0, maxPhotos);
+    let uploaded = 0;
+
+    for (const [index, file] of chosen.entries()) {
+      const item = document.createElement("li");
+      item.textContent = `${file.name}: subiendo…`;
+      list.append(item);
+      status.textContent = `Subiendo ${index + 1} de ${chosen.length}…`;
+
+      const response = await fetch(`/api/refugios/subidas/${id}/fotos`, {
+        method: "POST",
+        headers: { "content-type": typeOf(file) },
+        body: file,
+      }).catch(() => null);
+
+      if (response?.ok) {
+        uploaded += 1;
+        item.textContent = `${file.name}: lista.`;
+      } else {
+        item.textContent = `${file.name}: ${await reason(response)}`;
+      }
+    }
+
+    const skipped = files.length - chosen.length;
+    const target = `/refugios/animales/nuevo?sesion=${encodeURIComponent(id)}`;
+
+    if (uploaded === 0) {
+      status.textContent = "No se subió ninguna foto.";
+      button.disabled = false;
+      return;
+    }
+    if (uploaded === files.length) {
+      status.textContent = "Listo.";
+      location.assign(target);
+      return;
+    }
+
+    status.textContent =
+      `Se ${uploaded === 1 ? "subió 1 foto" : `subieron ${uploaded} fotos`}.` +
+      (skipped > 0 ? ` Solo caben ${maxPhotos}, así que las demás no se subieron.` : "");
+    nextLink.href = target;
+    next.hidden = false;
+    button.disabled = false;
+  });
+</script>
