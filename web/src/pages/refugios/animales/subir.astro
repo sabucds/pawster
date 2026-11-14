@@ -75,9 +75,9 @@ const maxMegabytes = MAX_ORIGINAL_BYTES / (1024 * 1024);
 
   async function reason(response: Response | null): Promise<string> {
     if (response?.status === 401) return "Tu sesión se cerró. Vuelve a entrar.";
-    const body = await response?.json().catch(() => null);
+    const body = (await response?.json().catch(() => null)) as { refused?: string } | null;
     return (
-      REFUSALS[body?.refused] ?? "No se pudo subir. Revisa la conexión y vuelve a intentar."
+      REFUSALS[body?.refused ?? ""] ?? "No se pudo subir. Revisa la conexión y vuelve a intentar."
     );
   }
 
@@ -110,14 +110,14 @@ const maxMegabytes = MAX_ORIGINAL_BYTES / (1024 * 1024);
     }
     const { id, maxPhotos } = (await opened.json()) as { id: string; maxPhotos: number };
 
-    const files = [...(input.files ?? [])];
+    const files = Array.from(input.files ?? []);
     const chosen = files.slice(0, maxPhotos);
     let uploaded = 0;
 
     for (const [index, file] of chosen.entries()) {
       const item = document.createElement("li");
       item.textContent = `${file.name}: subiendo…`;
-      list.append(item);
+      list.appendChild(item);
       status.textContent = `Subiendo ${index + 1} de ${chosen.length}…`;
 
       const response = await fetch(`/api/refugios/subidas/${id}/fotos`, {
