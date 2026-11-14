@@ -67,6 +67,17 @@ without it this row reads as one page costing 103 KiB, which would be the loudes
 file and false. The rate to watch is roughly 13 KiB per feature ticket, against 2.7 MB of
 headroom.
 
+### Recorded 2026-11-14, at the first public deploy (#67)
+
+| Worker | Raw | Gzipped | Of the 3 MB limit |
+|---|---|---|---|
+| `web` | 1369.47 KiB | **375.34 KiB** | 12.2% |
+| `digest` | 282.60 KiB | 66.67 KiB | 2.2% |
+
+`npm run check:bundle-size` on `development` at the commit that went live. `web` grew 43.7 KiB
+gzipped since the #57 row, across every ticket merged in between. This isn't broken down by ticket.
+There is still about 2.6 MB of room.
+
 ## Per-request SSR CPU
 
 ```sh
@@ -154,6 +165,24 @@ The obvious lever if it ever stops being comfortable: `readShelterFacts()` and
 `readShelterPublicIdentity()` read the same row twice, and folding them would cost one query.
 Not done, because the first is `domain/`-shaped and hands back the listing clauses and nothing
 else, and the second exists precisely so the page never selects the account-email column.
+
+### Recorded 2026-11-14, at the first public deploy (#67)
+
+One run of `npm run check:ssr-cpu`, 500 samples, local `workerd` on an Apple-silicon laptop.
+
+| | |
+|---|---|
+| Prerendered `/` (control) | 1.380 ms |
+| SSR `/a/:id/:name` | 4.440 ms |
+| **Attributable to the render** | **3.060 ms** |
+
+**31% of the 10 ms ceiling**, up from 24 to 27% at #57. That is still an upper bound, for the
+local-D1 reason given above.
+
+This is not yet the figure from the deployed Worker that #67 asked for. Cloudflare's Workers
+analytics reports CPU time per request (`workersInvocationsAdaptive`, `cpuTimeP50` to
+`cpuTimeP999`), but reading it needs an API token with Analytics read access, and `.env` has
+none yet. Once one exists, record those percentiles for `pawster-web` here.
 
 ### What this number is not
 
